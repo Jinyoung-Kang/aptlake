@@ -56,7 +56,14 @@
 | gold 분위수 SQL vs numpy.percentile (종로 55건·분당 691건, 2024-07) | 최대 절대 차이 0.0 |
 | Trino gold ↔ ClickHouse (발행마다) | 건수·합계 불일치 시 파티션 교체 안 함 (스테이징 대조) |
 
+## 지수 산출
+| 항목 | 값 |
+|---|---|
+| 입력 | 완결 33개월, 해제·이상치 제외 거래 (gold.trade_serving, PyIceberg 직접 읽기) |
+| 추정 | 전국 + 시도 16 = 17개 모형 |
+| 시간 · 최대 RSS | 12.8초 · 980MB (문자열 열을 사전 인코딩 정수로 처리한 뒤) |
+
 ## 메모리 (docker stats, lake 프로필, 수집 실행 직후)
 
-Trino 1.48GB · ClickHouse 1.02GB · Dagster 0.72GB · MinIO 0.34GB · Postgres 94MB · API 80MB · Lakekeeper 42MB · Redis 11MB — 합계 약 3.8GB.
+Trino 1.48GB (단지 차원 전체 재생성 중 최대 1.8GiB, 한도 2GB) · ClickHouse 1.02GB · Dagster 0.72GB · MinIO 0.34GB · Postgres 94MB · API 80MB · Lakekeeper 42MB · Redis 11MB — 합계 약 3.8GB.
 `make serve` (서빙만) 는 Trino·Dagster 를 띄우지 않는다.

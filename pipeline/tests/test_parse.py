@@ -108,3 +108,20 @@ def test_required_field_missing():
     }
     with pytest.raises(ValueError, match="aptNm"):
         to_typed(row)
+
+
+def test_portal_quota_envelope_is_recognised():
+    """2026-09 실제 응답: HTTP 429 + 포털 오류 봉투, 사유 코드 22 (일일 한도 초과)."""
+    from aptlake_pipeline.rtms.parse import portal_error_code
+
+    body = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n<OpenAPI_ServiceResponse>\n<cmmMsgHeader>\n'
+        "  <errMsg>LIMITED_NUMBER_OF_SERVICE_REQUESTS_EXCEEDS_ERROR</errMsg>\n"
+        "  <returnReasonCode>22</returnReasonCode>\n</cmmMsgHeader>\n</OpenAPI_ServiceResponse>\n"
+    )
+    assert portal_error_code(body) == "22"
+    with pytest.raises(SourceError) as e:
+        parse_page(body)
+    assert e.value.code == "22"
+    assert portal_error_code("<response/>") is None
+    assert portal_error_code("not xml") is None

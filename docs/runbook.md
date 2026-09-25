@@ -10,6 +10,10 @@
 - 하루 사용 상한 = `RTMS_DAILY_LIMIT × RTMS_BUDGET_PCT%` (기본 8,000회 ≈ 31개월치). 개발계정 한도를 올리면 `RTMS_DAILY_LIMIT` 만 바꾸면 된다.
 - 진행 상황: 웹 "데이터 품질" 탭 히트맵, Dagster Runs, `/v1/quality/summary`.
 
+## 원천 한도 초과가 났을 때
+- 포털이 `HTTP 429 / returnReasonCode 22` 를 주면 그날 예산이 소진 처리되고(`ops.api_budget`), 센서는 KST 자정 뒤 자동으로 이어간다.
+- 같은 인증키를 다른 프로그램(예: 다른 프로젝트의 실거래 수집)과 함께 쓰면 한도가 합산된다 → 이 서비스 전용 키를 발급받거나 `RTMS_BUDGET_PCT` 를 낮춘다.
+
 ## 격리(QUARANTINED) 파티션 재시도
 ```bash
 curl -X POST -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/partitions/41135/2026-08/retry

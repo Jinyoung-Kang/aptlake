@@ -28,6 +28,7 @@ services:
       interval: 3s
       retries: 20
     mem_limit: 384m
+    restart: unless-stopped
     logging: *logging
 
   minio:
@@ -45,6 +46,7 @@ services:
       interval: 3s
       retries: 20
     mem_limit: 512m
+    restart: unless-stopped
     logging: *logging
 
   minio-init:
@@ -85,6 +87,7 @@ services:
       interval: 3s
       retries: 20
     mem_limit: 256m
+    restart: unless-stopped
     logging: *logging
 
   lakekeeper-init:
@@ -114,6 +117,7 @@ services:
       interval: 5s
       retries: 40
     mem_limit: 2g
+    restart: unless-stopped
     logging: *logging
 
   # ───────────────────────── 서빙 ─────────────────────────
@@ -139,6 +143,7 @@ services:
       interval: 3s
       retries: 30
     mem_limit: 1536m
+    restart: unless-stopped
     logging: *logging
 
   redis:
@@ -163,6 +168,7 @@ services:
       interval: 3s
       retries: 20
     mem_limit: 192m
+    restart: unless-stopped
     logging: *logging
 
   db-migrate:
@@ -210,6 +216,7 @@ services:
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    restart: unless-stopped
     logging: *logging
 
   api-internal:
@@ -229,6 +236,7 @@ services:
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]
     cap_drop: [ALL]
+    restart: unless-stopped
     logging: *logging
 
   web:
@@ -242,6 +250,7 @@ services:
     read_only: true
     tmpfs: [/tmp, /var/cache/nginx, /var/run]
     security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
     logging: *logging
 
   # ───────────────────────── 오케스트레이션 (lake 프로필) ─────────────────────────
@@ -273,8 +282,10 @@ services:
       redis: { condition: service_healthy }
       clickhouse: { condition: service_healthy }
     ports: ["127.0.0.1:3600:3000"]
-    mem_limit: 2g
+    # 상주(웹서버·데몬) ≈ 0.7GB + 실행 1개(지수 산출 최대 RSS 0.98GB 측정) → 여유 포함 2.5GB
+    mem_limit: 2560m
     security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
     logging: *logging
 
   # ───────────────────────── 관측 (obs 프로필) ─────────────────────────
@@ -287,6 +298,7 @@ services:
       - prom:/prometheus
     ports: ["127.0.0.1:9690:9090"]
     mem_limit: 256m
+    restart: unless-stopped
     logging: *logging
 
   grafana:
@@ -302,6 +314,7 @@ services:
       - grafana:/var/lib/grafana
     ports: ["127.0.0.1:3620:3000"]
     mem_limit: 256m
+    restart: unless-stopped
     logging: *logging
 
 networks:

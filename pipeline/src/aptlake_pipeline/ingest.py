@@ -61,6 +61,7 @@ class IngestSummary:
     quarantined: dict[str, str] = field(default_factory=dict)
     retry: dict[str, str] = field(default_factory=dict)
     skipped_budget: list[str] = field(default_factory=list)
+    source_quota_exceeded: str | None = None  # 원천이 일일 한도 초과를 알린 경우 그 사유
     calls: int = 0
     bronze_rows: int = 0
     bronze_snapshot: int | None = None
@@ -190,6 +191,8 @@ async def _fetch_all(
                 summary.calls += r.calls
             except (BudgetExhausted, QuotaExceeded) as e:
                 stop.set()
+                if isinstance(e, QuotaExceeded):
+                    summary.source_quota_exceeded = str(e)
                 summary.skipped_budget.append(sgg)
                 ops_db.mark_failed(deal_ym, sgg, f"budget: {e}")
                 # 예산 소진은 파티션 결함이 아니므로 attempts 를 되돌린다

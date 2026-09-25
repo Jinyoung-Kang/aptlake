@@ -60,8 +60,23 @@ class Page:
     items: list[dict[str, str]]  # 원본 문자열 그대로 (bronze.row_json)
 
 
+def portal_error_code(xml_text: str) -> str | None:
+    """공공데이터포털 게이트웨이 오류 봉투(<OpenAPI_ServiceResponse><cmmMsgHeader>)의 사유 코드.
+    예: 일일 한도 초과는 HTTP 429 + returnReasonCode 22 (2026-09 실제 응답으로 확인)."""
+    try:
+        root = SafeET.fromstring(xml_text)
+    except Exception:  # noqa: BLE001 — 봉투가 아니면 None
+        return None
+    if root.tag != "OpenAPI_ServiceResponse":
+        return None
+    return (root.findtext("./cmmMsgHeader/returnReasonCode") or "").strip() or None
+
+
 def parse_page(xml_text: str) -> Page:
     root = SafeET.fromstring(xml_text)
+    if root.tag == "OpenAPI_ServiceResponse":
+        reason = portal_error_code(xml_text) or "UNKNOWN"
+        raise SourceError(reason, (root.findtext("./cmmMsgHeader/errMsg") or "").strip())
     code = (root.findtext("./header/resultCode") or root.findtext(".//resultCode") or "").strip()
     msg = (root.findtext("./header/resultMsg") or root.findtext(".//resultMsg") or "").strip()
     if code not in ("000", "00"):

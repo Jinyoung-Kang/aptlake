@@ -17,7 +17,7 @@ from dataclasses import dataclass
 
 import httpx
 
-from .parse import Page, SourceError, parse_page
+from .parse import Page, SourceError, parse_page, portal_error_code
 
 URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade"
 PAGE_SIZE = 9999
@@ -109,8 +109,12 @@ class RtmsClient:
                 if resp.status_code >= 500:
                     raise FetchFailed(f"HTTP {resp.status_code}")
                 if resp.status_code >= 400:
+                    # 포털 오류 봉투의 사유 코드로 분류: 22(일일 한도 초과, HTTP 429 로 옴) → 실행 중단, 격리 아님
+                    reason = portal_error_code(resp.text)
+                    if resp.status_code == 429 or reason in QUOTA_CODES:
+                        raise QuotaExceeded(f"HTTP {resp.status_code} reason {reason}")
                     # 403 등은 키·승인 문제 → 재시도해도 소용없음. 응답 본문에 키가 섞이지 않도록 URL 은 남기지 않는다
-                    raise FetchFailed(f"HTTP {resp.status_code}", code=str(resp.status_code))
+                    raise FetchFailed(f"HTTP {resp.status_code} reason {reason}", code=reason or str(resp.status_code))
                 body = resp.content
                 return body, parse_page(body.decode("utf-8"))
             except SourceError as e:

@@ -105,10 +105,29 @@ class Budget:
             raise BudgetExhausted(f"{self.source} {priority} ceiling {ceiling} reached on {day}")
         return int(used)
 
+    def mark_exhausted(self, reason: str, day: dt.date | None = None) -> None:
+        """원천이 한도 초과를 알리면(다른 프로그램이 같은 키를 쓰는 경우 등) 그날 남은 예산을 0 으로 만든다.
+        이후 reserve 는 모두 BudgetExhausted → 센서도 다음 날(KST)까지 수집 실행을 만들지 않는다."""
+        day = day or kst_today()
+        key = self._key(day)
+        if not self.r.exists(key):
+            self._restore_from_pg(day)
+        used = int(self.r.hget(key, "used") or 0)
+        pipe = self.r.pipeline()
+        pipe.hset(key, mapping={"used": max(used, self.cap), "exhausted_by_source": reason[:120]})
+        pipe.expire(key, 3 * 86400)
+        pipe.execute()
+
     def snapshot(self, day: dt.date | None = None) -> dict[str, int]:
         day = day or kst_today()
         raw = self.r.hgetall(self._key(day))
-        return {(k.decode() if isinstance(k, bytes) else k): int(v) for k, v in raw.items()}
+        out: dict[str, int] = {}
+        for k, v in raw.items():
+            name = k.decode() if isinstance(k, bytes) else k
+            if name.startswith("exhausted"):
+                continue
+            out[name] = int(v)
+        return out
 
     def persist(self, day: dt.date | None = None) -> None:
         """Redis 누적값을 ops.api_budget 에 기록 (GREATEST 로 역행 방지)."""

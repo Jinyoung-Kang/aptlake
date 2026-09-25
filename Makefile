@@ -45,7 +45,7 @@ demo-keys: ## free·pro 데모 키 발급 (1회 표시)
 loadtest-key: ## 부하 측정용 키 (loadtest 플랜, 1일 만료)
 	@$(COMPOSE) exec -T api-internal python -m aptlake_api.cli loadtest-key
 
-lake-init: ## Iceberg 테이블 생성 + 시군구 목록 적재
+lake-init: ## Iceberg 테이블 생성 + 시군구 목록 적재 (처음 한 번, 완료까지 대기)
 	$(DAGSTER) dagster job execute -m aptlake_pipeline.definitions -j refresh_regions
 
 regions: lake-init ## (별칭) 시군구 목록 갱신
@@ -68,14 +68,15 @@ pipeline-redeploy: ## 파이프라인 코드 무중단 교체: 센서 멈춤 →
 	@until $(LAKE) logs dagster --since 2m 2>&1 | grep -q "Serving dagster-webserver"; do sleep 3; done
 	$(DAGSTER) dagster sensor start due_partitions_sensor -m aptlake_pipeline.definitions
 
-month: ## 한 달 파티션 수동 실행 (예: make month ym=202408)
-	$(DAGSTER) dagster job execute -m aptlake_pipeline.definitions -j month_pipeline --tags '{"dagster/partition": "$(ym)"}'
+# 아래 수동 실행은 큐를 거친다 (동시 실행 1개 — 센서가 띄운 실행과 한 컨테이너 메모리를 나눠 쓰지 않도록). 진행은 Dagster UI
+month: ## 한 달 파티션 실행 요청 (예: make month ym=202408)
+	$(DAGSTER) dagster job launch -m aptlake_pipeline.definitions -j month_pipeline --tags '{"dagster/partition": "$(ym)"}'
 
-index: ## 단지 차원·자체 지수·R-ONE 검증 산출 + 발행
-	$(DAGSTER) dagster job execute -m aptlake_pipeline.definitions -j dims_and_index
+index: ## 단지 차원·자체 지수·R-ONE 검증 산출 + 발행 요청
+	$(DAGSTER) dagster job launch -m aptlake_pipeline.definitions -j dims_and_index
 
-maintenance: ## Iceberg 압축·스냅샷 만료·고아 파일 정리
-	$(DAGSTER) dagster job execute -m aptlake_pipeline.definitions -j iceberg_maintenance
+maintenance: ## Iceberg 압축·스냅샷 만료·고아 파일 정리 요청
+	$(DAGSTER) dagster job launch -m aptlake_pipeline.definitions -j iceberg_maintenance
 
 test: test-pipeline test-api ## 단위 + API 테스트 (Testcontainers 사용: Docker 필요)
 

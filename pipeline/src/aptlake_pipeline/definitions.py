@@ -156,6 +156,9 @@ def bronze_rtms(context: AssetExecutionContext, config: BronzeConfig):
     if config.fetch:
         try:
             summary = ingest.ingest_month(ym, targets, reserve, run_id=context.run_id)
+            if summary.source_quota_exceeded:
+                context.log.warning(f"source daily quota exceeded: {summary.source_quota_exceeded}")
+                budget.mark_exhausted(summary.source_quota_exceeded)
         finally:
             budget.persist()
     else:

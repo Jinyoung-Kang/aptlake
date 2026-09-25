@@ -40,14 +40,23 @@ def build_index(log: logging.Logger | None = None) -> dict[str, object]:
         row_filter=eq("is_cancelled", False) & eq("is_outlier", False) & isin("deal_ym", months),
         selected_fields=("sgg_cd", "complex_key", "deal_ym", "floor", "area_m2", "ppm2"),
     ).to_arrow()
-    sido = pc.utf8_slice_codeunits(arrow["sgg_cd"], 0, 2).to_numpy(zero_copy_only=False)
+
+    # 문자열 열은 파이썬 객체 배열로 만들지 않고 사전 인코딩 정수 코드로 쓴다 (전국 수백만 행에서 메모리 수백 MB 절약)
+    def codes(values: pa.ChunkedArray) -> tuple[np.ndarray, list[str]]:
+        enc = pc.dictionary_encode(values).combine_chunks()
+        return enc.indices.to_numpy(zero_copy_only=False).astype(np.int32), enc.dictionary.to_pylist()
+
+    sido_idx, sido_names = codes(pc.utf8_slice_codeunits(arrow["sgg_cd"], 0, 2))
+    period_idx, period_names = codes(arrow["deal_ym"])
+    complex_idx, _ = codes(arrow["complex_key"])
     cols = {
-        "complex": arrow["complex_key"].to_numpy(zero_copy_only=False),
-        "period": arrow["deal_ym"].to_numpy(zero_copy_only=False),
+        "complex": complex_idx,
+        "period": np.asarray(period_names)[period_idx],  # 고정폭 '<U6' 배열 (행당 24바이트)
         "floor": pc.fill_null(pc.cast(arrow["floor"], pa.float64()), np.nan).to_numpy(zero_copy_only=False),
         "area": pc.cast(arrow["area_m2"], pa.float64()).to_numpy(zero_copy_only=False),
         "ppm2": pc.fill_null(pc.cast(arrow["ppm2"], pa.float64()), np.nan).to_numpy(zero_copy_only=False),
     }
+    del arrow
     ref_rows = cat.load_table("gold.index_reference").scan().to_arrow().to_pylist()
     reference: dict[str, dict[str, float]] = {}
     for r in ref_rows:
@@ -55,8 +64,8 @@ def build_index(log: logging.Logger | None = None) -> dict[str, object]:
 
     now = dt.datetime.now(tz=dt.UTC)
     points, validation = [], []
-    for region in ["00", *sorted(set(sido))]:
-        mask = np.ones(len(sido), bool) if region == "00" else sido == region
+    for region in ["00", *sorted(sido_names)]:
+        mask = np.ones(len(sido_idx), bool) if region == "00" else sido_idx == sido_names.index(region)
         pts = hedonic.fit(
             cols["complex"][mask], cols["period"][mask], cols["floor"][mask], cols["area"][mask], cols["ppm2"][mask]
         )
