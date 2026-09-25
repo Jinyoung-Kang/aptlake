@@ -18,15 +18,32 @@ SGG, YM = "99999", "209901"
 
 
 def row(apt="테스트단지", floor="5", amount="50,000", day="10", cancel=" ", cancel_day=" ", rgst=" "):
-    return {"sggCd": SGG, "umdNm": "테스트동", "aptNm": apt, "jibun": "1-1", "excluUseAr": "84.9",
-            "dealYear": "2099", "dealMonth": "1", "dealDay": day, "dealAmount": amount, "floor": floor,
-            "buildYear": "2000", "cdealType": cancel, "cdealDay": cancel_day, "dealingGbn": "중개거래",
-            "estateAgentSggNm": "테스트", "rgstDate": rgst, "aptDong": " ", "slerGbn": "개인", "buyerGbn": "개인",
-            "landLeaseholdGbn": "N"}
+    return {
+        "sggCd": SGG,
+        "umdNm": "테스트동",
+        "aptNm": apt,
+        "jibun": "1-1",
+        "excluUseAr": "84.9",
+        "dealYear": "2099",
+        "dealMonth": "1",
+        "dealDay": day,
+        "dealAmount": amount,
+        "floor": floor,
+        "buildYear": "2000",
+        "cdealType": cancel,
+        "cdealDay": cancel_day,
+        "dealingGbn": "중개거래",
+        "estateAgentSggNm": "테스트",
+        "rgstDate": rgst,
+        "aptDong": " ",
+        "slerGbn": "개인",
+        "buyerGbn": "개인",
+        "landLeaseholdGbn": "N",
+    }
 
 
 A = row()
-A_DUP = row()                    # A 와 지문이 같은 거래 (dup_seq 0/1)
+A_DUP = row()  # A 와 지문이 같은 거래 (dup_seq 0/1)
 B = row(apt="다른단지", amount="30,000")
 D = row(apt="새단지", amount="70,000")
 A_CANCELLED = row(cancel="O", cancel_day="99.01.20")
@@ -67,14 +84,28 @@ def load(items: list[dict]) -> None:
     _seq["n"] += 1
     iid = f"{YM}-{SGG}-20990201T00000{_seq['n']}-test"
     now = dt.datetime.now(tz=dt.UTC)
-    rows = [{"ingest_id": iid, "sgg_cd": SGG, "deal_ym": YM, "page_no": 1, "fetched_at": now,
-             "payload_uri": "s3://raw/test/", "payload_sha256": f"{_seq['n']:064d}",
-             "row_json": json.dumps(i, ensure_ascii=False, sort_keys=True), "row_ord": n, "schema_ver": 1}
-            for n, i in enumerate(items)]
+    rows = [
+        {
+            "ingest_id": iid,
+            "sgg_cd": SGG,
+            "deal_ym": YM,
+            "page_no": 1,
+            "fetched_at": now,
+            "payload_uri": "s3://raw/test/",
+            "payload_sha256": f"{_seq['n']:064d}",
+            "row_json": json.dumps(i, ensure_ascii=False, sort_keys=True),
+            "row_ord": n,
+            "schema_ver": 1,
+        }
+        for n, i in enumerate(items)
+    ]
     catalog().load_table("bronze.rtms_raw").append(pa.Table.from_pylist(rows, schema=BRONZE_SCHEMA))
     with ops_db.conn() as c:
-        c.execute("""UPDATE ops.ingest_partition SET status='LOADED', last_ingest_id=%s, fetch_count=fetch_count+1,
-                     rows_last=%s WHERE sgg_cd=%s AND deal_ym=%s""", (iid, len(items), SGG, YM))
+        c.execute(
+            """UPDATE ops.ingest_partition SET status='LOADED', last_ingest_id=%s, fetch_count=fetch_count+1,
+                     rows_last=%s WHERE sgg_cd=%s AND deal_ym=%s""",
+            (iid, len(items), SGG, YM),
+        )
 
 
 def merge():
@@ -107,7 +138,10 @@ def test_scd2_lifecycle(env):
     merge()
     first = state()
     assert [(r[0], r[1], r[2], r[3]) for r in first] == [
-        ("다른단지", 0, 1, True), ("테스트단지", 0, 1, True), ("테스트단지", 1, 1, True)]
+        ("다른단지", 0, 1, True),
+        ("테스트단지", 0, 1, True),
+        ("테스트단지", 1, 1, True),
+    ]
 
     # 2) 같은 입력으로 3번 더 MERGE → 결과 불변 (NFR-01 멱등)
     for _ in range(3):
@@ -128,8 +162,8 @@ def test_scd2_lifecycle(env):
     current = [r for r in rows if r[0] == "테스트단지" and r[3]]
     closed = [r for r in rows if r[0] == "테스트단지" and not r[3]]
     assert len(current) == 2 and sum(r[4] for r in current) == 1
-    assert closed and all(r[5] for r in closed)                  # valid_to 설정
-    assert all(r[2] == 2 for r in current if r[4])                 # 해제된 건은 version 2
+    assert closed and all(r[5] for r in closed)  # valid_to 설정
+    assert all(r[2] == 2 for r in current if r[4])  # 해제된 건은 version 2
 
     # 4) B 다시 나타남 → missing 해제, 버전은 그대로
     load([A_CANCELLED, A_DUP, D, B])
