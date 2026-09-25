@@ -1,0 +1,9 @@
+# 기본 규칙 + AptLake API 키 형식 (접두사로 탐지되도록 설계 — 기획서 9장)
+[extend]
+useDefault = true
+
+[[rules]]
+id = "aptlake-api-key"
+description = "AptLake API key (al_live_<keyId>.<secret>)"
+regex = '''al_live_[2-9A-HJ-NP-Z]{12}\.[A-Za-z0-9_-]{43}'''
+keywords = ["al_live_"]

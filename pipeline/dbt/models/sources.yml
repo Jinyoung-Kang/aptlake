@@ -1,0 +1,12 @@
+version: 2
+sources:
+  - name: silver
+    database: lake
+    schema: silver
+    tables:
+      - name: apt_trade
+        meta: { dagster: { asset_key: ["silver", "apt_trade"] } }
+      - name: apt_complex
+        meta: { dagster: { asset_key: ["silver", "apt_complex"] } }
+      - name: region
+        meta: { dagster: { asset_key: ["silver", "region"] } }

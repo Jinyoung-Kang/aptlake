@@ -1,0 +1,229 @@
+"""Testcontainers: PostgreSQL·Redis·ClickHouse 를 실제로 띄우고 운영과 같은 마이그레이션·사용자 설정을 쓴다."""
+
+from __future__ import annotations
+
+import datetime as dt
+import os
+from decimal import Decimal
+from pathlib import Path
+
+import clickhouse_connect
+import psycopg
+import pytest
+from testcontainers.community.clickhouse import ClickHouseContainer
+from testcontainers.community.postgres import PostgresContainer
+from testcontainers.community.redis import RedisContainer
+
+ROOT = Path(__file__).resolve().parents[2]
+PW = "test-pw"
+
+
+@pytest.fixture(scope="session")
+def stack():
+    with (
+        PostgresContainer("postgres:16-alpine", username="postgres", password=PW, dbname="aptlake") as pg,
+        RedisContainer("redis:7.4-alpine") as rd,
+        ClickHouseContainer("clickhouse/clickhouse-server:25.8", username="admin", password=PW)
+        .with_env("CLICKHOUSE_READER_PASSWORD", PW)
+        .with_env("CLICKHOUSE_USAGE_PASSWORD", PW)
+        .with_env("CLICKHOUSE_PUBLISHER_PASSWORD", PW)
+        .with_env("CLICKHOUSE_EXPORT_PASSWORD", PW)
+        .with_volume_mapping(
+            str(ROOT / "infra/clickhouse/users.d/aptlake-users.xml"), "/etc/clickhouse-server/users.d/aptlake-users.xml"
+        ) as ch,
+    ):
+        pg_host, pg_port = pg.get_container_host_ip(), pg.get_exposed_port(5432)
+        su = f"postgresql://postgres:{PW}@{pg_host}:{pg_port}/aptlake"
+        with psycopg.connect(su, autocommit=True) as c:
+            for role in ("pipeline", "api_app", "migrator"):
+                c.execute(f"CREATE ROLE {role} LOGIN PASSWORD '{PW}'")
+        os.environ["MIGRATOR_DSN"] = su
+        os.environ["MIGRATIONS_DIR"] = str(ROOT / "api/migrations")
+        from aptlake_api import migrate
+
+        assert migrate.main() == 0
+
+        ch_host, ch_port = ch.get_container_host_ip(), int(ch.get_exposed_port(8123))
+        admin = clickhouse_connect.get_client(host=ch_host, port=ch_port, username="admin", password=PW)
+        for stmt in (ROOT / "infra/clickhouse/init/01-schema.sql").read_text().split(";"):
+            if stmt.strip():
+                admin.command(stmt)
+        admin = clickhouse_connect.get_client(
+            host=ch_host, port=ch_port, username="admin", password=PW, database="aptlake"
+        )
+        _seed_clickhouse(admin)
+
+        env = {
+            "PG_DSN": f"postgresql://api_app:{PW}@{pg_host}:{pg_port}/aptlake",
+            "REDIS_URL": f"redis://{rd.get_container_host_ip()}:{rd.get_exposed_port(6379)}/0",
+            "CH_HOST": ch_host,
+            "CH_PORT": str(ch_port),
+            "CH_READER_PASSWORD": PW,
+            "CH_USAGE_PASSWORD": PW,
+            "CH_EXPORT_PASSWORD": PW,
+            "API_KEY_PEPPER": "test-pepper",
+            "CURSOR_SIGNING_KEY": "test-cursor-key",
+            "METRICS_PORT": "0",
+            "USAGE_FLUSH_INTERVAL_S": "0.2",
+        }
+        os.environ.update(env)
+        yield {"su": su, "ch": admin}
+
+
+def _seed_clickhouse(c) -> None:
+    c.insert(
+        "region",
+        [
+            ["11110", "11", "서울특별시", "종로구", "서울특별시 종로구"],
+            ["41135", "41", "경기도", "성남시 분당구", "경기도 성남시 분당구"],
+        ],
+        column_names=["sgg_cd", "sido_cd", "sido_nm", "sgg_nm", "full_nm"],
+    )
+    rows = []
+    for m in range(1, 13):
+        rows.append(
+            ["41135", dt.date(2024, m, 1), 100 + m, 95 + m, 5, 90, 1, 1200.0, 1500.0 + m, 1800.0, 0, "gold@test.1"]
+        )
+    c.insert(
+        "region_month",
+        rows,
+        column_names=[
+            "sgg_cd",
+            "month",
+            "reported",
+            "trades",
+            "cancelled",
+            "priced",
+            "outliers",
+            "p25_ppm2",
+            "median_ppm2",
+            "p75_ppm2",
+            "low_sample",
+            "dataset_ver",
+        ],
+    )
+    trades = []
+    ts = dt.datetime(2024, 8, 1, tzinfo=dt.UTC)
+    for i in range(250):
+        day = dt.date(2024, 7, 1 + i % 31)
+        trades.append(
+            [
+                f"41135-202407-{i:016x}-0",
+                "41135",
+                day,
+                "c_" + "a" * 20,
+                "테스트단지",
+                "백현동",
+                "1-1",
+                Decimal("84.9"),
+                5,
+                100000 + i,
+                1177.0,
+                int(i % 10 == 0),
+                None,
+                None,
+                "",
+                "중개거래",
+                "개인",
+                "개인",
+                2009,
+                0,
+                1,
+                ts,
+                None,
+            ]
+        )
+    c.insert(
+        "trade_current",
+        trades,
+        column_names=[
+            "trade_id",
+            "sgg_cd",
+            "deal_date",
+            "complex_key",
+            "apt_nm",
+            "umd_nm",
+            "jibun",
+            "area_m2",
+            "floor",
+            "price_manwon",
+            "ppm2",
+            "is_cancelled",
+            "cancel_date",
+            "registered_date",
+            "apt_dong",
+            "deal_kind",
+            "seller_type",
+            "buyer_type",
+            "build_year",
+            "is_outlier",
+            "version",
+            "valid_from",
+            "missing_since",
+        ],
+    )
+    c.insert(
+        "trade_version",
+        [
+            [
+                "41135-202407-0000000000000000-0",
+                dt.date(2024, 7, 1),
+                1,
+                ts,
+                ts + dt.timedelta(days=30),
+                0,
+                0,
+                None,
+                None,
+                "",
+                "중개거래",
+                "개인",
+                "개인",
+            ],
+            [
+                "41135-202407-0000000000000000-0",
+                dt.date(2024, 7, 1),
+                2,
+                ts + dt.timedelta(days=30),
+                None,
+                1,
+                1,
+                dt.date(2024, 8, 20),
+                None,
+                "",
+                "중개거래",
+                "개인",
+                "개인",
+            ],
+        ],
+        column_names=[
+            "trade_id",
+            "deal_date",
+            "version",
+            "valid_from",
+            "valid_to",
+            "is_current",
+            "is_cancelled",
+            "cancel_date",
+            "registered_date",
+            "apt_dong",
+            "deal_kind",
+            "seller_type",
+            "buyer_type",
+        ],
+    )
+    c.insert(
+        "complex",
+        [["c_" + "a" * 20, "41135", "백현동", "1-1", "테스트단지", 2009, 0, dt.date(2024, 7, 1), 225]],
+        column_names=[
+            "complex_key",
+            "sgg_cd",
+            "umd_nm",
+            "jibun",
+            "apt_nm",
+            "build_year",
+            "land_leasehold",
+            "first_seen",
+            "trades",
+        ],
+    )

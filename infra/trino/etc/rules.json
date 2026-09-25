@@ -1,0 +1,62 @@
+{
+  "catalogs": [
+    {
+      "user": "(pipeline|dbt)",
+      "catalog": "lake",
+      "allow": "all"
+    },
+    {
+      "user": "(pipeline|dbt|analyst)",
+      "catalog": "system",
+      "allow": "read-only"
+    },
+    {
+      "user": "analyst",
+      "catalog": "lake",
+      "allow": "read-only"
+    },
+    {
+      "catalog": ".*",
+      "allow": "none"
+    }
+  ],
+  "schemas": [
+    {
+      "user": "(pipeline|dbt)",
+      "owner": true
+    },
+    {
+      "user": "analyst",
+      "owner": false
+    }
+  ],
+  "tables": [
+    {
+      "user": "(pipeline|dbt)",
+      "privileges": [
+        "SELECT",
+        "INSERT",
+        "DELETE",
+        "UPDATE",
+        "OWNERSHIP",
+        "GRANT_SELECT"
+      ]
+    },
+    {
+      "user": "analyst",
+      "privileges": [
+        "SELECT"
+      ]
+    }
+  ],
+  "procedures": [
+    {
+      "user": "pipeline",
+      "catalog": "lake",
+      "procedure": ".*",
+      "privileges": [
+        "EXECUTE"
+      ]
+    }
+  ]
+}

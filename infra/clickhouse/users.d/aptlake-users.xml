@@ -1,0 +1,73 @@
+<!--
+  서비스별 ClickHouse 사용자 (기획서 9장 '서빙 DB').
+    publisher     : Dagster 발행 전용 (스테이징 적재 + 파티션 교체)
+    api_reader    : API 조회 전용. readonly=1, 쿼리 시간·메모리·결과 행 상한
+    usage_writer  : API 사용량 이벤트 INSERT 전용 (usage_event 한 테이블)
+    exporter      : 대량 내려받기 전용. trade_current SELECT 만, 결과 행 상한 없음(시간·메모리 상한은 있음)
+  비밀번호는 컨테이너 환경변수에서 읽는다 (파일·이미지에 비밀 없음).
+-->
+<clickhouse>
+    <profiles>
+        <api_readonly>
+            <readonly>1</readonly>
+            <max_execution_time>5</max_execution_time>
+            <max_memory_usage>300000000</max_memory_usage>
+            <max_result_rows>200000</max_result_rows>
+            <result_overflow_mode>throw</result_overflow_mode>
+            <max_threads>2</max_threads>
+        </api_readonly>
+        <writer>
+            <max_memory_usage>300000000</max_memory_usage>
+            <max_execution_time>30</max_execution_time>
+        </writer>
+        <exporter>
+            <readonly>1</readonly>
+            <max_execution_time>120</max_execution_time>
+            <max_memory_usage>400000000</max_memory_usage>
+            <max_threads>2</max_threads>
+        </exporter>
+        <publisher>
+            <max_memory_usage>800000000</max_memory_usage>
+            <max_execution_time>600</max_execution_time>
+        </publisher>
+    </profiles>
+    <users>
+        <default remove="remove"/>
+        <publisher>
+            <password from_env="CLICKHOUSE_PUBLISHER_PASSWORD"/>
+            <networks><ip>::/0</ip></networks>
+            <profile>publisher</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT SELECT, INSERT, ALTER, CREATE TABLE, DROP TABLE, TRUNCATE ON aptlake.*</query>
+            </grants>
+        </publisher>
+        <api_reader>
+            <password from_env="CLICKHOUSE_READER_PASSWORD"/>
+            <networks><ip>::/0</ip></networks>
+            <profile>api_readonly</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT SELECT ON aptlake.*</query>
+            </grants>
+        </api_reader>
+        <exporter>
+            <password from_env="CLICKHOUSE_EXPORT_PASSWORD"/>
+            <networks><ip>::/0</ip></networks>
+            <profile>exporter</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT SELECT ON aptlake.trade_current</query>
+            </grants>
+        </exporter>
+        <usage_writer>
+            <password from_env="CLICKHOUSE_USAGE_PASSWORD"/>
+            <networks><ip>::/0</ip></networks>
+            <profile>writer</profile>
+            <quota>default</quota>
+            <grants>
+                <query>GRANT INSERT ON aptlake.usage_event</query>
+            </grants>
+        </usage_writer>
+    </users>
+</clickhouse>

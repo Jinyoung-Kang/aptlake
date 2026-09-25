@@ -1,0 +1,27 @@
+# 비밀
+.env
+.env.*
+!.env.example
+
+# 파이썬
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.hypothesis/
+
+# dbt
+pipeline/dbt/target/
+pipeline/dbt/logs/
+
+# 웹
+web/node_modules/
+web/dist/
+*.tsbuildinfo
+
+# 부하 측정 원시 결과 (요약은 docs 에 기록)
+loadtest/results/
+
+.DS_Store

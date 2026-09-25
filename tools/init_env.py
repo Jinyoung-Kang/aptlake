@@ -1,0 +1,41 @@
+"""`.env` 가 없으면 .env.example 로 만들고, 비어 있는 내부 비밀값을 무작위로 채운다.
+
+외부 API 키(DATA_GO_KR_KEY, REB_API_KEY)는 채우지 않는다 — 사람이 직접 넣는다.
+기존 값은 절대 덮어쓰지 않는다 (멱등). 값은 출력하지 않는다.
+"""
+import secrets
+import shutil
+import stat
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+EXTERNAL = {"DATA_GO_KR_KEY", "REB_API_KEY"}
+GENERATED_SUFFIXES = ("_PASSWORD", "_SECRET", "_PEPPER", "_SIGNING_KEY", "_ENCRYPTION_KEY")
+
+
+def main() -> None:
+    env, example = ROOT / ".env", ROOT / ".env.example"
+    if not env.exists():
+        shutil.copy(example, env)
+    lines = env.read_text().splitlines()
+    present = {l.split("=", 1)[0] for l in lines if "=" in l and not l.startswith("#")}
+    # .env.example 에 새로 생긴 변수는 뒤에 덧붙인다
+    for l in example.read_text().splitlines():
+        if "=" in l and not l.startswith("#") and l.split("=", 1)[0] not in present:
+            lines.append(l)
+    filled, out = [], []
+    for l in lines:
+        if "=" in l and not l.startswith("#"):
+            k, v = l.split("=", 1)
+            if not v.strip() and k not in EXTERNAL and k.endswith(GENERATED_SUFFIXES):
+                l = f"{k}={secrets.token_urlsafe(32)}"
+                filled.append(k)
+        out.append(l)
+    env.write_text("\n".join(out) + "\n")
+    env.chmod(stat.S_IRUSR | stat.S_IWUSR)
+    missing = [l.split("=", 1)[0] for l in out if l.split("=", 1)[0] in EXTERNAL and not l.split("=", 1)[1].strip()]
+    print(f".env: generated {len(filled)} secrets" + (f"; 직접 채워야 할 키: {', '.join(missing)}" if missing else ""))
+
+
+if __name__ == "__main__":
+    main()

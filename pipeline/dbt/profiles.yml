@@ -1,0 +1,15 @@
+aptlake:
+  target: lake
+  outputs:
+    lake:
+      type: trino
+      method: none
+      user: dbt
+      host: "{{ env_var('TRINO_HOST', 'trino') }}"
+      port: "{{ env_var('TRINO_PORT', '8080') | int }}"
+      http_scheme: http
+      database: lake
+      schema: gold
+      threads: 2
+      session_properties:
+        query_max_run_time: 20m

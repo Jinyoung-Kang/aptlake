@@ -1,0 +1,72 @@
+version: 2
+
+# 테스트는 Dagster 가 넘긴 월 파티션 범위에서만 돈다 (전체 재검사 비용 회피).
+# 범위 상한은 도메인 사실이 아니라 파싱·단위 오류를 잡기 위한 sanity bound 다.
+models:
+  - name: trade_serving
+    description: 현재 거래 (서빙 발행 원본). 해제 포함, 통계에서만 제외.
+    config: { meta: { dagster: { group: gold } } }
+    data_tests:
+      - unique_combination:
+          arguments: { columns: [trade_key, dup_seq] }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+    columns:
+      - name: trade_id
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+          - unique: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+      - name: sgg_cd
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+          - relationships:
+              arguments: { to: "source('silver', 'region')", field: sgg_cd }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - name: price_manwon
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+          - value_between:
+              arguments: { min_value: 0, max_value: 10000000 }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - name: area_m2
+        data_tests:
+          - value_between:
+              arguments: { min_value: 0, max_value: 1000 }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)", severity: warn }
+      - name: deal_kind
+        data_tests:
+          - accepted_values:
+              arguments: { values: ["중개거래", "직거래"] }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)", severity: warn }
+
+  - name: region_month
+    description: 시군구 × 계약월 거래량·해제·㎡당 가격 분위수
+    data_tests:
+      - unique_combination:
+          arguments: { columns: [sgg_cd, deal_ym] }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "trades + cancelled = reported" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "low_sample or (p25_ppm2 <= median_ppm2 and median_ppm2 <= p75_ppm2)" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+    columns:
+      - name: sgg_cd
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+      - name: deal_ym
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+
+  - name: trade_version
+    description: 거래 버전 이력 (SCD2)
+    data_tests:
+      - unique_combination:
+          arguments: { columns: [trade_id, version] }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+
+  - name: complex_summary
+    description: 단지 차원 + 현재 유효 거래 수
+    columns:
+      - name: complex_key
+        data_tests: [unique, not_null]

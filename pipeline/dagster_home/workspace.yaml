@@ -1,0 +1,4 @@
+load_from:
+  - python_module:
+      module_name: aptlake_pipeline.definitions
+      working_directory: /opt/aptlake

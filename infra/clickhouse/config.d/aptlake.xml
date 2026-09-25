@@ -1,0 +1,13 @@
+<clickhouse>
+    <!-- NFR-07: 로컬 맥 메모리 상한. 컨테이너 한도(1.5GB)보다 낮게 둔다 -->
+    <max_server_memory_usage>1200000000</max_server_memory_usage>
+    <mark_cache_size>268435456</mark_cache_size>
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+    <logger><level>warning</level><console>1</console></logger>
+    <!-- 로그 성격 시스템 테이블은 짧게 유지 -->
+    <query_log><database>system</database><table>query_log</table><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>
+    <prometheus>
+        <endpoint>/metrics</endpoint><port>9363</port>
+        <metrics>true</metrics><events>true</events><asynchronous_metrics>true</asynchronous_metrics>
+    </prometheus>
+</clickhouse>

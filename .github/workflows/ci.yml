@@ -1,0 +1,61 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: pipeline } }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: uv run ruff check src tests && uv run ruff format --check src tests
+      - run: uv run mypy src
+      - run: uv run pytest -q
+      - name: dbt parse (문법·참조 검사, DB 연결 없음)
+        run: cd dbt && uv run dbt parse --profiles-dir .
+      - name: pip-audit
+        run: uv export --frozen --no-dev --no-hashes -o /tmp/req.txt && uv run pip-audit -r /tmp/req.txt
+
+  api:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: api } }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --frozen
+      - run: uv run ruff check src tests && uv run ruff format --check src tests
+      - run: uv run mypy src
+      - name: pytest (Testcontainers — PostgreSQL · Redis · ClickHouse)
+        run: uv run pytest -q
+      - name: pip-audit
+        run: uv export --frozen --no-dev --no-hashes -o /tmp/req.txt && uv run pip-audit -r /tmp/req.txt
+
+  web:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: web } }
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with: { node-version: 24, cache: npm, cache-dependency-path: web/package-lock.json }
+      - run: npm ci
+      - run: npx tsc -b && npx vite build
+      - run: npm audit --omit=dev --audit-level=high
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with: { fetch-depth: 0 }
+      - name: gitleaks (비밀 스캔, al_live_ API 키 규칙 포함)
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.28.0 git /repo --config /repo/.gitleaks.toml --redact
+      - name: trivy (의존성·설정 취약점)
+        uses: aquasecurity/trivy-action@0.33.1
+        with: { scan-type: fs, scan-ref: ., severity: "HIGH,CRITICAL", ignore-unfixed: true, exit-code: "1" }
+      - name: compose 설정 검증
+        run: cp .env.example .env && python3 tools/init_env.py && sed -i 's/^DATA_GO_KR_KEY=$/DATA_GO_KR_KEY=x/; s/^REB_API_KEY=$/REB_API_KEY=x/' .env && docker compose --profile lake --profile obs config -q

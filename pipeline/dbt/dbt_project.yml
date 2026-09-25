@@ -1,0 +1,25 @@
+name: aptlake
+version: "0.1.0"
+config-version: 2
+profile: aptlake
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: target
+clean-targets: [target, logs]
+
+vars:
+  # Dagster 가 월 파티션 키(YYYYMM)를 넘긴다. 비어 있으면 전체 재구축
+  deal_ym: ""
+
+models:
+  aptlake:
+    gold:
+      +schema: gold
+      +on_table_exists: replace
+      +properties:
+        format_version: "2"
+
+flags:
+  send_anonymous_usage_stats: false

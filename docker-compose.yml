@@ -1,0 +1,320 @@
+# 집값 레이크하우스 (AptLake) — 로컬 Apple Silicon 스택
+#   모든 포트는 127.0.0.1 바인딩. 메모리 상한은 서비스별 mem_limit 으로 명시 (NFR-07).
+#   프로필: (기본) 서빙 계층 · lake (Trino·Dagster — 수집·변환 시) · obs (Prometheus·Grafana)
+name: aptlake
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  # ───────────────────────── 저장·메타 ─────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make init}
+      LAKEKEEPER_DB_PASSWORD: ${LAKEKEEPER_DB_PASSWORD}
+      DAGSTER_DB_PASSWORD: ${DAGSTER_DB_PASSWORD}
+      MIGRATOR_DB_PASSWORD: ${MIGRATOR_DB_PASSWORD}
+      PIPELINE_DB_PASSWORD: ${PIPELINE_DB_PASSWORD}
+      API_DB_PASSWORD: ${API_DB_PASSWORD}
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=120", "-c", "log_min_duration_statement=500"]
+    volumes:
+      - pg:/var/lib/postgresql/data
+      - ./infra/postgres/01-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    ports: ["127.0.0.1:5492:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      retries: 20
+    mem_limit: 384m
+    logging: *logging
+
+  minio:
+    # MinIO 커뮤니티 이미지 배포가 중단되어, Lakekeeper 공식 예제가 쓰는 유지보수 포크(Silo)를 사용 (S3 + STS AssumeRole)
+    image: pgsty/silo:RELEASE.2026-09-03T13-18-01Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: root
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BROWSER_REDIRECT: "false"
+    volumes: [minio:/data]
+    ports: ["127.0.0.1:9600:9000", "127.0.0.1:9601:9001"]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      retries: 20
+    mem_limit: 512m
+    logging: *logging
+
+  minio-init:
+    image: pgsty/silo:RELEASE.2026-09-03T13-18-01Z
+    depends_on: { minio: { condition: service_healthy } }
+    entrypoint: ["/bin/sh", "/init.sh"]
+    environment:
+      MINIO_ROOT_USER: root
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_INGEST_SECRET: ${MINIO_INGEST_SECRET}
+      MINIO_CATALOG_SECRET: ${MINIO_CATALOG_SECRET}
+      MINIO_EXPORT_SECRET: ${MINIO_EXPORT_SECRET}
+    volumes: ["./infra/minio/init.sh:/init.sh:ro"]
+    restart: "no"
+
+  # ───────────────────────── Iceberg REST 카탈로그 ─────────────────────────
+  lakekeeper-migrate:
+    image: quay.io/lakekeeper/catalog:v0.13.6
+    command: ["migrate"]
+    environment: &lakekeeper-env
+      LAKEKEEPER__PG_ENCRYPTION_KEY: ${LAKEKEEPER_ENCRYPTION_KEY}
+      LAKEKEEPER__PG_DATABASE_URL_READ: postgresql://lakekeeper:${LAKEKEEPER_DB_PASSWORD}@postgres:5432/lakekeeper
+      LAKEKEEPER__PG_DATABASE_URL_WRITE: postgresql://lakekeeper:${LAKEKEEPER_DB_PASSWORD}@postgres:5432/lakekeeper
+      RUST_LOG: info
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+  lakekeeper:
+    image: quay.io/lakekeeper/catalog:v0.13.6
+    command: ["serve"]
+    environment: *lakekeeper-env
+    depends_on:
+      lakekeeper-migrate: { condition: service_completed_successfully }
+      minio-init: { condition: service_completed_successfully }
+    ports: ["127.0.0.1:8620:8181"]
+    healthcheck:
+      test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck"]
+      interval: 3s
+      retries: 20
+    mem_limit: 256m
+    logging: *logging
+
+  lakekeeper-init:
+    image: curlimages/curl:8.16.0
+    entrypoint: ["/bin/sh", "/init.sh"]
+    environment:
+      MINIO_CATALOG_SECRET: ${MINIO_CATALOG_SECRET}
+    volumes: ["./infra/lakekeeper/init.sh:/init.sh:ro"]
+    depends_on: { lakekeeper: { condition: service_healthy } }
+    restart: "no"
+
+  # ───────────────────────── 질의·변환 (lake 프로필) ─────────────────────────
+  trino:
+    image: trinodb/trino:476
+    profiles: ["lake"]
+    volumes:
+      - ./infra/trino/etc/config.properties:/etc/trino/config.properties:ro
+      - ./infra/trino/etc/jvm.config:/etc/trino/jvm.config:ro
+      - ./infra/trino/etc/node.properties:/etc/trino/node.properties:ro
+      - ./infra/trino/etc/access-control.properties:/etc/trino/access-control.properties:ro
+      - ./infra/trino/etc/rules.json:/etc/trino/rules.json:ro
+      - ./infra/trino/etc/catalog:/etc/trino/catalog:ro
+    depends_on: { lakekeeper-init: { condition: service_completed_successfully } }
+    ports: ["127.0.0.1:8630:8080"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]
+      interval: 5s
+      retries: 40
+    mem_limit: 2g
+    logging: *logging
+
+  # ───────────────────────── 서빙 ─────────────────────────
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.8
+    environment:
+      CLICKHOUSE_USER: admin
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+      CLICKHOUSE_PUBLISHER_PASSWORD: ${CLICKHOUSE_PUBLISHER_PASSWORD}
+      CLICKHOUSE_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD}
+      CLICKHOUSE_USAGE_PASSWORD: ${CLICKHOUSE_USAGE_PASSWORD}
+      CLICKHOUSE_EXPORT_PASSWORD: ${CLICKHOUSE_EXPORT_PASSWORD}
+    volumes:
+      - ch:/var/lib/clickhouse
+      - ./infra/clickhouse/config.d/aptlake.xml:/etc/clickhouse-server/config.d/aptlake.xml:ro
+      - ./infra/clickhouse/users.d/aptlake-users.xml:/etc/clickhouse-server/users.d/aptlake-users.xml:ro
+      - ./infra/clickhouse/init:/docker-entrypoint-initdb.d:ro
+    ports: ["127.0.0.1:8640:8123", "127.0.0.1:9640:9000"]
+    ulimits: { nofile: { soft: 262144, hard: 262144 } }
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping | grep -q Ok"]
+      interval: 3s
+      retries: 30
+    mem_limit: 1536m
+    logging: *logging
+
+  redis:
+    image: redis:7.4-alpine
+    # ACL: 기본 사용자 끄고, api(한도·캐시·키 캐시)와 pipeline(호출 예산·데이터셋 버전)에 키 접두사·명령 범위를 나눠 준다
+    command:
+      - sh
+      - -c
+      - >-
+        exec redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy volatile-ttl
+        --user default off
+        --user api on ">$$REDIS_API_PASSWORD" "~al:*" "+@all" "-@admin" "-@dangerous"
+        --user pipeline on ">$$REDIS_PIPELINE_PASSWORD" "~budget:*" "~al:ds:*" "+@all" "-@admin" "-@dangerous"
+        --user healthcheck on ">$$REDIS_API_PASSWORD" "+ping"
+    environment:
+      REDIS_API_PASSWORD: ${REDIS_API_PASSWORD}
+      REDIS_PIPELINE_PASSWORD: ${REDIS_PIPELINE_PASSWORD}
+    volumes: [redis:/data]
+    ports: ["127.0.0.1:6439:6379"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --user healthcheck --pass \"$$REDIS_API_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 3s
+      retries: 20
+    mem_limit: 192m
+    logging: *logging
+
+  db-migrate:
+    build: { context: ./api }
+    image: aptlake-api:local
+    command: ["python", "-m", "aptlake_api.migrate"]
+    environment:
+      MIGRATOR_DSN: postgresql://migrator:${MIGRATOR_DB_PASSWORD}@postgres:5432/aptlake
+    depends_on: { postgres: { condition: service_healthy } }
+    restart: "no"
+
+  api:
+    image: aptlake-api:local
+    build: { context: ./api }
+    # 공개 API. 관리 라우트는 이 프로세스에 아예 등록되지 않는다 (api-internal 참고)
+    # 워커 4개 (지표는 multiprocess 로 합산). 한도·캐시·키 상태는 모두 Redis 에 있어 워커·인스턴스를 늘려도 정확하다
+    command: ["sh", "-c", "mkdir -p /tmp/prom && exec uvicorn aptlake_api.main:create_public_app --factory --host 0.0.0.0 --port 8610 --workers 4 --no-server-header --no-proxy-headers --log-level warning"]
+    environment: &api-env
+      PG_DSN: postgresql://api_app:${API_DB_PASSWORD}@postgres:5432/aptlake
+      REDIS_URL: redis://api:${REDIS_API_PASSWORD}@redis:6379/0
+      CH_HOST: clickhouse
+      CH_READER_PASSWORD: ${CLICKHOUSE_READER_PASSWORD}
+      CH_USAGE_PASSWORD: ${CLICKHOUSE_USAGE_PASSWORD}
+      CH_EXPORT_PASSWORD: ${CLICKHOUSE_EXPORT_PASSWORD}
+      API_KEY_PEPPER: ${API_KEY_PEPPER}
+      CURSOR_SIGNING_KEY: ${CURSOR_SIGNING_KEY}
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://127.0.0.1:9600
+      S3_EXPORT_ACCESS_KEY: export
+      S3_EXPORT_SECRET_KEY: ${MINIO_EXPORT_SECRET}
+      # X-Forwarded-For 는 웹(nginx) 컨테이너 고정 IP 에서 온 요청에서만 믿는다
+      TRUSTED_PROXIES: 172.30.61.250/32
+      PROMETHEUS_MULTIPROC_DIR: /tmp/prom
+    depends_on:
+      db-migrate: { condition: service_completed_successfully }
+      clickhouse: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    ports: ["127.0.0.1:8610:8610"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8610/healthz',timeout=2)"]
+      interval: 5s
+      retries: 20
+    mem_limit: 768m
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  api-internal:
+    image: aptlake-api:local
+    # 관리 API(/v1/admin) + 내보내기 작업자 + 운영 지표. 호스트 127.0.0.1:8611 에만 게시
+    command: ["sh", "-c", "mkdir -p /tmp/prom && exec uvicorn aptlake_api.main:create_internal_app --factory --host 0.0.0.0 --port 8611 --no-server-header --no-proxy-headers --log-level warning"]
+    environment: *api-env
+    depends_on:
+      api: { condition: service_healthy }
+    ports: ["127.0.0.1:8611:8611"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8611/healthz',timeout=2)"]
+      interval: 5s
+      retries: 20
+    mem_limit: 512m
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    logging: *logging
+
+  web:
+    build: { context: ./web }
+    image: aptlake-web:local
+    depends_on: { api: { condition: service_healthy } }
+    ports: ["127.0.0.1:3610:8080"]
+    networks:
+      default: { ipv4_address: 172.30.61.250 }
+    mem_limit: 64m
+    read_only: true
+    tmpfs: [/tmp, /var/cache/nginx, /var/run]
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  # ───────────────────────── 오케스트레이션 (lake 프로필) ─────────────────────────
+  dagster:
+    build: { context: ./pipeline }
+    image: aptlake-pipeline:local
+    profiles: ["lake"]
+    environment:
+      DAGSTER_PG_PASSWORD: ${DAGSTER_DB_PASSWORD}
+      PG_DSN: postgresql://pipeline:${PIPELINE_DB_PASSWORD}@postgres:5432/aptlake
+      REDIS_URL: redis://pipeline:${REDIS_PIPELINE_PASSWORD}@redis:6379/0
+      DATA_GO_KR_KEY: ${DATA_GO_KR_KEY}
+      REB_API_KEY: ${REB_API_KEY}
+      RTMS_DAILY_LIMIT: ${RTMS_DAILY_LIMIT:-10000}
+      RTMS_BUDGET_PCT: ${RTMS_BUDGET_PCT:-80}
+      BACKFILL_FROM: ${BACKFILL_FROM:-2021-01}
+      CATALOG_URI: http://lakekeeper:8181/catalog
+      CATALOG_WAREHOUSE: aptlake
+      TRINO_HOST: trino
+      S3_ENDPOINT: http://minio:9000
+      S3_INGEST_ACCESS_KEY: ingest
+      S3_INGEST_SECRET_KEY: ${MINIO_INGEST_SECRET}
+      CH_HOST: clickhouse
+      CH_PUBLISHER_PASSWORD: ${CLICKHOUSE_PUBLISHER_PASSWORD}
+    volumes: [dagster_home:/opt/dagster/home/storage]
+    depends_on:
+      trino: { condition: service_healthy }
+      db-migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+    ports: ["127.0.0.1:3600:3000"]
+    mem_limit: 2g
+    security_opt: ["no-new-privileges:true"]
+    logging: *logging
+
+  # ───────────────────────── 관측 (obs 프로필) ─────────────────────────
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    profiles: ["obs"]
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prom:/prometheus
+    ports: ["127.0.0.1:9690:9090"]
+    mem_limit: 256m
+    logging: *logging
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    profiles: ["obs"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana:/var/lib/grafana
+    ports: ["127.0.0.1:3620:3000"]
+    mem_limit: 256m
+    logging: *logging
+
+networks:
+  default:
+    ipam:
+      # 동적 할당은 아래쪽 절반(.0~.127)만 → 웹 프록시 고정 IP(.250)와 충돌하지 않음
+      config: [{ subnet: 172.30.61.0/24, ip_range: 172.30.61.0/25 }]
+
+volumes:
+  pg: {}
+  minio: {}
+  ch: {}
+  redis: {}
+  dagster_home: {}
+  prom: {}
+  grafana: {}

@@ -1,0 +1,63 @@
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface-1: #fcfcfb; --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #898781;
+  --grid: #e1e0d9; --baseline: #c3c2b7; --border: rgba(11, 11, 11, 0.1);
+  --series-1: #2a78d6; --series-2: #eb6834; --series-1-band: rgba(42, 120, 214, 0.16); --seq-2: #86b6ef;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b; --neutral: #d9d8d2;
+  --accent: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface-1: #1a1a19; --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #898781;
+    --grid: #2c2c2a; --baseline: #383835; --border: rgba(255, 255, 255, 0.1);
+    --series-1: #3987e5; --series-2: #d95926; --series-1-band: rgba(57, 135, 229, 0.22); --seq-2: #184f95;
+    --neutral: #383835; --accent: #3987e5;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text-primary);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; padding: 16px 24px 0; }
+header h1 { font-size: 18px; margin: 0; }
+header .meta { color: var(--text-muted); font-size: 12px; }
+nav { display: flex; gap: 4px; padding: 12px 24px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+nav button { background: none; border: 1px solid transparent; border-radius: 6px; padding: 6px 12px; color: var(--text-secondary);
+  cursor: pointer; font: inherit; }
+nav button[aria-current="page"] { border-color: var(--border); background: var(--surface-1); color: var(--text-primary); font-weight: 600; }
+main { padding: 16px 24px 48px; max-width: 1280px; }
+.card { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.card h2 { font-size: 15px; margin: 0 0 4px; }
+.card .sub { color: var(--text-muted); font-size: 12px; margin: 0 0 12px; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin-bottom: 12px; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-secondary); }
+select, input { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-1);
+  color: var(--text-primary); min-width: 120px; }
+button.primary { font: inherit; padding: 7px 14px; border-radius: 6px; border: 0; background: var(--accent); color: #fff; cursor: pointer; }
+button.ghost { font: inherit; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: none;
+  color: var(--text-primary); cursor: pointer; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 13px; }
+th { color: var(--text-muted); font-weight: 500; }
+td.num, th.num { text-align: right; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover { background: var(--page); }
+tr.selected { background: var(--page); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px; }
+.tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; }
+.tile .k { color: var(--text-muted); font-size: 12px; }
+.tile .v { font-size: 22px; font-weight: 600; }
+.tile .d { color: var(--text-secondary); font-size: 12px; }
+.status { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.error { color: var(--critical); background: color-mix(in srgb, var(--critical) 8%, transparent); padding: 8px 12px; border-radius: 6px; }
+.note { color: var(--text-muted); font-size: 12px; }
+.badge { font-size: 11px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--border); color: var(--text-secondary); }
+.split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); gap: 16px; }
+@media (max-width: 900px) { .split { grid-template-columns: 1fr; } main, header, nav { padding-left: 16px; padding-right: 16px; } }
+.timeline { list-style: none; padding: 0; margin: 0; }
+.timeline li { border-left: 2px solid var(--grid); padding: 0 0 12px 12px; position: relative; }
+.timeline li::before { content: ""; position: absolute; left: -6px; top: 4px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--series-1); border: 2px solid var(--surface-1); }
+code { font-size: 12px; background: var(--page); padding: 1px 4px; border-radius: 4px; }
+.scroll { overflow-x: auto; }

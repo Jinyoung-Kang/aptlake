@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: api            # 공개 API: 지연·요청·캐시·계측 드롭
+    static_configs: [{ targets: ["api:8612"] }]
+  - job_name: api-internal   # 운영 지표: 신선도·예산·파티션 상태·품질 실패 (ops 스키마)
+    static_configs: [{ targets: ["api-internal:8612"] }]
+  - job_name: clickhouse
+    static_configs: [{ targets: ["clickhouse:9363"] }]
