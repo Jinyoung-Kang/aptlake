@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 FROM ghcr.io/astral-sh/uv:0.12.19 AS uv
 
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PROJECT_ENVIRONMENT=/opt/venv \
     PATH=/opt/venv/bin:$PATH PYTHONUNBUFFERED=1 MIGRATIONS_DIR=/opt/api/migrations
