@@ -20,6 +20,20 @@ curl -X POST -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/partitions/41
 ```
 원인은 `/v1/quality/partitions/41135/2026-08` 의 checks·lastError, 원본은 lineage 의 `s3://raw/...` (MinIO 콘솔 http://127.0.0.1:9601).
 
+## 수집 상태 · 오류 로그 보기
+- 웹 **수집 상태** 메뉴: 작업 큐(진행·대기 — 실행 중 먼저, 대기는 요청 순 = 큐에서 나갈 순서), 최근 48시간, 스케줄·센서의 다음 실행.
+- 오류 로그: 기간(24시간·7일·30일)·출처로 거르고, **전체 복사** 또는 **.txt 저장** → 그대로 이슈·메신저에 붙여 넣을 수 있는 형식. 이후 성공으로 복구된 실패는 '해결된 항목 포함'을 켜야 보인다.
+- 같은 내용 API: `GET /v1/ops/status`, `GET /v1/ops/errors?hours=168&source=pipeline&includeResolved=true`
+- Dagster 가 꺼져 있으면(`make serve`) 파이프라인 부분만 '연결 안 됨'으로 나오고 나머지(운영 DB·API 오류)는 그대로 보인다.
+
+## 웹 전용 키(BFF) 순환
+- `.env` 의 `WEB_API_KEY` 값을 지우고 `make init` → 새 키 생성. `docker compose up -d db-migrate web` → 새 키 등록, 이전 키 폐기(감사 로그 `web_key.ensure`).
+- 웹 키는 nginx 컨테이너 환경 변수에만 있고 브라우저·번들에는 없다.
+
+## 지도 경계 갱신
+- 매월 `monthly_regions` 스케줄이 시군구 목록과 함께 다시 받는다. 수동: Dagster 에서 `refresh_regions` 작업 실행.
+- 검사 `boundary_matches_official_regions` 가 경고면 공식 목록과 코드·이름이 다른 시군구가 있다는 뜻 — 그 시군구는 지도에서 회색(자료 없음)으로 남고, 추측으로 채우지 않는다.
+
 ## 키 관리
 ```bash
 # 클라이언트 생성 → 키 발급 (응답의 apiKey 는 다시 볼 수 없음)
