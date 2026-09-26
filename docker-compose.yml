@@ -10,7 +10,7 @@ x-logging: &logging
 services:
   # ───────────────────────── 저장·메타 ─────────────────────────
   postgres:
-    image: postgres:16-alpine
+    image: postgres:18-alpine
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make init}
       LAKEKEEPER_DB_PASSWORD: ${LAKEKEEPER_DB_PASSWORD}
