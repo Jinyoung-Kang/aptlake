@@ -20,14 +20,27 @@ updates:
     ignore:
       - dependency-name: python
         update-types: [version-update:semver-major, version-update:semver-minor]
+  # 웹 빌드·서빙 이미지: node·nginx 는 큰 버전(major)을 자동 제안하지 않는다
   - package-ecosystem: docker
     directory: /web
     schedule: { interval: weekly }
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
   # docker-compose.yml 의 서비스 이미지(PostgreSQL·Redis·ClickHouse·Trino 등)
+  # 상태를 가진 서비스의 큰 버전 올림은 데이터 이전·설정 검증이 필요한 계획된 작업이다 (예: PostgreSQL 16 → 18 은
+  # 데이터 폴더가 호환되지 않아 pg_upgrade 필요) → 자동 제안은 작은 버전만, 큰 버전은 사람이 따로 진행
   - package-ecosystem: docker-compose
     directory: /
     schedule: { interval: monthly }
     groups: { images: { patterns: ["*"], update-types: [minor, patch] } }
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
+      # ClickHouse(YY.M)·Trino(단일 번호)는 버전 체계상 '작은' 올림도 기능이 바뀌는 릴리스라 제외
+      - dependency-name: clickhouse/clickhouse-server
+        update-types: [version-update:semver-minor]
+      - dependency-name: trinodb/trino
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly }
