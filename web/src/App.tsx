@@ -1,67 +1,52 @@
-import { useEffect, useState } from "react";
-import { api, errorText, type Region } from "./api";
-import RegionPage from "./pages/RegionPage";
-import TradesPage from "./pages/TradesPage";
-import IndexPage from "./pages/IndexPage";
-import QualityPage from "./pages/QualityPage";
-import DeveloperPage from "./pages/DeveloperPage";
+import { lazy, Suspense, useEffect } from "react";
+import { useApi } from "./lib/api";
+import { useRoute } from "./lib/router";
+import { RegionsProvider } from "./lib/regions";
+import { Shell } from "./components/Shell";
+import { Skeleton } from "./components/ui";
 
-const TABS = [
-  ["region", "지역 탐색"],
-  ["trades", "거래 목록"],
-  ["index", "지수"],
-  ["quality", "데이터 품질"],
-  ["dev", "개발자"],
-] as const;
-type Tab = (typeof TABS)[number][0];
+// 페이지는 처음 열 때 받는다 (첫 화면에 쓰지 않는 페이지 코드를 미리 받지 않음). ECharts 는 공용 청크로 한 번만.
+const MarketPage = lazy(() => import("./pages/MarketPage"));
+const RegionPage = lazy(() => import("./pages/RegionPage"));
+const TradesPage = lazy(() => import("./pages/TradesPage"));
+const IndexPage = lazy(() => import("./pages/IndexPage"));
+const ComplexPage = lazy(() => import("./pages/ComplexPage"));
+const QualityPage = lazy(() => import("./pages/QualityPage"));
+const DeveloperPage = lazy(() => import("./pages/DeveloperPage"));
+const OpsPage = lazy(() => import("./pages/OpsPage"));
+
+const TITLES: Record<string, string> = {
+  market: "시장 개요", region: "지역 분석", trades: "거래 목록", index: "가격지수", complex: "단지",
+  quality: "데이터 품질", dev: "개발자", ops: "수집 상태",
+};
+
+function Pages() {
+  const route = useRoute();
+  const head = route.parts[0] ?? "market";
+  const { data } = useApi<{ datasetVersion: string; dataAsOf: string | null }>("/v1/market/ticker");
+  useEffect(() => {
+    document.title = `${TITLES[head] ?? "AptLake"} · AptLake`;
+    window.scrollTo({ top: 0 });
+  }, [head, route.parts[1]]);
+  const page = (() => {
+    switch (head) {
+      case "region": return <RegionPage route={route} />;
+      case "trades": return <TradesPage route={route} />;
+      case "index": return <IndexPage route={route} />;
+      case "complex": return <ComplexPage route={route} />;
+      case "quality": return <QualityPage route={route} />;
+      case "dev": return <DeveloperPage />;
+      case "ops": return <OpsPage route={route} />;
+      default: return <MarketPage route={route} />;
+    }
+  })();
+  return (
+    <Shell path={route.path} meta={{ version: data?.datasetVersion, asOf: data?.dataAsOf }}>
+      <Suspense fallback={<Skeleton h={420} />}>{page}</Suspense>
+    </Shell>
+  );
+}
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>(() => (location.hash.slice(1) as Tab) || "region");
-  const [regions, setRegions] = useState<Region[]>([]);
-  const [meta, setMeta] = useState<{ v?: string; asOf?: string | null }>({});
-  const [loadErr, setLoadErr] = useState<string | null>(null);
-  useEffect(() => {
-    api<{ items: Region[]; datasetVersion: string; dataAsOf: string | null }>("/v1/regions")
-      .then((r) => {
-        setRegions(r.items);
-        setMeta({ v: r.datasetVersion, asOf: r.dataAsOf });
-      })
-      .catch((e) => { setRegions([]); setLoadErr(errorText(e)); });
-  }, []);
-  useEffect(() => {
-    history.replaceState(null, "", `#${tab}`);
-  }, [tab]);
-  useEffect(() => {
-    const onHash = () => {
-      const t = location.hash.slice(1) as Tab;
-      if (TABS.some(([id]) => id === t)) setTab(t);
-    };
-    window.addEventListener("hashchange", onHash);
-    return () => window.removeEventListener("hashchange", onHash);
-  }, []);
-  return (
-    <>
-      <header>
-        <h1>AptLake 집값 레이크하우스</h1>
-        <span className="meta">
-          데이터셋 {meta.v ?? "-"} · 원천 관측 {meta.asOf ? new Date(meta.asOf).toLocaleString("ko-KR") : "-"} · 공식 통계 아님
-        </span>
-      </header>
-      {loadErr && <p className="error" style={{ margin: "8px 24px 0" }}>시군구 목록을 불러오지 못했습니다 — {loadErr}</p>}
-      <nav aria-label="화면">
-        {TABS.map(([id, name]) => (
-          <button key={id} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
-            {name}
-          </button>
-        ))}
-      </nav>
-      <main>
-        {tab === "region" && <RegionPage regions={regions} />}
-        {tab === "trades" && <TradesPage regions={regions} />}
-        {tab === "index" && <IndexPage regions={regions} />}
-        {tab === "quality" && <QualityPage regions={regions} />}
-        {tab === "dev" && <DeveloperPage />}
-      </main>
-    </>
-  );
+  return <RegionsProvider><Pages /></RegionsProvider>;
 }

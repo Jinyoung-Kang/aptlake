@@ -8,6 +8,12 @@ COPY src ./src
 RUN npx tsc -b && npx vite build
 
 FROM nginxinc/nginx-unprivileged:1.29-alpine
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# 기본 사이트 설정 제거, 메인 설정 교체, 사이트 설정은 템플릿(envsubst: WEB_API_KEY 만 치환)
+USER root
+RUN rm -f /etc/nginx/conf.d/default.conf
+USER 101
+COPY nginx.main.conf /etc/nginx/nginx.conf
+COPY templates /etc/nginx/templates
+ENV NGINX_ENVSUBST_OUTPUT_DIR=/tmp NGINX_ENVSUBST_FILTER=WEB_API_KEY
 COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 8080

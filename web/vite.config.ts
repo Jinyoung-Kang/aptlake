@@ -12,5 +12,6 @@ export default defineConfig({
       "/openapi.json": "http://127.0.0.1:8610",
     },
   },
-  build: { sourcemap: false, chunkSizeWarningLimit: 1200 },
+  // 페이지는 지연 로딩 청크, ECharts(필요 모듈만 등록)는 공용 청크 하나(약 690KB, gzip 230KB)
+  build: { sourcemap: false, chunkSizeWarningLimit: 800 },
 });
