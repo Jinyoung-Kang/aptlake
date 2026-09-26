@@ -49,6 +49,12 @@ class Principal:
 
 
 ANON_SCOPES = frozenset({"read"})
+WEB_PLAN = "web"
+
+
+def _ip_subject(ip: str, s: Settings) -> str:
+    return hmac.new(s.api_key_pepper.get_secret_value().encode(), ip.encode(), hashlib.sha256).hexdigest()[:16]
+
 
 # 요청 관문 (Redis 왕복 1회): 슬라이딩 윈도우 분당 한도 검사·증가 + 오늘 사용한 행 수 조회.
 #   슬라이딩 윈도우 = 현재 분 카운트 + 이전 분 카운트 × (1 - 현재 분 경과 비율)
@@ -144,10 +150,7 @@ async def resolve_principal(request: Request) -> Principal:
     plans: dict[str, Plan] = request.app.state.plans
     raw = request.headers.get("x-api-key")
     if raw is None:
-        ip = client_ip(request, s)
-        subject = (
-            "ip:" + hmac.new(s.api_key_pepper.get_secret_value().encode(), ip.encode(), hashlib.sha256).hexdigest()[:16]
-        )  # 원 IP 는 저장하지 않음
+        subject = "ip:" + _ip_subject(client_ip(request, s), s)  # 원 IP 는 저장하지 않음
         return Principal("anonymous", subject, subject, plans["anonymous"], ANON_SCOPES)
     parsed = keys.parse(raw)
     if parsed is None:
@@ -164,6 +167,10 @@ async def resolve_principal(request: Request) -> Principal:
     if dt.datetime.fromisoformat(row["expires_at"]) <= dt.datetime.now(tz=dt.UTC):
         raise ApiError(401, "KEY_EXPIRED", "Unauthorized", "만료된 키입니다.")
     request.state.touch_key = key_id
+    if row["plan_id"] == WEB_PLAN:
+        # 웹 프록시(BFF) 키: 한도는 키 전체가 아니라 브라우저 IP 단위 (원 IP 는 HMAC 으로만)
+        subject = f"web:{_ip_subject(client_ip(request, s), s)}"
+        return Principal("key", subject, row["client_id"], plans[WEB_PLAN], frozenset(row["scopes"]))
     return Principal("key", key_id, row["client_id"], plans[row["plan_id"]], frozenset(row["scopes"]))
 
 

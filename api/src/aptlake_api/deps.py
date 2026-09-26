@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import time
 from collections.abc import Awaitable, Callable
@@ -17,6 +18,7 @@ from .errors import ApiError
 from .settings import settings
 
 SCOPE_ATTR = "__aptlake_scope__"
+KST = dt.timezone(dt.timedelta(hours=9))
 PUBLIC_UNSCOPED = {"/healthz", "/readyz", "/docs", "/openapi.json", "/docs/oauth2-redirect", "/redoc"}
 DISCLAIMER = "공개 신고 자료를 가공한 학습·포트폴리오용 데이터입니다. 공식 통계가 아니며 투자 판단 근거로 쓰지 마세요."
 
@@ -77,33 +79,44 @@ async def respond(
     compute: Callable[[], Awaitable[tuple[dict[str, Any], int]]],
     cache: bool = True,
 ) -> Response:
-    """결과 캐시(키에 데이터셋 버전 포함) + ETag/304 + 데이터 기준 헤더 + 행 한도 차감."""
+    """결과 캐시 + ETag/304 + 데이터 기준 헤더 + 행 한도 차감.
+
+    cache=True (데이터 응답): 내용은 (데이터셋 버전, KST 날짜, 요청) 으로 결정된다 → 이 셋으로 캐시 키·ETag 를 만든다.
+      날짜를 넣는 이유: '잠정(provisional)' 표시가 발행 없이도 날짜가 지나면 바뀐다.
+    cache=False (운영·품질 상태): 발행과 무관하게 바뀌므로 본문을 먼저 만들고 **본문 해시**로 ETag 를 만든다.
+      (요청 매개변수만으로 ETag 를 만들면 내용이 바뀌어도 304 를 돌려주는 버그가 된다)
+    """
     from .auth import charge_rows, remaining_rows
 
     p: Principal = request.state.principal
     remaining_rows(p)
     ver, asof = await request.app.state.dsv.get(request)
-    digest = hashlib.sha256(orjson.dumps([route, params], option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
+    today = dt.datetime.now(tz=KST).date().isoformat()
+    digest = hashlib.sha256(orjson.dumps([route, params, today], option=orjson.OPT_SORT_KEYS)).hexdigest()[:32]
+    headers = {**p.limit_headers, "X-Dataset-Version": ver, "X-Data-As-Of": asof}
+    if not cache:
+        payload, rows = await compute()
+        body = orjson.dumps({"dataAsOf": asof or None, "datasetVersion": ver, **payload})
+        etag = f'"{hashlib.sha256(body).hexdigest()[:24]}"'
+        headers.update({"ETag": etag, "Cache-Control": "private, no-cache", "X-Cache": "bypass"})
+        request.state.cache = "bypass"
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=headers)
+        await charge_rows(request, p, rows)
+        return Response(body, media_type="application/json", headers=headers)
+
     etag = f'"{hashlib.sha256(f"{ver}:{digest}".encode()).hexdigest()[:24]}"'
-    headers = {
-        **p.limit_headers,
-        "X-Dataset-Version": ver,
-        "X-Data-As-Of": asof,
-        "ETag": etag,
-        "Cache-Control": "private, max-age=60",
-    }
+    headers.update({"ETag": etag, "Cache-Control": "private, max-age=60"})
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     r = request.app.state.res.redis
     ck = f"al:cache:{ver}:{route}:{digest}"
     # 캐시 값 = "<행 수>\n<본문>" 한 키 (왕복 1회)
-    cached: str | None = await r.get(ck) if cache else None
+    cached: str | None = await r.get(ck)
     if cached is None:
         payload, rows = await compute()
-        payload = {"dataAsOf": asof or None, "datasetVersion": ver, **payload}
-        body = orjson.dumps(payload)
-        if cache:
-            await r.set(ck, f"{rows}\n".encode() + body, ex=settings().result_cache_ttl_s)
+        body = orjson.dumps({"dataAsOf": asof or None, "datasetVersion": ver, **payload})
+        await r.set(ck, f"{rows}\n".encode() + body, ex=settings().result_cache_ttl_s)
         request.state.cache = "miss"
     else:
         head, _, text = cached.partition("\n")

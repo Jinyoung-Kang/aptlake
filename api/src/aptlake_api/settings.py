@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     usage_flush_max: int = 1000
     export_url_ttl_s: int = 900
     metrics_port: int = 8612
+    dagster_graphql_url: str = "http://dagster:3000/graphql"
 
     @property
     def trusted_networks(self) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:

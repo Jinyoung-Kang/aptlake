@@ -7,13 +7,14 @@ import re
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Path, Query, Request
-from fastapi.responses import ORJSONResponse, Response
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from . import cursor as cursor_mod
 from .auth import Principal
 from .deps import DISCLAIMER, require_scope, respond
 from .errors import ApiError
+from .responses import OrjsonResponse
 from .settings import settings
 
 router = APIRouter(prefix="/v1")
@@ -137,7 +138,7 @@ async def region_months(
                 f"계약월 말일 + {settings().provisional_days}일 전까지는 신고가 추가될 수 있어 provisional=true.",
             ],
             "disclaimer": DISCLAIMER,
-        }, len(items)
+        }, 0  # 집계 응답: 요청 한도만 (행 한도는 거래 단위 레코드에만)
 
     return await respond(request, "region_months", {"sgg": sggCd, "a": from_, "b": to}, compute)
 
@@ -247,6 +248,25 @@ async def trades(
                                     ORDER BY deal_date DESC, trade_id DESC LIMIT {{lim:UInt32}}""",
             params,
         )
+        summary = None
+        if not pos:
+            # 첫 페이지: 조건 전체 요약 (불러온 페이지가 아니라 전체 조건 기준)
+            base_where = [w for w in where if not w.startswith("(deal_date, trade_id)")]
+            agg = await _q(
+                request,
+                f"""SELECT count() AS n, countIf(is_cancelled = 1) AS cancelled,
+                           quantileExactInclusiveIf(0.5)(ppm2, is_cancelled = 0 AND is_outlier = 0 AND area_m2 > 0) AS med,
+                           quantileExactInclusiveIf(0.5)(price_manwon, is_cancelled = 0) AS med_price
+                    FROM trade_current WHERE {" AND ".join(base_where)}""",
+                params,
+            )
+            a0 = agg[0]
+            summary = {
+                "count": a0["n"],
+                "cancelled": a0["cancelled"],
+                "medianPpm2": _round(a0["med"]),
+                "medianPrice": None if a0["med_price"] is None or a0["n"] == 0 else round(a0["med_price"]),
+            }
         has_more = len(rows) > limit
         rows = rows[:limit]
         nxt = None
@@ -255,6 +275,7 @@ async def trades(
             nxt = cursor_mod.encode(key, {"d": last["deal_date"].isoformat(), "k": last["trade_id"]}, fp)
         return {
             "items": [_trade(r) for r in rows],
+            "summary": summary,
             "page": {"limit": limit, "nextCursor": nxt},
             "disclaimer": DISCLAIMER,
         }, len(rows)
@@ -351,6 +372,13 @@ async def complex_detail(
                                        ORDER BY deal_date DESC, trade_id DESC LIMIT 20""",
             {"sgg": cx["sgg_cd"], "k": complexKey},
         )
+        history = await _q(
+            request,
+            """SELECT deal_date, toFloat64(area_m2) AS area, floor, price_manwon, ppm2, is_cancelled, is_outlier
+               FROM trade_current WHERE sgg_cd = {sgg:String} AND complex_key = {k:String}
+               ORDER BY deal_date LIMIT 1000""",
+            {"sgg": cx["sgg_cd"], "k": complexKey},
+        )
         return {
             "complex": {
                 "complexKey": cx["complex_key"],
@@ -364,7 +392,20 @@ async def complex_detail(
                 "validTrades": cx["trades"],
             },
             "recentTrades": [_trade(r) for r in recent],
-        }, 1 + len(recent)
+            "history": [
+                [
+                    h["deal_date"].isoformat(),
+                    round(h["area"], 2),
+                    h["floor"],
+                    h["price_manwon"],
+                    round(h["ppm2"], 1),
+                    h["is_cancelled"],
+                    h["is_outlier"],
+                ]
+                for h in history
+            ],
+            "historyFields": ["dealDate", "areaM2", "floor", "priceManwon", "pricePerM2", "cancelled", "outlier"],
+        }, 1 + len(recent) + len(history)
 
     return await respond(request, "complex", {"k": complexKey}, compute)
 
@@ -430,7 +471,7 @@ async def price_index(
                 "window": f"{v['window_from']:%Y-%m}~{v['window_to']:%Y-%m}",
             },
             "disclaimer": "자체 산출 실험 지수이며 공식 통계가 아닙니다. " + DISCLAIMER,
-        }, len(series) + len(ref)
+        }, 0  # 집계 응답
 
     return await respond(request, "index", {"r": regionId, "m": method}, compute)
 
@@ -458,8 +499,12 @@ async def quality_summary(request: Request, p: Principal = require_scope("read")
             ).fetchone()
             failed = await (
                 await c.execute(
-                    """SELECT asset, partition, check_name, severity, blocking, metric, at FROM ops.dq_result
-                   WHERE NOT passed AND at > now() - interval '7 days' ORDER BY at DESC LIMIT 50"""
+                    """SELECT d.asset, d.partition, d.check_name, d.severity, d.blocking, d.metric, d.at,
+                              EXISTS (SELECT 1 FROM ops.dq_result x
+                                      WHERE x.asset = d.asset AND x.partition IS NOT DISTINCT FROM d.partition
+                                        AND x.check_name = d.check_name AND x.at > d.at AND x.passed) AS resolved
+                       FROM ops.dq_result d
+                       WHERE NOT d.passed AND d.at > now() - interval '7 days' ORDER BY d.at DESC LIMIT 200"""
                 )
             ).fetchall()
             budget = await (
@@ -487,6 +532,7 @@ async def quality_summary(request: Request, p: Principal = require_scope("read")
                     "blocking": f["blocking"],
                     "metric": f["metric"],
                     "at": _iso(f["at"]),
+                    "resolved": bool(f["resolved"]),  # 같은 검사가 이후 통과했으면 해결됨
                 }
                 for f in failed
             ],
@@ -513,19 +559,23 @@ async def quality_grid(
     request: Request,
     from_: Annotated[str, Query(alias="from", pattern=YM_Q)],
     to: Annotated[str, Query(pattern=YM_Q)],
+    sido: Annotated[str | None, Query(pattern=r"^\d{2}$", description="시도 2자리 — 지정하면 그 시도 시군구만")] = None,
     p: Principal = require_scope("read"),
 ) -> Response:
     start, end = _ym_to_date(from_), _ym_to_date(to)
-    if end < start or _months_between(start, end) > 60:
-        raise ApiError(422, "RANGE_TOO_LARGE", "Range Too Large", "최대 60개월")
+    # 전국 격자는 칸이 많아(시군구 256 × 월) 60개월까지, 시도 하나는 시군구가 많아야 47개라 240개월까지
+    limit = 240 if sido else 60
+    if end < start or _months_between(start, end) > limit:
+        raise ApiError(422, "RANGE_TOO_LARGE", "Range Too Large", f"최대 {limit}개월")
 
     async def compute():
         async with request.app.state.res.pg.connection() as c:
             rows = await (
                 await c.execute(
                     """SELECT p.sgg_cd, p.deal_ym, p.status, p.rows_last FROM ops.ingest_partition p
-                   WHERE p.deal_ym BETWEEN %s AND %s ORDER BY p.sgg_cd, p.deal_ym""",
-                    (start.strftime("%Y%m"), end.strftime("%Y%m")),
+                   WHERE p.deal_ym BETWEEN %s AND %s AND (%s::text IS NULL OR left(p.sgg_cd, 2) = %s)
+                   ORDER BY p.sgg_cd, p.deal_ym""",
+                    (start.strftime("%Y%m"), end.strftime("%Y%m"), sido, sido),
                 )
             ).fetchall()
         grid: dict[str, dict[str, Any]] = {}
@@ -533,7 +583,35 @@ async def quality_grid(
             grid.setdefault(r["sgg_cd"], {})[r["deal_ym"]] = [r["status"], r["rows_last"]]
         return {"from": from_, "to": to, "cells": grid, "legend": ["status", "rows"]}, 0
 
-    return await respond(request, "quality_grid", {"a": from_, "b": to}, compute, cache=False)
+    return await respond(request, "quality_grid", {"a": from_, "b": to, "s": sido}, compute, cache=False)
+
+
+@router.get("/quality/rollup", summary="시도 × 계약월 수집 완결도 (파티션 상태별 개수)")
+async def quality_rollup(
+    request: Request,
+    from_: Annotated[str, Query(alias="from", pattern=YM_Q)],
+    to: Annotated[str, Query(pattern=YM_Q)],
+    p: Principal = require_scope("read"),
+) -> Response:
+    start, end = _ym_to_date(from_), _ym_to_date(to)
+    if end < start or _months_between(start, end) > 240:
+        raise ApiError(422, "RANGE_TOO_LARGE", "Range Too Large", "최대 240개월")
+
+    async def compute():
+        async with request.app.state.res.pg.connection() as c:
+            rows = await (
+                await c.execute(
+                    """SELECT left(sgg_cd, 2) AS sido, deal_ym, status, count(*) AS n FROM ops.ingest_partition
+                       WHERE deal_ym BETWEEN %s AND %s GROUP BY 1, 2, 3 ORDER BY 1, 2""",
+                    (start.strftime("%Y%m"), end.strftime("%Y%m")),
+                )
+            ).fetchall()
+        cells: dict[str, dict[str, dict[str, int]]] = {}
+        for r in rows:
+            cells.setdefault(r["sido"], {}).setdefault(r["deal_ym"], {})[r["status"]] = r["n"]
+        return {"from": from_, "to": to, "cells": cells}, 0
+
+    return await respond(request, "quality_rollup", {"a": from_, "b": to}, compute, cache=False)
 
 
 @router.get("/quality/partitions/{sggCd}/{dealYm}", summary="파티션 품질 검사 결과·계보")
@@ -616,7 +694,7 @@ async def quality_partition(
 @router.get("/me/usage", summary="내 키(클라이언트) 일별 사용량")
 async def my_usage(
     request: Request, days: Annotated[int, Query(ge=1, le=90)] = 30, p: Principal = require_scope("read")
-) -> ORJSONResponse:
+) -> OrjsonResponse:
     if p.kind != "key":
         raise ApiError(401, "API_KEY_REQUIRED", "Unauthorized", "사용량 조회에는 API 키가 필요합니다.")
     # 필터는 항상 인증된 키의 client_id — 요청 파라미터로 다른 클라이언트를 지정할 방법이 없다
@@ -630,7 +708,7 @@ async def my_usage(
         GROUP BY day ORDER BY day""",
         {"c": p.client_id, "d": days},
     )
-    return ORJSONResponse(
+    return OrjsonResponse(
         {
             "clientId": p.client_id,
             "plan": p.plan.plan_id,
@@ -661,7 +739,7 @@ class ExportRequest(BaseModel):
 
 
 @router.post("/exports", status_code=202, summary="Parquet 내보내기 작업 생성 (bulk 스코프·pro 플랜)")
-async def create_export(request: Request, body: ExportRequest, p: Principal = require_scope("bulk")) -> ORJSONResponse:
+async def create_export(request: Request, body: ExportRequest, p: Principal = require_scope("bulk")) -> OrjsonResponse:
     if not p.plan.allow_bulk:
         raise ApiError(403, "PLAN_NOT_ALLOWED", "Forbidden", "대량 내려받기는 pro 플랜만 가능합니다.")
     if body.to < body.from_ or (body.to - body.from_).days > 366 * 20:
@@ -681,7 +759,7 @@ async def create_export(request: Request, body: ExportRequest, p: Principal = re
                 (p.client_id, p.subject, body.model_dump_json(by_alias=True)),
             )
         ).fetchone()
-    return ORJSONResponse(
+    return OrjsonResponse(
         {"jobId": str(row["job_id"]), "status": "queued"},
         status_code=202,
         headers={**p.limit_headers, "Location": f"/v1/exports/{row['job_id']}"},
@@ -693,7 +771,7 @@ async def get_export(
     request: Request,
     jobId: Annotated[str, Path(pattern=r"^[0-9a-f-]{36}$")],  # noqa: N803
     p: Principal = require_scope("bulk"),
-) -> ORJSONResponse:
+) -> OrjsonResponse:
     async with request.app.state.res.pg.connection() as c:
         job = await (
             await c.execute(
@@ -718,4 +796,4 @@ async def get_export(
         out["expiresInSeconds"] = settings().export_url_ttl_s
     if job["status"] == "failed":
         out["error"] = job["error"]
-    return ORJSONResponse(out, headers=p.limit_headers)
+    return OrjsonResponse(out, headers=p.limit_headers)

@@ -6,8 +6,9 @@ from typing import Any
 
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import ORJSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+from .responses import OrjsonResponse
 
 PROBLEM = "application/problem+json"
 
@@ -35,7 +36,7 @@ def problem(
     detail: str | None = None,
     headers: dict[str, str] | None = None,
     extra: dict[str, Any] | None = None,
-) -> ORJSONResponse:
+) -> OrjsonResponse:
     body: dict[str, Any] = {
         "type": "about:blank",
         "title": title,
@@ -46,23 +47,23 @@ def problem(
     if detail:
         body["detail"] = detail
     body.update(extra or {})
-    return ORJSONResponse(body, status_code=status, headers=headers, media_type=PROBLEM)
+    return OrjsonResponse(body, status_code=status, headers=headers, media_type=PROBLEM)
 
 
-async def api_error_handler(request: Request, exc: ApiError) -> ORJSONResponse:
+async def api_error_handler(request: Request, exc: ApiError) -> OrjsonResponse:
     return problem(request, exc.status, exc.code, exc.title, exc.detail, exc.headers, exc.extra)
 
 
-async def validation_handler(request: Request, exc: RequestValidationError) -> ORJSONResponse:
+async def validation_handler(request: Request, exc: RequestValidationError) -> OrjsonResponse:
     errors = [{"loc": list(e.get("loc", [])), "msg": e.get("msg")} for e in exc.errors()]
     return problem(request, 400, "INVALID_PARAMETER", "Invalid Parameter", extra={"errors": errors})
 
 
-async def http_handler(request: Request, exc: StarletteHTTPException) -> ORJSONResponse:
+async def http_handler(request: Request, exc: StarletteHTTPException) -> OrjsonResponse:
     code = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}.get(exc.status_code, "HTTP_ERROR")
     return problem(request, exc.status_code, code, str(exc.detail))
 
 
-async def unhandled_handler(request: Request, exc: Exception) -> ORJSONResponse:
+async def unhandled_handler(request: Request, exc: Exception) -> OrjsonResponse:
     # 내부 오류 내용은 응답에 싣지 않는다 (traceId 로 로그와 연결)
     return problem(request, 500, "INTERNAL", "Internal Server Error")

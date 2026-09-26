@@ -146,6 +146,16 @@ services:
     restart: unless-stopped
     logging: *logging
 
+  ch-migrate:
+    # 서빙 스키마를 기동 때마다 멱등 적용 (IF NOT EXISTS) — initdb 스크립트는 첫 기동에만 돌기 때문
+    image: clickhouse/clickhouse-server:25.8
+    entrypoint: ["sh", "-c", "clickhouse-client --host clickhouse --user admin --password \"$$CLICKHOUSE_ADMIN_PASSWORD\" --multiquery < /init/01-schema.sql && echo ch schema up to date"]
+    environment:
+      CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
+    volumes: ["./infra/clickhouse/init:/init:ro"]
+    depends_on: { clickhouse: { condition: service_healthy } }
+    restart: "no"
+
   redis:
     image: redis:7.4-alpine
     # ACL: 기본 사용자 끄고, api(한도·캐시·키 캐시)와 pipeline(호출 예산·데이터셋 버전)에 키 접두사·명령 범위를 나눠 준다
@@ -174,9 +184,11 @@ services:
   db-migrate:
     build: { context: ./api }
     image: aptlake-api:local
-    command: ["python", "-m", "aptlake_api.migrate"]
+    command: ["sh", "-c", "python -m aptlake_api.migrate && python -m aptlake_api.provision"]
     environment:
       MIGRATOR_DSN: postgresql://migrator:${MIGRATOR_DB_PASSWORD}@postgres:5432/aptlake
+      WEB_API_KEY: ${WEB_API_KEY:-}
+      API_KEY_PEPPER: ${API_KEY_PEPPER}
     depends_on: { postgres: { condition: service_healthy } }
     restart: "no"
 
@@ -204,7 +216,7 @@ services:
       PROMETHEUS_MULTIPROC_DIR: /tmp/prom
     depends_on:
       db-migrate: { condition: service_completed_successfully }
-      clickhouse: { condition: service_healthy }
+      ch-migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
     ports: ["127.0.0.1:8610:8610"]
     healthcheck:
@@ -242,6 +254,8 @@ services:
   web:
     build: { context: ./web }
     image: aptlake-web:local
+    environment:
+      WEB_API_KEY: ${WEB_API_KEY:-}
     depends_on: { api: { condition: service_healthy } }
     ports: ["127.0.0.1:3610:8080"]
     networks:
@@ -264,6 +278,8 @@ services:
       REDIS_URL: redis://pipeline:${REDIS_PIPELINE_PASSWORD}@redis:6379/0
       DATA_GO_KR_KEY: ${DATA_GO_KR_KEY}
       REB_API_KEY: ${REB_API_KEY}
+      VWORLD_API_KEY: ${VWORLD_API_KEY:-}
+      VWORLD_DOMAIN: ${VWORLD_DOMAIN:-}
       RTMS_DAILY_LIMIT: ${RTMS_DAILY_LIMIT:-10000}
       RTMS_BUDGET_PCT: ${RTMS_BUDGET_PCT:-80}
       BACKFILL_FROM: ${BACKFILL_FROM:-2021-01}

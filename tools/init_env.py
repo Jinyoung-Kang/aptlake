@@ -9,8 +9,14 @@ import stat
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXTERNAL = {"DATA_GO_KR_KEY", "REB_API_KEY"}
+EXTERNAL = {"DATA_GO_KR_KEY", "REB_API_KEY", "VWORLD_API_KEY", "VWORLD_DOMAIN"}
 GENERATED_SUFFIXES = ("_PASSWORD", "_SECRET", "_PEPPER", "_SIGNING_KEY", "_ENCRYPTION_KEY")
+KEY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"  # api/src/aptlake_api/keys.py 와 같은 형식
+
+
+def api_key() -> str:
+    """al_live_<keyId 12자>.<secret 43자> — 웹 프록시(BFF) 전용 키."""
+    return "al_live_" + "".join(secrets.choice(KEY_ALPHABET) for _ in range(12)) + "." + secrets.token_urlsafe(32)
 
 
 def main() -> None:
@@ -27,7 +33,10 @@ def main() -> None:
     for l in lines:
         if "=" in l and not l.startswith("#"):
             k, v = l.split("=", 1)
-            if not v.strip() and k not in EXTERNAL and k.endswith(GENERATED_SUFFIXES):
+            if not v.strip() and k == "WEB_API_KEY":
+                l = f"{k}={api_key()}"
+                filled.append(k)
+            elif not v.strip() and k not in EXTERNAL and k.endswith(GENERATED_SUFFIXES):
                 l = f"{k}={secrets.token_urlsafe(32)}"
                 filled.append(k)
         out.append(l)

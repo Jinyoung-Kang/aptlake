@@ -187,3 +187,214 @@ async def test_rate_limit_returns_429_with_retry_after(apps):
         r = await c.get("/v1/regions")
         assert r.status_code == 429 and int(r.headers["retry-after"]) >= 1
         assert r.headers["x-ratelimit-remaining"] == "0"
+
+
+# ───────────── 웹 BFF 플랜 · 상태 응답 ETag · 시장 요약 · 수집 상태 ─────────────
+
+
+def client_at(app, ip: str) -> httpx.AsyncClient:
+    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=(ip, 1)), base_url="http://t")
+
+
+async def test_web_plan_limits_per_browser_ip(apps, stack):
+    import psycopg
+
+    issued = keys.issue("test-pepper")
+    with psycopg.connect(stack["su"], autocommit=True) as c:
+        cid = c.execute(
+            "INSERT INTO api.client (name, plan_id) VALUES ('web-ui','web') RETURNING client_id"
+        ).fetchone()[0]
+        c.execute(
+            "INSERT INTO api.api_key VALUES (%s,%s,%s,%s, now(), now() + interval '1 day', NULL, NULL)",
+            (issued.key_id, cid, issued.secret_hmac, ["read"]),
+        )
+    h = {"X-API-Key": issued.api_key}
+
+    async def remaining(ip: str) -> int:
+        async with client_at(apps[0], ip) as c:
+            r = await c.get("/v1/regions", headers=h)
+            assert r.status_code == 200 and r.headers["x-ratelimit-limit"] == "300"
+            return int(r.headers["x-ratelimit-remaining"])
+
+    a1, a2, b1 = await remaining("10.20.0.1"), await remaining("10.20.0.1"), await remaining("10.20.0.2")
+    # 서버 쪽 키 하나를 모든 브라우저가 나눠 쓰지만, 한도는 브라우저 IP 마다 따로 센다
+    assert a2 == a1 - 1 and b1 == a1
+
+
+async def test_status_etag_follows_content(apps, stack):
+    import psycopg
+
+    async with client_at(apps[0], "10.30.0.1") as c:
+        r1 = await c.get("/v1/quality/summary")
+        assert r1.status_code == 200 and r1.headers["cache-control"] == "private, no-cache"
+        assert (await c.get("/v1/quality/summary", headers={"If-None-Match": r1.headers["etag"]})).status_code == 304
+        with psycopg.connect(stack["su"], autocommit=True) as pg:
+            pg.execute("INSERT INTO ops.ingest_partition (sgg_cd, deal_ym, status) VALUES ('11110','202401','RETRY')")
+        # 요청이 같아도 내용이 바뀌었으면 304 가 아니라 새 본문
+        r3 = await c.get("/v1/quality/summary", headers={"If-None-Match": r1.headers["etag"]})
+        assert r3.status_code == 200 and r3.headers["etag"] != r1.headers["etag"]
+        assert r3.json()["partitions"]["RETRY"] >= 1
+
+
+async def test_ticker_and_index_use_confirmed_months(apps):
+    async with client_at(apps[0], "10.30.0.2") as c:
+        t = (await c.get("/v1/market/ticker")).json()
+        items = {i["key"]: i for i in t["items"]}
+        assert items["median"]["unit"] == "만원/㎡"
+        assert items["trades"]["label"] == "전국 거래 2024-12" and items["trades"]["value"] == 1070
+        assert items["trades"]["change"] == round((1070 / 1060 - 1) * 100, 2)
+        assert items["index_00"]["label"] == "전국 지수 2024-12" and items["index_00"]["provisional"] is False
+        assert items["index_00"]["change"] == round((123 / 122 - 1) * 100, 2)
+        assert t["available"] == {"from": "2024-01", "to": "2024-12", "default": "2024-12"}
+
+        [s] = (await c.get("/v1/index/summary")).json()["items"]
+        assert s["period"] == s["confirmed"]["period"] == "2024-12"
+        assert s["confirmed"]["yoy"] == round((123 / 111 - 1) * 100, 2)
+
+        o = (await c.get("/v1/market/overview", params={"ym": "2024-12"})).json()
+        assert o["nation"]["trades"] == 1070 and [x["regionId"] for x in o["sido"]] == ["41"]
+        assert o["rankings"]["volume"][0]["sggCd"] == "41135"
+        r = await c.get("/v1/market/overview", params={"ym": "2025-06"})
+        assert r.status_code == 422 and r.json()["code"] == "MONTH_OUT_OF_RANGE"
+
+
+def fake_dagster(now: float):
+    """Dagster GraphQL 가짜 응답: 이후 성공으로 복구된 실패 1건, 아직 실패 중 1건, 대기·실행 중 작업, 오류 난 센서 틱."""
+    import json
+
+    from aptlake_api import ops
+
+    def run(rid, status, created, partition="202407", ended=True):
+        return {
+            "runId": rid,
+            "jobName": "month_pipeline",
+            "status": status,
+            "creationTime": created,
+            "startTime": created + 5 if status != "QUEUED" else None,
+            "endTime": created + 60 if ended else None,
+            "tags": [{"key": "dagster/partition", "value": partition}, {"key": "aptlake/priority", "value": "retry"}],
+        }
+
+    failed = [run("fail-old", "FAILURE", now - 7200), run("fail-new", "FAILURE", now - 600, "202408")]
+    succeeded = [run("ok-1", "SUCCESS", now - 3600)]
+    active = [run("q-1", "QUEUED", now - 30, "202409", False), run("r-1", "STARTED", now - 90, "202410", False)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        q, v = body["query"], body.get("variables") or {}
+        if "logsForRun" in q:
+            data = {
+                "logsForRun": {
+                    "__typename": "EventConnection",
+                    "events": [
+                        {
+                            "__typename": "ExecutionStepFailureEvent",
+                            "timestamp": str(int((now - 550) * 1000)),  # 이벤트 시각은 밀리초
+                            "stepKey": "bronze__rtms",
+                            "error": {
+                                "className": "HTTPError",
+                                "message": f"502 for https://apis.data.go.kr/x?serviceKey=LEAKME ({v['id']})",
+                                "stack": ["  File a.py\n"],
+                                "causes": [],
+                            },
+                        }
+                    ],
+                }
+            }
+        elif "repositoriesOrError" in q:
+            sensor = {
+                "name": "due_partitions_sensor",
+                "minIntervalSeconds": 300,
+                "nextTick": {"timestamp": now + 60},
+                "sensorState": {
+                    "status": "RUNNING",
+                    "ticks": [
+                        {
+                            "status": "FAILURE",
+                            "timestamp": now - 100,
+                            "skipReason": None,
+                            "runIds": [],
+                            "error": {"message": "boom postgresql://pipeline:hunter2@postgres/aptlake"},
+                        }
+                    ],
+                },
+            }
+            data = {"repositoriesOrError": {"nodes": [{"schedules": [], "sensors": [sensor]}]}}
+        else:
+            st = (v.get("f") or {}).get("statuses")
+            rows = {"FAILURE": failed, "SUCCESS": succeeded}.get(st[0] if st and len(st) == 1 else "")
+            if rows is None:
+                rows = active if st else failed + succeeded
+            data = {"runsOrError": {"__typename": "Runs", "results": rows}}
+        return httpx.Response(200, json={"data": data})
+
+    return ops.DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+
+async def test_ops_status_and_error_log(apps):
+    import json
+    import time
+
+    public = apps[0]
+    real = public.state.dagster
+    public.state.dagster = fake_dagster(time.time())
+    try:
+        async with client_at(public, "10.40.0.1") as c:
+            s = (await c.get("/v1/ops/status")).json()
+            assert s["pipeline"]["available"] is True
+            assert {j["runId"]: j["status"] for j in s["jobs"]["active"]} == {"q-1": "QUEUED", "r-1": "STARTED"}
+            [sensor] = s["schedules"]
+            assert sensor["lastTick"]["status"] == "FAILURE" and "hunter2" not in json.dumps(s)
+
+            e = (await c.get("/v1/ops/errors", params={"hours": 24})).json()
+            pipe = [x for x in e["entries"] if x["source"] == "pipeline"]
+            # 같은 작업·파티션이 나중에 성공한 실패(fail-old)는 기본으로 숨긴다
+            assert {x["ref"] for x in pipe if x["ref"]} == {"fail-new"}
+            [run_err] = [x for x in pipe if x["ref"] == "fail-new"]
+            assert run_err["where"] == "월 수집·반영·발행 · 202408 · bronze__rtms"
+            assert run_err["at"].startswith(time.strftime("%Y-%m-%d", time.gmtime(time.time() - 550)))
+            assert any(x["id"].startswith("tick:") for x in pipe)
+            assert "LEAKME" not in json.dumps(e) and "hunter2" not in json.dumps(e)
+
+            e2 = (await c.get("/v1/ops/errors", params={"hours": 24, "includeResolved": "true"})).json()
+            flags = {x["ref"]: x["resolved"] for x in e2["entries"] if x["source"] == "pipeline" and x["ref"]}
+            assert flags == {"fail-old": True, "fail-new": False}
+    finally:
+        await public.state.dagster.aclose()
+        public.state.dagster = real
+
+
+async def test_ops_status_survives_dagster_down(apps):
+    from aptlake_api import ops
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused")
+
+    public = apps[0]
+    real = public.state.dagster
+    public.state.dagster = ops.DagsterClient(
+        "http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(down))
+    )
+    try:
+        async with client_at(public, "10.40.0.2") as c:
+            r = await c.get("/v1/ops/status")
+            assert r.status_code == 200 and r.json()["pipeline"]["available"] is False
+            assert r.json()["summary"]["totalPartitions"] >= 0  # 운영 DB 부분은 그대로
+            r = await c.get("/v1/ops/errors", params={"hours": 24})
+            assert r.status_code == 200 and r.json()["notes"]
+    finally:
+        await public.state.dagster.aclose()
+        public.state.dagster = real
+
+
+async def test_quality_grid_range_depends_on_scope(apps, stack):
+    import psycopg
+
+    with psycopg.connect(stack["su"], autocommit=True) as pg:
+        pg.execute("INSERT INTO ops.ingest_partition (sgg_cd, deal_ym, status) VALUES ('11110','202402','MERGED')")
+    async with client_at(apps[0], "10.30.0.3") as c:
+        q = {"from": "2020-10", "to": "2026-09"}  # 72개월 (품질 화면의 기본 범위)
+        r = await c.get("/v1/quality/partitions", params=q)
+        assert r.status_code == 422 and r.json()["detail"] == "최대 60개월"  # 전국 격자는 칸 수 제한
+        r = await c.get("/v1/quality/partitions", params={**q, "sido": "11"})
+        assert r.status_code == 200 and r.json()["cells"]["11110"]["202402"][0] == "MERGED"

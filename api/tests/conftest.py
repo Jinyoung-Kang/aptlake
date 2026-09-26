@@ -102,6 +102,63 @@ def _seed_clickhouse(c) -> None:
             "dataset_ver",
         ],
     )
+    # 전국('00')·시도('41') 월 집계 — 전국은 시군구 합보다 크게 (다른 시군구가 있다고 가정)
+    roll = [
+        [
+            rid,
+            level,
+            dt.date(2024, m, 1),
+            (100 + m) * k,
+            (95 + m) * k,
+            5 * k,
+            90 * k,
+            1,
+            1200.0,
+            1500.0 + m,
+            1800.0,
+            0,
+            "gold@test.1",
+        ]
+        for rid, level, k in (("00", "nation", 10), ("41", "sido", 4))
+        for m in range(1, 13)
+    ]
+    c.insert(
+        "rollup_month",
+        roll,
+        column_names=[
+            "region_id",
+            "level",
+            "month",
+            "reported",
+            "trades",
+            "cancelled",
+            "priced",
+            "outliers",
+            "p25_ppm2",
+            "median_ppm2",
+            "p75_ppm2",
+            "low_sample",
+            "dataset_ver",
+        ],
+    )
+    # 자체 지수: 2023-01 = 100 부터 매달 +1
+    c.insert(
+        "price_index",
+        [
+            [
+                "00",
+                "HEDONIC_TD_v1",
+                dt.date(2023 + i // 12, i % 12 + 1, 1),
+                100.0 + i,
+                99.0 + i,
+                101.0 + i,
+                1000,
+                "test",
+            ]
+            for i in range(24)
+        ],
+        column_names=["region_id", "method", "period", "index_value", "ci_low", "ci_high", "n_obs", "model_ver"],
+    )
     trades = []
     ts = dt.datetime(2024, 8, 1, tzinfo=dt.UTC)
     for i in range(250):

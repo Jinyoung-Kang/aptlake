@@ -17,11 +17,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import ORJSONResponse
 from prometheus_client import REGISTRY, CollectorRegistry, Counter, Histogram, multiprocess, start_http_server
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import exports, routes_admin, routes_public
+from . import exports, ops, routes_admin, routes_market, routes_ops, routes_public
 from .auth import _SLIDING, load_plans
 from .deps import DatasetVersion, assert_all_routes_scoped
 from .errors import ApiError, api_error_handler, http_handler, unhandled_handler, validation_handler
@@ -61,6 +62,8 @@ def _build(name: str, internal: bool) -> FastAPI:
         app.state.plans = await load_plans(res)
         app.state.sliding = res.redis.register_script(_SLIDING)
         app.state.dsv = DatasetVersion()
+        app.state.dagster = ops.DagsterClient(s.dagster_graphql_url)
+        app.state.geo_cache = {}
         app.state.usage = UsageRecorder(res.ch_usage, s.usage_flush_interval_s, s.usage_flush_max)
         app.state.usage.start()
         worker = exports.start(res) if internal else None
@@ -80,6 +83,7 @@ def _build(name: str, internal: bool) -> FastAPI:
         if worker:
             await exports.stop(worker)
         await app.state.usage.stop()
+        await app.state.dagster.aclose()
         await close_resources(res)
 
     app = FastAPI(
@@ -158,6 +162,10 @@ def _build(name: str, internal: bool) -> FastAPI:
         app.include_router(routes_admin.router)
     else:
         app.include_router(routes_public.router)
+        app.include_router(routes_market.router)
+        app.include_router(routes_ops.router)
+    # 큰 응답(경계 GeoJSON·수집 상태)은 압축. 비밀값이 섞이지 않는 응답이라 압축 부채널(BREACH) 우려 없음
+    app.add_middleware(GZipMiddleware, minimum_size=2048)
     assert_all_routes_scoped(app)
     return app
 

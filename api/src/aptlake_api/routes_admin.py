@@ -7,13 +7,13 @@ from typing import Annotated, Literal
 
 import orjson
 from fastapi import APIRouter, Path, Request
-from fastapi.responses import ORJSONResponse
 from pydantic import BaseModel, Field
 
 from . import keys
 from .auth import Principal, client_ip, forget_key
 from .deps import require_scope
 from .errors import ApiError
+from .responses import OrjsonResponse
 from .settings import settings
 
 router = APIRouter(prefix="/v1/admin")
@@ -34,7 +34,7 @@ class ClientIn(BaseModel):
 
 
 @router.post("/clients", status_code=201)
-async def create_client(request: Request, body: ClientIn, p: Principal = require_scope("admin")) -> ORJSONResponse:
+async def create_client(request: Request, body: ClientIn, p: Principal = require_scope("admin")) -> OrjsonResponse:
     async with request.app.state.res.pg.connection() as c:
         row = await (
             await c.execute(
@@ -43,7 +43,7 @@ async def create_client(request: Request, body: ClientIn, p: Principal = require
             )
         ).fetchone()
     await audit(request, p, "client.create", str(row["client_id"]), {"plan": body.planId})
-    return ORJSONResponse(
+    return OrjsonResponse(
         {"clientId": str(row["client_id"]), "name": body.name, "planId": body.planId}, status_code=201
     )
 
@@ -59,7 +59,7 @@ async def create_key(
     clientId: Annotated[str, Path(pattern=r"^[0-9a-f-]{36}$")],  # noqa: N803
     body: KeyIn,
     p: Principal = require_scope("admin"),
-) -> ORJSONResponse:
+) -> OrjsonResponse:
     issued = keys.issue(settings().api_key_pepper.get_secret_value())
     expires = dt.datetime.now(tz=dt.UTC) + dt.timedelta(days=body.expiresInDays)
     async with request.app.state.res.pg.connection() as c:
@@ -72,7 +72,7 @@ async def create_key(
             (issued.key_id, clientId, issued.secret_hmac, sorted(set(body.scopes)), expires),
         )
     await audit(request, p, "key.create", issued.key_id, {"client": clientId, "scopes": body.scopes})
-    return ORJSONResponse(
+    return OrjsonResponse(
         {
             "keyId": issued.key_id,
             "apiKey": issued.api_key,
@@ -90,7 +90,7 @@ async def revoke_key(
     request: Request,
     keyId: Annotated[str, Path(pattern=r"^[2-9A-HJ-NP-Z]{12}$")],  # noqa: N803
     p: Principal = require_scope("admin"),
-) -> ORJSONResponse:
+) -> OrjsonResponse:
     async with request.app.state.res.pg.connection() as c:
         row = await (
             await c.execute(
@@ -103,7 +103,7 @@ async def revoke_key(
     await request.app.state.res.redis.delete(f"al:key:{keyId}")
     forget_key(keyId)  # 캐시 즉시 무효화 (다른 인스턴스는 TTL ≤ 30초)
     await audit(request, p, "key.revoke", keyId)
-    return ORJSONResponse({"keyId": keyId, "revoked": True})
+    return OrjsonResponse({"keyId": keyId, "revoked": True})
 
 
 @router.post("/partitions/{sggCd}/{dealYm}/retry", status_code=202)
@@ -112,7 +112,7 @@ async def retry_partition(
     sggCd: Annotated[str, Path(pattern=r"^\d{5}$")],  # noqa: N803
     dealYm: Annotated[str, Path(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],  # noqa: N803
     p: Principal = require_scope("admin"),
-) -> ORJSONResponse:
+) -> OrjsonResponse:
     ym = dealYm.replace("-", "")
     async with request.app.state.res.pg.connection() as c:
         row = await (
@@ -128,7 +128,7 @@ async def retry_partition(
             409, "PARTITION_NOT_QUARANTINED", "Conflict", "격리·재시도 상태의 파티션만 재시도할 수 있습니다."
         )
     await audit(request, p, "partition.retry", f"{sggCd}/{ym}")
-    return ORJSONResponse(
+    return OrjsonResponse(
         {
             "partition": f"{sggCd}/{dealYm}",
             "status": "RETRY",
