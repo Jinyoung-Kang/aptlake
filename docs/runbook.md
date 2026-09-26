@@ -26,6 +26,19 @@ curl -X POST -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/partitions/41
 - 같은 내용 API: `GET /v1/ops/status`, `GET /v1/ops/errors?hours=168&source=pipeline&includeResolved=true`
 - Dagster 가 꺼져 있으면(`make serve`) 파이프라인 부분만 '연결 안 됨'으로 나오고 나머지(운영 DB·API 오류)는 그대로 보인다.
 
+## 화면에 오류가 뜰 때 (먼저 API 연결 테스트)
+1. 웹 **수집 상태 → API 연결 테스트 → 테스트 실행**. 어느 구성요소가 실패·지연인지, 서빙 DB 메모리가 상한에 가까운지 바로 보인다. [결과 복사]로 공유.
+2. `UPSTREAM_UNAVAILABLE`(503) 은 일시 장애 — 화면이 2번 자동 재시도한다. 계속되면 해당 컨테이너 상태 확인:
+```bash
+docker compose ps
+docker stats --no-stream
+```
+3. `INTERNAL`(500) 은 버그 — 화면에 나온 추적 ID 로 로그를 찾는다:
+```bash
+docker compose logs api | grep <추적 ID 앞 12자>
+```
+4. ClickHouse 메모리가 상한 근처면: `docker compose exec clickhouse clickhouse-client -q "SELECT database, table, elapsed, formatReadableSize(memory_usage) FROM system.merges"` 로 무거운 병합이 도는지 본다 (ADR-028).
+
 ## 웹 전용 키(BFF) 순환
 - `.env` 의 `WEB_API_KEY` 값을 지우고 `make init` → 새 키 생성. `docker compose up -d db-migrate web` → 새 키 등록, 이전 키 폐기(감사 로그 `web_key.ensure`).
 - 웹 키는 nginx 컨테이너 환경 변수에만 있고 브라우저·번들에는 없다.
