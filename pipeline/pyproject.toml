@@ -22,6 +22,7 @@ dependencies = [
     "scipy>=1.14",
     # SQLAlchemy 2.1 + psycopg3 조합에서 dagster-postgres 의 NOTIFY 가 서버측 바인딩으로 실패 (2026-09 확인) → 2.0 고정
     "sqlalchemy>=2.0,<2.1",
+    "shapely>=2.0",
 ]
 
 [dependency-groups]
@@ -46,7 +47,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "S", "SIM"]
-ignore = ["S101", "S608"]
+ignore = ["S101", "S608", "E501"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S"]

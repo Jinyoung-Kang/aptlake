@@ -58,6 +58,25 @@ models:
         data_tests:
           - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
 
+  - name: region_rollup_month
+    description: 시도·전국 × 계약월 통계 (거래 단위에서 다시 계산한 정확 분위수)
+    data_tests:
+      - unique_combination:
+          arguments: { columns: [region_id, deal_ym] }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "trades + cancelled = reported" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "low_sample or (p25_ppm2 <= median_ppm2 and median_ppm2 <= p75_ppm2)" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+    columns:
+      - name: level
+        data_tests:
+          - accepted_values:
+              arguments: { values: ["nation", "sido"] }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+
   - name: trade_version
     description: 거래 버전 이력 (SCD2)
     data_tests:

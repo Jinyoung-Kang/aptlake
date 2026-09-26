@@ -23,6 +23,8 @@ def _env(name: str, default: str | None = None) -> str:
 class Settings:
     data_go_kr_key: Secret = field(repr=False)
     reb_api_key: Secret = field(repr=False)
+    vworld_api_key: Secret = field(repr=False)
+    vworld_domain: str
     pg_dsn: Secret = field(repr=False)
     redis_url: Secret = field(repr=False)
     catalog_uri: str
@@ -52,6 +54,8 @@ def settings() -> Settings:
     return Settings(
         data_go_kr_key=Secret(_env("DATA_GO_KR_KEY", "")),
         reb_api_key=Secret(_env("REB_API_KEY", "")),
+        vworld_api_key=Secret(_env("VWORLD_API_KEY", "")),
+        vworld_domain=_env("VWORLD_DOMAIN", ""),
         pg_dsn=Secret(_env("PG_DSN")),
         redis_url=Secret(_env("REDIS_URL")),
         catalog_uri=_env("CATALOG_URI", "http://lakekeeper:8181/catalog"),

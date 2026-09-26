@@ -117,6 +117,15 @@ class Budget:
         pipe.hset(key, mapping={"used": max(used, self.cap), "exhausted_by_source": reason[:120]})
         pipe.expire(key, 3 * 86400)
         pipe.execute()
+        with psycopg.connect(self.pg_dsn) as c:
+            c.execute(
+                """INSERT INTO ops.api_budget (day, source, limit_calls, used_calls, exhausted_reason, exhausted_at)
+                   VALUES (%s, %s, %s, %s, %s, now())
+                   ON CONFLICT (day, source) DO UPDATE SET
+                     used_calls = GREATEST(ops.api_budget.used_calls, EXCLUDED.used_calls),
+                     exhausted_reason = EXCLUDED.exhausted_reason, exhausted_at = EXCLUDED.exhausted_at""",
+                (day, self.source, self.daily_limit, max(used, self.cap), reason[:200]),
+            )
 
     def snapshot(self, day: dt.date | None = None) -> dict[str, int]:
         day = day or kst_today()

@@ -27,6 +27,23 @@ CREATE TABLE IF NOT EXISTS aptlake.region_month
     dataset_ver  LowCardinality(String)
 ) ENGINE = MergeTree PARTITION BY toYYYYMM(month) ORDER BY (sgg_cd, month);
 
+CREATE TABLE IF NOT EXISTS aptlake.rollup_month
+(
+    region_id    LowCardinality(String),   -- 시도 2자리, 전국 '00'
+    level        LowCardinality(String),   -- 'sido' | 'nation'
+    month        Date,
+    reported     UInt32,
+    trades       UInt32,
+    cancelled    UInt32,
+    priced       UInt32,
+    outliers     UInt32,
+    p25_ppm2     Nullable(Float64),
+    median_ppm2  Nullable(Float64),
+    p75_ppm2     Nullable(Float64),
+    low_sample   UInt8,
+    dataset_ver  LowCardinality(String)
+) ENGINE = MergeTree PARTITION BY toYYYYMM(month) ORDER BY (region_id, month);
+
 CREATE TABLE IF NOT EXISTS aptlake.trade_current
 (
     trade_id         String,
@@ -133,5 +150,6 @@ CREATE TABLE IF NOT EXISTS aptlake.usage_event
 
 -- 발행 스테이징 (같은 구조)
 CREATE TABLE IF NOT EXISTS aptlake.region_month_staging  AS aptlake.region_month;
+CREATE TABLE IF NOT EXISTS aptlake.rollup_month_staging  AS aptlake.rollup_month;
 CREATE TABLE IF NOT EXISTS aptlake.trade_current_staging AS aptlake.trade_current;
 CREATE TABLE IF NOT EXISTS aptlake.trade_version_staging AS aptlake.trade_version;

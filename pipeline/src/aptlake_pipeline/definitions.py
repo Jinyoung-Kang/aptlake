@@ -102,6 +102,57 @@ def region_asset(context: AssetExecutionContext) -> MaterializeResult:
     return MaterializeResult(metadata=stats)
 
 
+@asset(
+    key=AssetKey(["silver", "region_boundary"]),
+    group_name="silver",
+    deps=[AssetKey(["silver", "region"])],
+    check_specs=[AssetCheckSpec("boundary_matches_official_regions", asset=AssetKey(["silver", "region_boundary"]))],
+    description="V-World 시군구 경계 → 공식 시군구 목록과 코드·이름 대조 → 위상 보존 단순화 (지도용)",
+)
+def region_boundary(context: AssetExecutionContext):
+    from . import boundary
+
+    r = boundary.refresh()
+    ok = not (r.unmatched_source or r.missing_official or r.name_mismatch)
+    metric = {
+        "matched": r.matched,
+        "unmatched_source": r.unmatched_source,
+        "missing_official": r.missing_official,
+        "name_mismatch": {k: list(v) for k, v in r.name_mismatch.items()},
+    }
+    ops_db.record_dq(
+        "silver.region_boundary",
+        None,
+        "boundary_matches_official_regions",
+        ok,
+        severity="WARN",
+        metric=metric,
+        run_id=context.run_id,
+    )
+    yield AssetCheckResult(
+        check_name="boundary_matches_official_regions",
+        passed=ok,
+        metadata={
+            "matched": r.matched,
+            "problems": json.dumps({k: v for k, v in metric.items() if k != "matched"}, ensure_ascii=False)[:2000],
+        },
+        severity=AssetCheckSeverity.WARN,
+    )
+    yield Output(
+        None,
+        metadata={
+            "matched": r.matched,
+            "raw_bytes": r.raw_bytes,
+            "raw_sha256": r.raw_sha256,
+            "simplified_bytes": r.out_bytes,
+            "area_rel_error_median": round(r.area_err_median, 5),
+            "area_rel_error_max": round(r.area_err_max, 5),
+            "neighbor_overlap_pct": r.overlap_pct,
+            "neighbor_gap_pct": r.gap_pct,
+        },
+    )
+
+
 # ───────────────────────── Bronze ─────────────────────────
 
 
@@ -304,7 +355,7 @@ class Translator(DagsterDbtTranslator):
 
 @dbt_assets(
     manifest=dbt_project.manifest_path,
-    select="trade_serving region_month trade_version",
+    select="trade_serving region_month region_rollup_month trade_version",
     partitions_def=monthly,
     dagster_dbt_translator=Translator(),
     name="gold_monthly",
@@ -336,7 +387,12 @@ def gold_dimensions(context: AssetExecutionContext, dbt: DbtCliResource):
     group_name="serving",
     partitions_def=monthly,
     pool="publish",
-    deps=[AssetKey(["gold", "region_month"]), AssetKey(["gold", "trade_serving"]), AssetKey(["gold", "trade_version"])],
+    deps=[
+        AssetKey(["gold", "region_month"]),
+        AssetKey(["gold", "region_rollup_month"]),
+        AssetKey(["gold", "trade_serving"]),
+        AssetKey(["gold", "trade_version"]),
+    ],
     description="gold 월 파티션 → ClickHouse 스테이징 → 대조 → REPLACE PARTITION, 데이터셋 버전 증가",
 )
 def clickhouse_month(context: AssetExecutionContext) -> MaterializeResult:
@@ -418,7 +474,10 @@ dims_and_index = define_asset_job(
         AssetKey(["gold", "price_index"]),
     ),
 )
-regions_job = define_asset_job("refresh_regions", selection=AssetSelection.keys(AssetKey(["silver", "region"])))
+regions_job = define_asset_job(
+    "refresh_regions",
+    selection=AssetSelection.keys(AssetKey(["silver", "region"]), AssetKey(["silver", "region_boundary"])),
+)
 maintenance_job = define_asset_job(
     "iceberg_maintenance", selection=AssetSelection.keys(AssetKey(["ops", "iceberg_maintenance"]))
 )
@@ -561,6 +620,7 @@ silver_complex_spec = AssetSpec(
 defs = Definitions(
     assets=[
         silver_complex_spec,
+        region_boundary,
         region_asset,
         bronze_rtms,
         silver_apt_trade,

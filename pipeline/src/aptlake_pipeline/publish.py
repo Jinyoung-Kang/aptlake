@@ -82,7 +82,12 @@ def _replace_partition(
 
 
 def _part_col(table: str) -> str:
-    return {"region_month": "month", "trade_current": "deal_date", "trade_version": "deal_date"}[table]
+    return {
+        "region_month": "month",
+        "rollup_month": "month",
+        "trade_current": "deal_date",
+        "trade_version": "deal_date",
+    }[table]
 
 
 def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
@@ -118,6 +123,38 @@ def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
         ],
         {"n": "count()", "trades": "sum(trades)", "cancelled": "sum(cancelled)"},
         {"n": len(rm), "trades": sum(r[3] for r in rm), "cancelled": sum(r[4] for r in rm)},
+    )
+
+    ru = _rows(
+        f"""SELECT region_id, level, deal_ym, reported, trades, cancelled, priced, outliers,
+                   p25_ppm2, median_ppm2, p75_ppm2, low_sample
+            FROM lake.gold.region_rollup_month WHERE deal_ym = '{deal_ym}'"""
+    )
+    counts["rollup_month"] = _replace_partition(
+        client,
+        "rollup_month",
+        deal_ym,
+        [
+            [r[0], r[1], _month_date(r[2]), r[3], r[4], r[5], r[6], r[7], r[8], r[9], r[10], int(r[11]), dataset_ver]
+            for r in ru
+        ],
+        [
+            "region_id",
+            "level",
+            "month",
+            "reported",
+            "trades",
+            "cancelled",
+            "priced",
+            "outliers",
+            "p25_ppm2",
+            "median_ppm2",
+            "p75_ppm2",
+            "low_sample",
+            "dataset_ver",
+        ],
+        {"n": "count()", "trades": "sum(trades)"},
+        {"n": len(ru), "trades": sum(r[4] for r in ru)},
     )
 
     ts = _rows(f"""SELECT trade_id, sgg_cd, deal_date, complex_key, apt_nm, umd_nm, coalesce(jibun, ''), area_m2,
