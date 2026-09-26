@@ -18,15 +18,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import ORJSONResponse
 from prometheus_client import REGISTRY, CollectorRegistry, Counter, Histogram, multiprocess, start_http_server
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import exports, ops, routes_admin, routes_market, routes_ops, routes_public
 from .auth import _SLIDING, load_plans
 from .deps import DatasetVersion, assert_all_routes_scoped
-from .errors import ApiError, api_error_handler, http_handler, unhandled_handler, validation_handler
+from .errors import TRANSIENT_HANDLERS, ApiError, api_error_handler, http_handler, unhandled_handler, validation_handler
 from .resources import close_resources, open_resources
+from .responses import OrjsonResponse
 from .settings import settings
 from .usage import UsageRecorder
 
@@ -93,13 +93,15 @@ def _build(name: str, internal: bool) -> FastAPI:
         "인증: `X-API-Key: al_live_<keyId>.<secret>` (없으면 anonymous 플랜). "
         "오류는 RFC 9457 Problem Details.",
         lifespan=lifespan,
-        default_response_class=ORJSONResponse,
+        default_response_class=OrjsonResponse,
         docs_url="/docs",
         redoc_url=None,
     )
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(RequestValidationError, validation_handler)  # type: ignore[arg-type]
     app.add_exception_handler(StarletteHTTPException, http_handler)  # type: ignore[arg-type]
+    for exc_type, handler in TRANSIENT_HANDLERS:  # DB·캐시 일시 장애 → 503 + Retry-After (500 은 버그에만)
+        app.add_exception_handler(exc_type, handler)
     app.add_exception_handler(Exception, unhandled_handler)
 
     @app.middleware("http")
@@ -142,7 +144,7 @@ def _build(name: str, internal: bool) -> FastAPI:
         return {"status": "ok"}
 
     @app.get("/readyz", include_in_schema=False)
-    async def readyz(request: Request) -> ORJSONResponse:
+    async def readyz(request: Request) -> OrjsonResponse:
         res = request.app.state.res
         checks = {}
         try:
@@ -156,7 +158,7 @@ def _build(name: str, internal: bool) -> FastAPI:
         except Exception:  # noqa: BLE001
             checks["clickhouse"] = "fail"
         ok = all(v == "ok" for v in checks.values())
-        return ORJSONResponse({"status": "ok" if ok else "degraded", **checks}, status_code=200 if ok else 503)
+        return OrjsonResponse({"status": "ok" if ok else "degraded", **checks}, status_code=200 if ok else 503)
 
     if internal:
         app.include_router(routes_admin.router)

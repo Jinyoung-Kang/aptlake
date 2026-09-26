@@ -49,6 +49,9 @@
             <quota>default</quota>
             <grants>
                 <query>GRANT SELECT ON aptlake.*</query>
+                <!-- 연결 점검 화면의 '서빙 DB 메모리 사용 / 상한' 표시용 — 두 시스템 표의 두 열만 -->
+                <query>GRANT SELECT(metric, value) ON system.metrics</query>
+                <query>GRANT SELECT(name, value) ON system.server_settings</query>
             </grants>
         </api_reader>
         <exporter>

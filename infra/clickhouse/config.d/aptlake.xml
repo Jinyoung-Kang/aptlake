@@ -1,11 +1,57 @@
 <clickhouse>
     <!-- NFR-07: 로컬 맥 메모리 상한. 컨테이너 한도(1.5GB)보다 낮게 둔다 -->
     <max_server_memory_usage>1200000000</max_server_memory_usage>
-    <mark_cache_size>268435456</mark_cache_size>
     <uncompressed_cache_size>0</uncompressed_cache_size>
     <logger><level>warning</level><console>1</console></logger>
-    <!-- 로그 성격 시스템 테이블은 짧게 유지 -->
+
+    <!--
+      서빙 데이터는 수백 MB 라 캐시·스레드 풀 기본값(수 GB 캐시, 스케줄 풀 512개 스레드)이 과하다.
+      기본값 그대로 두었을 때 한가한 상태에서도 스레드 1,593개·RSS 1.3GB 로 서버 메모리 상한에 닿아
+      API 질의가 MEMORY_LIMIT_EXCEEDED 로 거부됐다 (2026-09-26). 데이터 크기에 맞게 줄인다.
+    -->
+    <mark_cache_size>67108864</mark_cache_size>
+    <index_mark_cache_size>16777216</index_mark_cache_size>
+    <primary_index_cache_size>33554432</primary_index_cache_size>
+    <skipping_index_cache_size>16777216</skipping_index_cache_size>
+    <compiled_expression_cache_size>16777216</compiled_expression_cache_size>
+    <query_condition_cache_size>16777216</query_condition_cache_size>
+
+    <max_thread_pool_size>1000</max_thread_pool_size>
+    <!-- 병합 스레드 8개. 비율(대기 작업 수)은 merge_tree 기본 검사값(변경 20·전체 최적화 25)을 만족하도록 ×4 = 32 -->
+    <background_pool_size>8</background_pool_size>
+    <background_merges_mutations_concurrency_ratio>4</background_merges_mutations_concurrency_ratio>
+    <background_schedule_pool_size>16</background_schedule_pool_size>
+    <background_common_pool_size>4</background_common_pool_size>
+    <background_move_pool_size>2</background_move_pool_size>
+    <background_fetches_pool_size>2</background_fetches_pool_size>
+    <background_buffer_flush_schedule_pool_size>2</background_buffer_flush_schedule_pool_size>
+    <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
+    <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
+
+    <!--
+      진단용 시스템 로그는 끈다: 기본값은 스택 샘플(trace_log)·서버 로그(text_log, trace 수준)·
+      1초 단위 지표(metric_log, asynchronous_metric_log)를 계속 쓰고 병합해 한가할 때도 CPU·메모리를 쓴다
+      (측정: trace_log 477만 행, asynchronous_metric_log 3,541만 행). 성능 측정에 쓰는 query_log 만 7일 유지.
+    -->
     <query_log><database>system</database><table>query_log</table><ttl>event_date + INTERVAL 7 DAY DELETE</ttl></query_log>
+    <trace_log remove="1"/>
+    <text_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <query_metric_log remove="1"/>
+    <processors_profile_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <query_views_log remove="1"/>
+    <part_log remove="1"/>
+    <session_log remove="1"/>
+    <opentelemetry_span_log remove="1"/>
+    <latency_log remove="1"/>
+    <error_log remove="1"/>
+    <asynchronous_insert_log remove="1"/>
+    <backup_log remove="1"/>
+    <s3queue_log remove="1"/>
+    <blob_storage_log remove="1"/>
+
     <prometheus>
         <endpoint>/metrics</endpoint><port>9363</port>
         <metrics>true</metrics><events>true</events><asynchronous_metrics>true</asynchronous_metrics>

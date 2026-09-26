@@ -282,7 +282,9 @@ def fake_dagster(now: float):
     def handler(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         q, v = body["query"], body.get("variables") or {}
-        if "logsForRun" in q:
+        if q.strip() == "{ version }":
+            data = {"version": "test"}
+        elif "logsForRun" in q:
             data = {
                 "logsForRun": {
                     "__typename": "EventConnection",
@@ -398,3 +400,50 @@ async def test_quality_grid_range_depends_on_scope(apps, stack):
         assert r.status_code == 422 and r.json()["detail"] == "최대 60개월"  # 전국 격자는 칸 수 제한
         r = await c.get("/v1/quality/partitions", params={**q, "sido": "11"})
         assert r.status_code == 200 and r.json()["cells"]["11110"]["202402"][0] == "MERGED"
+
+
+async def test_transient_db_errors_are_503_not_500(apps, monkeypatch):
+    from clickhouse_connect.driver.exceptions import DatabaseError
+
+    res = apps[0].state.res
+
+    async def overloaded(*a, **k):
+        raise DatabaseError("Code: 241. DB::Exception: (total) memory limit exceeded: would use 923.73 MiB")
+
+    async def broken(*a, **k):
+        raise DatabaseError("Code: 62. DB::Exception: Syntax error")
+
+    async with client_at(apps[0], "10.50.0.1") as c:
+        monkeypatch.setattr(res.ch, "query", overloaded)
+        r = await c.get("/v1/search", params={"q": "과부하"})
+        assert r.status_code == 503 and r.headers["retry-after"] == "2"
+        body = r.json()
+        assert (
+            body["code"] == "UPSTREAM_UNAVAILABLE" and body["retryable"] is True and "ClickHouse" in body["component"]
+        )
+        assert "923" not in r.text  # 내부 메시지는 응답에 싣지 않는다
+        monkeypatch.setattr(res.ch, "query", broken)
+        r = await c.get("/v1/search", params={"q": "문법오류"})
+        assert r.status_code == 500 and r.json()["code"] == "INTERNAL"  # 버그는 여전히 500
+
+
+async def test_connectivity_check(apps):
+    import time
+
+    public = apps[0]
+    real = public.state.dagster
+    public.state.dagster = fake_dagster(time.time())
+    try:
+        async with client_at(public, "10.50.0.2") as c:
+            body = (await c.get("/v1/ops/connectivity")).json()
+        assert body["ok"] is True
+        got = {i["key"]: i for i in body["items"]}
+        assert set(got) == {"postgres", "redis", "clickhouse", "dagster"}
+        assert all(i["ok"] and i["latencyMs"] is not None for i in got.values())
+        assert got["clickhouse"]["note"].startswith(
+            "최근 계약월 2024-12 · 메모리 "
+        )  # api_reader 는 두 시스템 열만 읽을 수 있다
+        assert {s["key"] for s in body["sources"]} == {"rtms", "vworld"}  # 외부 원천은 호출하지 않고 기록으로
+    finally:
+        await public.state.dagster.aclose()
+        public.state.dagster = real

@@ -214,6 +214,8 @@ services:
       # X-Forwarded-For 는 웹(nginx) 컨테이너 고정 IP 에서 온 요청에서만 믿는다
       TRUSTED_PROXIES: 172.30.61.250/32
       PROMETHEUS_MULTIPROC_DIR: /tmp/prom
+      # 수집 상태 화면의 '오늘 호출 상한' 표시 — 파이프라인과 같은 값
+      RTMS_BUDGET_PCT: ${RTMS_BUDGET_PCT:-80}
     depends_on:
       db-migrate: { condition: service_completed_successfully }
       ch-migrate: { condition: service_completed_successfully }

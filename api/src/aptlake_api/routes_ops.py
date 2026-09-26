@@ -115,7 +115,7 @@ async def status(request: Request, p: Principal = require_scope("read")) -> Resp
                                     ORDER BY published_at DESC LIMIT 1""",
         )
         daily_limit = int(budget[0]["limit_calls"]) if budget else 10000
-        cap = daily_limit * 80 // 100
+        cap = daily_limit * settings().rtms_budget_pct // 100
         remaining_calls = counts.get("PENDING", 0) + counts.get("RETRY", 0)
         b = budget[0] if budget else None
         return {
@@ -360,3 +360,140 @@ async def errors(
 
 def dagster_url() -> str:
     return settings().dagster_graphql_url
+
+
+# ───────────────────────── API 연결 점검 ─────────────────────────
+
+CHECK_TIMEOUT_S = 2.0
+
+
+async def _timed(coro_fn) -> dict[str, Any]:
+    """점검 하나: 성공 여부·지연(ms)·비고. 오류는 종류만 (내부 주소·메시지는 내보내지 않음)."""
+    t0 = time.perf_counter()
+    try:
+        note = await asyncio.wait_for(coro_fn(), CHECK_TIMEOUT_S)
+        return {"ok": True, "latencyMs": round((time.perf_counter() - t0) * 1000, 1), "note": note, "error": None}
+    except TimeoutError:
+        return {"ok": False, "latencyMs": None, "note": None, "error": f"{CHECK_TIMEOUT_S:.0f}초 안에 응답 없음"}
+    except Exception as e:  # noqa: BLE001 — 점검 결과로 돌려준다
+        return {
+            "ok": False,
+            "latencyMs": round((time.perf_counter() - t0) * 1000, 1),
+            "note": None,
+            "error": type(e).__name__,
+        }
+
+
+@router.get(
+    "/connectivity", summary="API 연결 점검: API 서버가 의존하는 구성요소의 응답 여부·지연, 원천 수집 최근 상태"
+)
+async def connectivity(request: Request, p: Principal = require_scope("read")) -> Response:
+    """구성요소마다 가장 가벼운 질의 한 번 (동시 실행, 각 2초 제한).
+
+    외부 원천(국토부·V-World)은 **직접 호출하지 않는다** — 일일 호출 한도가 있는 키를 공개 화면의 버튼으로
+    소모하게 만들 수 없으므로, 파이프라인이 기록한 마지막 성공 수집 시각·오늘 예산 상태를 보여 준다.
+    """
+
+    async def compute():
+        res = request.app.state.res
+        dag: ops.DagsterClient = request.app.state.dagster
+
+        async def pg():
+            async with res.pg.connection() as c:
+                await c.execute("SELECT 1")
+            return None
+
+        async def rd():
+            await res.redis.ping()
+            ver = await res.redis.get("al:ds:ver")
+            return f"발행 버전 {ver}" if ver else "발행 버전 없음"
+
+        async def ch():
+            r = await res.ch.query(
+                """SELECT (SELECT max(month) FROM region_month),
+                          (SELECT value FROM system.metrics WHERE metric = 'MemoryTracking'),
+                          (SELECT toUInt64(value) FROM system.server_settings WHERE name = 'max_server_memory_usage')"""
+            )
+            m, used, cap = r.result_rows[0] if r.result_rows else (None, None, None)
+            month = f"최근 계약월 {m:%Y-%m}" if m else "데이터 없음"
+            # 서버 메모리 상한에 가까우면 질의가 거부된다 (2026-09-26 장애 원인) → 점검 화면에 같이 보인다
+            mem = f" · 메모리 {used / 2**20:,.0f}MB / 상한 {cap / 2**20:,.0f}MB" if used is not None and cap else ""
+            return month + mem
+
+        async def dg():
+            await dag.ping()
+            return None
+
+        names = [
+            ("postgres", "운영 DB · PostgreSQL", "API 키·플랜·수집 상태"),
+            ("redis", "캐시 · Redis", "요청 한도·결과 캐시·키 캐시"),
+            ("clickhouse", "서빙 DB · ClickHouse", "거래·통계 조회"),
+            ("dagster", "오케스트레이터 · Dagster", "수집 작업 큐 (수집 상태 화면)"),
+        ]
+
+        results = await asyncio.gather(*(_timed(f) for f in (pg, rd, ch, dg)))
+        items = [{"key": k, "name": n, "role": r, **res_} for (k, n, r), res_ in zip(names, results, strict=True)]
+
+        # 원천 API: 직접 호출하지 않고 마지막 성공 수집·오늘 예산으로 판단
+        sources: list[dict[str, Any]] = []
+        try:
+            today = dt.datetime.now(tz=KST).date()
+            fetched = await _pg(request, "SELECT max(last_fetched_at) AS at FROM ops.ingest_partition")
+            budget = await _pg(
+                request,
+                "SELECT used_calls, limit_calls, exhausted_reason FROM ops.api_budget WHERE source='rtms' AND day=%s",
+                (today,),
+            )
+            boundary = await _pg(request, "SELECT max(fetched_at) AS at FROM ops.region_boundary")
+            b = budget[0] if budget else None
+            pct = settings().rtms_budget_pct
+            cap = b["limit_calls"] * pct // 100 if b else None
+            if b and b["exhausted_reason"]:
+                rtms_state = "원천 한도 소진(포털 응답) — 자정(KST) 뒤 재개"
+            elif b and cap is not None and b["used_calls"] >= cap:
+                rtms_state = f"오늘 호출 상한({pct}%) 도달 — 자정(KST) 뒤 재개"
+            else:
+                rtms_state = "수집 가능"
+            sources = [
+                {
+                    "key": "rtms",
+                    "name": "국토교통부 아파트 매매 실거래가",
+                    "lastSuccessAt": _iso(fetched[0]["at"]) if fetched else None,
+                    "state": rtms_state,
+                    "detail": f"오늘 호출 {b['used_calls']:,} / 상한 {cap:,} (일 한도 {b['limit_calls']:,})"
+                    if b
+                    else "오늘 호출 기록 없음",
+                },
+                {
+                    "key": "vworld",
+                    "name": "국토정보플랫폼 V-World 시군구 경계",
+                    "lastSuccessAt": _iso(boundary[0]["at"]) if boundary else None,
+                    "state": "매월 갱신",
+                    "detail": None,
+                },
+            ]
+        except Exception as e:  # noqa: BLE001 — 운영 DB 장애는 위 점검 항목에 이미 나타난다
+            sources = [
+                {
+                    "key": "error",
+                    "name": "원천 상태를 읽지 못함",
+                    "lastSuccessAt": None,
+                    "state": type(e).__name__,
+                    "detail": None,
+                }
+            ]
+
+        return {
+            "checkedAt": dt.datetime.now(tz=dt.UTC).isoformat(),
+            "ok": all(
+                i["ok"] for i in items if i["key"] != "dagster"
+            ),  # Dagster 는 수집 스택이 꺼져 있어도 서빙은 정상
+            "items": items,
+            "sources": sources,
+            "notes": [
+                "외부 원천 API 는 일일 호출 한도 보호를 위해 이 화면에서 직접 호출하지 않습니다 (마지막 성공 수집 시각으로 판단).",
+                "Dagster 는 수집 스택(make up)일 때만 켜져 있습니다. 꺼져 있어도 조회 API 는 정상 동작합니다.",
+            ],
+        }, 0
+
+    return await respond(request, "ops_connectivity", {}, compute, cache=False)

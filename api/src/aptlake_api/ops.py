@@ -121,6 +121,10 @@ class DagsterClient:
             self._cache[cache_key] = (time.monotonic() + self.ttl, data)
         return data
 
+    async def ping(self) -> None:
+        """연결 점검용 가장 가벼운 질의 (캐시 없음). 버전 문자열은 밖으로 내보내지 않는다."""
+        await self._query("{ version }")
+
     async def runs(
         self, statuses: list[str] | None = None, created_after: float | None = None, limit: int = 50
     ) -> list[dict]:

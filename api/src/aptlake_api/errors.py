@@ -2,15 +2,33 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from typing import Any
 
+import psycopg
+import redis.exceptions
+from clickhouse_connect.driver import exceptions as ch_exc
 from fastapi import Request
 from fastapi.exceptions import RequestValidationError
+from psycopg_pool import PoolTimeout
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .responses import OrjsonResponse
 
 PROBLEM = "application/problem+json"
+log = logging.getLogger("aptlake.api")
+
+# 잠시 뒤 다시 하면 성공할 수 있는 ClickHouse 오류 — 500(버그)이 아니라 503 + Retry-After 로 알린다
+TRANSIENT_CH_CODES = {
+    159: "TIMEOUT_EXCEEDED",
+    202: "TOO_MANY_SIMULTANEOUS_QUERIES",
+    209: "SOCKET_TIMEOUT",
+    210: "NETWORK_ERROR",
+    241: "MEMORY_LIMIT_EXCEEDED",
+}
+_CH_CODE = re.compile(r"Code: (\d+)")
+RETRY_AFTER_S = 2
 
 
 class ApiError(Exception):
@@ -62,6 +80,51 @@ async def validation_handler(request: Request, exc: RequestValidationError) -> O
 async def http_handler(request: Request, exc: StarletteHTTPException) -> OrjsonResponse:
     code = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}.get(exc.status_code, "HTTP_ERROR")
     return problem(request, exc.status_code, code, str(exc.detail))
+
+
+def _unavailable(request: Request, component: str, reason: str) -> OrjsonResponse:
+    log.warning(
+        "upstream unavailable trace=%s component=%s reason=%s",
+        getattr(request.state, "trace_id", "-"),
+        component,
+        reason,
+    )
+    return problem(
+        request,
+        503,
+        "UPSTREAM_UNAVAILABLE",
+        "Service Unavailable",
+        f"{component} 가 일시적으로 요청을 처리하지 못했습니다. 잠시 후 다시 시도하세요.",
+        {"Retry-After": str(RETRY_AFTER_S)},
+        {"component": component, "retryable": True},
+    )
+
+
+async def clickhouse_handler(request: Request, exc: ch_exc.Error) -> OrjsonResponse:
+    """ClickHouse 오류: 연결 실패·메모리/동시성/시간 한도는 일시 장애(503), 그 밖(문법·권한 등)은 버그(500)."""
+    m = _CH_CODE.search(str(exc))
+    code = int(m.group(1)) if m else None
+    if (isinstance(exc, ch_exc.OperationalError) and code is None) or code in TRANSIENT_CH_CODES:
+        return _unavailable(request, "서빙 DB(ClickHouse)", TRANSIENT_CH_CODES.get(code or 0, type(exc).__name__))
+    log.error("clickhouse error trace=%s code=%s", getattr(request.state, "trace_id", "-"), code, exc_info=exc)
+    return problem(request, 500, "INTERNAL", "Internal Server Error")
+
+
+async def pg_handler(request: Request, exc: Exception) -> OrjsonResponse:
+    return _unavailable(request, "운영 DB(PostgreSQL)", type(exc).__name__)
+
+
+async def redis_handler(request: Request, exc: Exception) -> OrjsonResponse:
+    return _unavailable(request, "캐시(Redis)", type(exc).__name__)
+
+
+TRANSIENT_HANDLERS: list[tuple[type[Exception], Any]] = [
+    (ch_exc.Error, clickhouse_handler),
+    (psycopg.OperationalError, pg_handler),
+    (PoolTimeout, pg_handler),
+    (redis.exceptions.ConnectionError, redis_handler),
+    (redis.exceptions.TimeoutError, redis_handler),
+]
 
 
 async def unhandled_handler(request: Request, exc: Exception) -> OrjsonResponse:

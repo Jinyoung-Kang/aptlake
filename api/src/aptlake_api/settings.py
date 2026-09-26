@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     key_cache_ttl_s: int = 30  # FR-501: 폐기 반영 ≤ 30초 (폐기 시 즉시 삭제도 함)
     result_cache_ttl_s: int = 600  # 기획서 10장: 결과 캐시 TTL 10분 (키에 dataset_ver 포함)
     provisional_days: int = 60  # FR-403: 계약월 말일 + 60일 전이면 provisional
+    rtms_budget_pct: int = 80  # 원천 일 한도 중 이 서비스가 쓰는 비율 (파이프라인 RTMS_BUDGET_PCT 와 같은 값)
     usage_flush_interval_s: float = 1.0
     usage_flush_max: int = 1000
     export_url_ttl_s: int = 900
