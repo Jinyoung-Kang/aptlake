@@ -97,7 +97,7 @@ services:
     logging: *logging
 
   lakekeeper-init:
-    image: curlimages/curl:8.16.0
+    image: curlimages/curl:8.22.0
     entrypoint: ["/bin/sh", "/init.sh"]
     environment:
       MINIO_CATALOG_SECRET: ${MINIO_CATALOG_SECRET}
@@ -325,7 +325,7 @@ services:
 
   # ───────────────────────── 관측 (obs 프로필) ─────────────────────────
   prometheus:
-    image: prom/prometheus:v3.6.0
+    image: prom/prometheus:v3.14.0
     profiles: ["obs"]
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
     volumes:
@@ -339,7 +339,7 @@ services:
     logging: *logging
 
   grafana:
-    image: grafana/grafana:12.2.0
+    image: grafana/grafana:12.4.11
     profiles: ["obs"]
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
