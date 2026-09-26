@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, errorText, useApi, useAvailable, type Trade } from "../lib/api";
 import DateRangePicker from "../components/DateRangePicker";
 import RegionPicker from "../components/RegionPicker";
@@ -37,8 +37,8 @@ function Detail({ t, onClose }: { t: Trade; onClose: () => void }) {
       </div>
       <div className="quote-sub">{t.dealDate.replaceAll("-", ".")} 계약 · 전용 {num(t.areaM2, 2)}<Sqm /> · {t.floor ?? DASH}층 · <Sqm />당 {num(t.pricePerM2)}만원</div>
       <div className="stat-list one" style={{ marginTop: 10 }}>
-        <div className="stat-row"><span className="k">상태</span><span className="v">{t.cancelled ? <Badge tone="bad">해제 {t.cancelDate ?? ""}</Badge> : "유효"}</span></div>
-        <div className="stat-row"><span className="k">등기일</span><span className="v">{t.registeredDate ?? "미등기"}</span></div>
+        <div className="stat-row"><span className="k">상태</span><span className="v">{t.cancelled ? <Badge tone="bad">해제 {t.cancelDate?.replaceAll("-", ".") ?? ""}</Badge> : "유효"}</span></div>
+        <div className="stat-row"><span className="k">등기일</span><span className="v">{t.registeredDate?.replaceAll("-", ".") ?? "미등기"}</span></div>
         <div className="stat-row"><span className="k">거래유형</span><span className="v">{t.dealKind ?? DASH}</span></div>
         <div className="stat-row"><span className="k">매도 → 매수</span><span className="v">{t.sellerType ?? DASH} → {t.buyerType ?? DASH}</span></div>
         <div className="stat-row"><span className="k">식별자</span><span className="v"><code>{t.tradeId}</code></span></div>
@@ -82,6 +82,8 @@ export default function TradesPage({ route }: { route: Route }) {
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sel, setSel] = useState<Trade | null>(null);
+  const current = useRef(q);  // '더 보기' 응답이 늦게 와도 조건이 바뀌었으면 버린다 (다른 조건의 행이 섞이지 않게)
+  current.current = q;
 
   useEffect(() => {
     if (!q) return;
@@ -95,10 +97,12 @@ export default function TradesPage({ route }: { route: Route }) {
   }, [q]);
   const more = () => {
     if (!q || !cursor) return;
+    const asked = q;
     setLoading(true);
     api<Page>(`${q}&cursor=${encodeURIComponent(cursor)}`)
-      .then((p) => { setRows((r) => [...r, ...p.items]); setCursor(p.page.nextCursor); })
-      .catch((e) => setErr(errorText(e))).finally(() => setLoading(false));
+      .then((p) => { if (current.current !== asked) return; setRows((r) => [...r, ...p.items]); setCursor(p.page.nextCursor); })
+      .catch((e) => { if (current.current === asked) setErr(errorText(e)); })
+      .finally(() => { if (current.current === asked) setLoading(false); });
   };
   const region = byCode.get(sgg);
 

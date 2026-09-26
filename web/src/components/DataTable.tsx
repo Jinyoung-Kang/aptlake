@@ -44,8 +44,9 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, selectedKey, i
                 <th key={c.key} className={`${c.align === "right" ? "num" : ""} ${c.sort ? "sortable" : ""}`} style={{ width: c.width }}
                     title={c.title} aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined}
                     onClick={c.sort ? () => setSort(active ? { key: c.key, dir: sort!.dir === "asc" ? "desc" : "asc" } : { key: c.key, dir: "desc" }) : undefined}>
+                  {active && c.align === "right" ? <span className="arrow">{sort!.dir === "asc" ? "▲" : "▼"}</span> : null}
                   {sqm(c.header)}
-                  {active ? <span className="arrow">{sort!.dir === "asc" ? "▲" : "▼"}</span> : null}
+                  {active && c.align !== "right" ? <span className="arrow">{sort!.dir === "asc" ? "▲" : "▼"}</span> : null}
                 </th>
               );
             })}
@@ -58,7 +59,10 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, selectedKey, i
             const k = rowKey(r);
             return (
               <tr key={k} className={`${onRowClick ? "clickable" : ""} ${selectedKey === k ? "selected" : ""}`}
-                  onClick={onRowClick ? () => onRowClick(r) : undefined}>
+                  onClick={onRowClick ? () => onRowClick(r) : undefined}
+                  // 누를 수 있는 행은 키보드로도: Tab 으로 이동, Enter·Space 로 선택
+                  tabIndex={onRowClick ? 0 : undefined}
+                  onKeyDown={onRowClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRowClick(r); } } : undefined}>
                 {columns.map((c) => <td key={c.key} className={c.align === "right" ? "num" : ""}>{c.cell(r, i)}</td>)}
               </tr>
             );

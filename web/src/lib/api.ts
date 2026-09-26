@@ -161,3 +161,12 @@ export function useAvailable(): Available | null {
   return data?.available ?? null;
 }
 
+/** 쓰기 요청(POST·DELETE). 자동 재시도하지 않는다 — 사용자가 누른 동작은 결과를 그대로 보여 준다. 성공하면 조회 캐시를 비운다. */
+export async function apiSend<T>(method: "POST" | "DELETE", path: string): Promise<T> {
+  const res = await fetch(path, { method, headers: { Accept: "application/json" } });
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(body?.code ? body : { status: res.status, code: `HTTP_${res.status}`, title: res.statusText || "HTTP 오류" });
+  cache.clear();
+  return body as T;
+}
+

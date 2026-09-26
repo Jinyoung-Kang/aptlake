@@ -500,3 +500,37 @@ async def test_ops_endpoints_need_ops_scope(apps, adm, admin_key):
             for path in ("/v1/ops/status", "/v1/ops/errors", "/v1/ops/connectivity"):
                 r = await c.get(path)
                 assert r.status_code == 403 and r.json()["code"] == "SCOPE_REQUIRED", path
+
+
+async def test_error_log_clear_hides_old_entries_and_can_be_restored(apps, adm, admin_key, stack):
+    import time
+
+    import psycopg
+
+    public = apps[0]
+    real = public.state.dagster
+    public.state.dagster = fake_dagster(time.time())
+    ops_key, _ = await new_key(adm, admin_key, scopes=("read", "ops"))
+    try:
+        async with client_at(public, "10.80.0.1", ops_key) as c:
+            before = (await c.get("/v1/ops/errors", params={"hours": 24})).json()
+            assert before["entries"] and before["cleared"] is None
+            r = await c.post("/v1/ops/errors/clear")
+            assert r.status_code == 200 and r.json()["cleared"]["at"]
+            after = (await c.get("/v1/ops/errors", params={"hours": 24})).json()
+            assert after["entries"] == [] and after["cleared"]["at"] and after["apiErrorSummary"] == []
+            shown = (await c.get("/v1/ops/errors", params={"hours": 24, "includeCleared": "true"})).json()
+            assert len(shown["entries"]) == len(before["entries"]) and all(e["cleared"] for e in shown["entries"])
+            assert (await c.delete("/v1/ops/errors/clear")).json()["cleared"] is None
+            restored = (await c.get("/v1/ops/errors", params={"hours": 24})).json()
+            assert len(restored["entries"]) == len(before["entries"])
+        async with client_at(public, "10.80.0.2") as anon:  # 익명은 비울 수 없다
+            assert (await anon.post("/v1/ops/errors/clear")).status_code == 403
+        with psycopg.connect(stack["su"]) as pg:
+            actions = [
+                r[0] for r in pg.execute("SELECT action FROM api.audit_log WHERE target = 'ops.errors' ORDER BY at")
+            ]
+        assert actions[-2:] == ["ops.errors.clear", "ops.errors.restore"]
+    finally:
+        await public.state.dagster.aclose()
+        public.state.dagster = real

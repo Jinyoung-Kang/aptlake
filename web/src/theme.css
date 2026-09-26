@@ -277,6 +277,10 @@ table.t th { background: var(--bg-sub); color: var(--text-2); font-weight: 700; 
 table.t th.sortable { cursor: pointer; user-select: none; }
 table.t th.sortable:hover { color: var(--text); }
 table.t th .arrow { font-size: 10px; color: var(--accent); margin-left: 3px; }
+/* 숫자 열: 머리글도 값과 같은 오른쪽 정렬 (table.t th 의 left 가 th.num 보다 우선이라 열마다 머리글이 왼쪽으로 어긋났다).
+   정렬 화살표는 오른쪽 정렬 열에서는 글자 앞에 둬서 정렬할 때 머리글 글자가 움직이지 않게 */
+table.t th.num { text-align: right; }
+table.t th.num .arrow { margin: 0 3px 0 0; }
 table.t td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
 table.t tr:last-child td { border-bottom: 0; }
 table.t tbody tr:hover td { background: var(--bg-hover); }
@@ -390,4 +394,10 @@ pre.code { background: var(--bg-sub); border: 1px solid var(--border); border-ra
 /* 차트 툴팁(HTML) — style 속성 대신 클래스 */
 .tt-muted { color: var(--text-3); }
 .tt-sup { font-size: .72em; line-height: 0; }
-
+.btn.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+.confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; border: 1px solid var(--bad); border-radius: var(--radius); background: var(--bad-soft); }
+.confirm .small { white-space: nowrap; }
+.toolbar .tools-right { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; margin: 0 0 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-sub); font-size: 13px; }
+.log-head .msg .badge { margin-right: 4px; font-family: var(--font); }
+table.t tr.clickable:focus-visible td { outline: none; background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }

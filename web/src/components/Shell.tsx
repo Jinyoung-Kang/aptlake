@@ -87,7 +87,7 @@ function Ticker() {
       <div className="ticker-inner">
         {data.items.map((t) => (
           <div className="tick" key={t.key} title={t.changeBasis ?? undefined}>
-            <span className="l">{sqm(t.label)}</span>
+            <span className="l">{sqm(t.label.replace(/(\d{4})-(\d{2})/, "$1.$2"))}</span>
             <span className="v">{t.value == null ? "–" : num(t.value, t.unit === "%" ? 1 : t.key.startsWith("index") ? 1 : 0)}{t.unit && t.unit !== "건" ? sqm(t.unit) : ""}</span>
             {t.change != null && <Change v={t.change} digits={t.key.startsWith("index") ? 2 : 1} />}
             {t.provisional ? <span className="muted small">잠정</span> : null}

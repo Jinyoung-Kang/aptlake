@@ -154,8 +154,10 @@ export default function IndexPage({ route }: { route: Route }) {
             { key: "mom", header: "전월비", align: "right", cell: (r) => <Change v={(r.confirmed ?? r).mom} digits={2} />, sort: (r) => (r.confirmed ?? r).mom },
             { key: "yoy", header: "전년비", align: "right", cell: (r) => <Change v={(r.confirmed ?? r).yoy} digits={2} />, sort: (r) => (r.confirmed ?? r).yoy },
             { key: "spark", header: "24개월", cell: (r) => <Sparkline values={r.spark} label={`${sidoName(r.regionId)} 지수 추이`} /> },
-            { key: "corr", header: "R-ONE 상관", align: "right", cell: (r) => (r.corrMoM == null ? DASH : num(r.corrMoM, 2)), sort: (r) => r.corrMoM },
-            { key: "dir", header: "방향 일치", align: "right", cell: (r) => (r.directionMatch == null ? DASH : `${num(r.directionMatch * 100, 0)}%`), sort: (r) => r.directionMatch },
+            { key: "corr", header: "R-ONE 상관", align: "right", sort: (r) => r.corrMoM,
+              // 값이 없으면 이유를 적는다 (예: 통합 시도는 R-ONE 공표가 최근 1개월뿐 → 6개월 이상 겹쳐야 계산)
+              cell: (r) => (r.corrMoM == null ? <span className="muted small" title="R-ONE 과 6개월 이상 겹쳐야 계산합니다">비교 {r.months}개월 · 부족</span> : num(r.corrMoM, 2)) },
+            { key: "dir", header: "방향 일치", align: "right", cell: (r) => (r.directionMatch == null ? <span className="muted small">{DASH}</span> : `${num(r.directionMatch * 100, 0)}%`), sort: (r) => r.directionMatch },
           ]}
           foot={<span>행을 누르면 위 차트가 그 지역으로 바뀝니다. 거래가 적은 시도는 신뢰구간이 넓고 상관이 낮게 나올 수 있습니다.</span>}
         />

@@ -19,6 +19,7 @@ from fastapi.responses import Response
 from . import ops
 from .auth import Principal
 from .deps import require_scope, respond
+from .responses import OrjsonResponse
 from .settings import settings
 
 router = APIRouter(prefix="/v1/ops")
@@ -162,12 +163,17 @@ async def errors(
     hours: Annotated[int, Query(ge=1, le=720)] = 24,
     source: SOURCE = "all",
     includeResolved: bool = False,  # noqa: N803
+    includeCleared: bool = False,  # noqa: N803 — '비우기' 이전 항목도 (흐리게) 보기
     p: Principal = require_scope("ops"),
 ) -> Response:
     async def compute():
         entries: list[dict] = []
         notes: list[str] = []
         since = dt.datetime.now(tz=dt.UTC) - dt.timedelta(hours=hours)
+        view = await _log_view(request)
+        cleared_at: dt.datetime | None = view["cleared_at"] if view else None
+        # 비운 뒤라면 API 오류 요약도 그 뒤부터만 센다
+        api_since = max(since, cleared_at) if cleared_at and not includeCleared else since
 
         def want(s: str) -> bool:
             return source in ("all", s)
@@ -313,8 +319,8 @@ async def errors(
                 (
                     await ch.query(
                         """SELECT at, route, status, latency_ms, trace_id FROM usage_event
-                   WHERE status >= 500 AND at >= now() - toIntervalHour({h:UInt16}) ORDER BY at DESC LIMIT 100""",
-                        parameters={"h": hours},
+                   WHERE status >= 500 AND at >= {since:DateTime64(3, 'UTC')} ORDER BY at DESC LIMIT 100""",
+                        parameters={"since": since},
                     )
                 ).named_results()
             )
@@ -338,13 +344,26 @@ async def errors(
                 for r in (
                     await ch.query(
                         """SELECT route, status, count() AS n FROM usage_event
-                       WHERE status >= 400 AND at >= now() - toIntervalHour({h:UInt16})
+                       WHERE status >= 400 AND at >= {since:DateTime64(3, 'UTC')}
                        GROUP BY route, status ORDER BY n DESC LIMIT 20""",
-                        parameters={"h": hours},
+                        parameters={"since": api_since},
                     )
                 ).named_results()
             ]
 
+        # 비우기 기준 시각 이전 항목: 기본은 숨김, includeCleared 면 cleared=true 로 표시
+        if cleared_at:
+            mark = cleared_at.isoformat()
+            for e in entries:
+                e["cleared"] = bool(e["at"]) and _ts(e["at"]) <= cleared_at
+            hidden = sum(e["cleared"] for e in entries)
+            if not includeCleared:
+                entries = [e for e in entries if not e["cleared"]]
+            notes.append(f"비우기 이전 항목 {hidden}건은 숨김 (기준 {mark})" if not includeCleared and hidden else "")
+            notes = [n for n in notes if n]
+        else:
+            for e in entries:
+                e["cleared"] = False
         entries.sort(key=lambda e: e["at"] or "", reverse=True)
         counts: dict[str, int] = {}
         for e in entries:
@@ -356,9 +375,54 @@ async def errors(
             "truncated": len(entries) > 500,
             "apiErrorSummary": api_summary,
             "notes": notes,
+            "cleared": {"at": _iso(cleared_at), "by": view["cleared_by"]} if cleared_at and view else None,
         }, 0
 
-    return await respond(request, "ops_errors", {"h": hours, "s": source, "r": includeResolved}, compute, cache=False)
+    return await respond(
+        request,
+        "ops_errors",
+        {"h": hours, "s": source, "r": includeResolved, "c": includeCleared},
+        compute,
+        cache=False,
+    )
+
+
+def _ts(iso: str) -> dt.datetime:
+    t = dt.datetime.fromisoformat(iso)
+    return t if t.tzinfo else t.replace(tzinfo=dt.UTC)
+
+
+async def _log_view(request: Request) -> dict | None:
+    rows = await _pg(request, "SELECT cleared_at, cleared_by FROM ops.log_view WHERE view_id = 'errors'")
+    return rows[0] if rows else None
+
+
+async def _set_cleared(request: Request, p: Principal, clear: bool) -> Response:
+    async with request.app.state.res.pg.connection() as c, c.transaction():
+        row = await (
+            await c.execute(
+                """UPDATE ops.log_view SET cleared_at = CASE WHEN %s THEN now() END,
+                          cleared_by = CASE WHEN %s THEN %s END, updated_at = now()
+                   WHERE view_id = 'errors' RETURNING cleared_at""",
+                (clear, clear, p.subject[:40]),
+            )
+        ).fetchone()
+        await c.execute(
+            """INSERT INTO api.audit_log (actor, action, target, detail) VALUES (%s, %s, 'ops.errors', '{}')""",
+            (p.subject[:40], "ops.errors.clear" if clear else "ops.errors.restore"),
+        )
+    at = row["cleared_at"] if row else None  # type: ignore[index]
+    return OrjsonResponse({"cleared": {"at": _iso(at)} if at else None}, headers=p.limit_headers)
+
+
+@router.post("/errors/clear", summary="오류 로그 비우기 — 지금 이전 항목을 숨김 (원본 기록은 지우지 않음, 감사 로그)")
+async def clear_errors(request: Request, p: Principal = require_scope("ops")) -> Response:
+    return await _set_cleared(request, p, True)
+
+
+@router.delete("/errors/clear", summary="오류 로그 비우기 되돌리기")
+async def restore_errors(request: Request, p: Principal = require_scope("ops")) -> Response:
+    return await _set_cleared(request, p, False)
 
 
 def dagster_url() -> str:

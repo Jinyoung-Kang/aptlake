@@ -1,5 +1,7 @@
 # AptLake — 집값 레이크하우스
 
+[![ci](https://github.com/Jinyoung-Kang/aptlake/actions/workflows/ci.yml/badge.svg)](https://github.com/Jinyoung-Kang/aptlake/actions/workflows/ci.yml)
+
 전국 아파트 매매 실거래 신고 자료를 **Iceberg 레이크하우스(Bronze → Silver → Gold)** 로 쌓고,
 고유 ID가 없고 나중에 값이 바뀌는 원천을 **지문 키 + 한 문장 MERGE(SCD2)** 로 정합하게 관리하며,
 **품질 검사를 통과한 데이터만** ClickHouse 서빙 계층과 **API 키·쿼터·계측이 있는 데이터 API** 로 제공합니다.
@@ -14,6 +16,23 @@
 | 관리 API (내부 리스너) | http://127.0.0.1:8611/docs |
 | Dagster (자산·파티션·검사) | http://127.0.0.1:3600 |
 | Grafana (`make obs`) | http://127.0.0.1:3620 |
+
+![시장 개요 — 시군구 단계구분도·순위·전국 요약](docs/images/market.jpg)
+
+| 지역 분석 | 데이터 품질 (시도 → 시군구 → 파티션) | 수집 상태 (작업 큐·연결 테스트·오류 로그) |
+|---|---|---|
+| ![지역 분석](docs/images/region.jpg) | ![데이터 품질](docs/images/quality.jpg) | ![수집 상태](docs/images/ops.jpg) |
+
+### 한눈에
+
+| | |
+|---|---|
+| **역할** | 1인 기획·설계·구현·운영 (데이터 파이프라인 · API · 웹 · 인프라) |
+| **데이터** | 전국 256개 시군구 아파트 매매 신고 — 서빙 약 159만 건 (2026-09-26 기준, 과거 자료 수집 진행 중) |
+| **스택** | Python 3.12 · Dagster · Apache Iceberg(Lakekeeper) · Trino · dbt · MinIO(Silo) · ClickHouse · PostgreSQL · Redis · FastAPI · React 19 · TypeScript · ECharts · nginx · Docker Compose(17개 서비스) · Prometheus·Grafana · k6 |
+| **성능** | 지역·월 통계 p95 **38.6ms** @ 200 RPS, 최대 처리량 **약 5,800 req/s**, 전국 한 달 수집→검증→발행 **1분 45초** |
+| **품질** | 자동 테스트 **122개**(파이프라인 45 · API 55 · dbt 22) + 정적 분석 · 비밀·취약점 스캔을 CI 에서 매 커밋 실행 |
+| **문서** | 설계 결정 기록 25건(ADR-008~032, [docs/decisions.md](docs/decisions.md)) · 성능 측정 원자료([docs/performance.md](docs/performance.md)) · 운영 절차([docs/runbook.md](docs/runbook.md)) |
 
 ---
 
@@ -183,7 +202,7 @@ flowchart LR
 | 가격지수 | 자체 지수 vs R-ONE (같은 달 = 100 으로 맞춤), 95% 신뢰구간, 시도별 표 | 축 하나(이중 축 없음) |
 | 데이터 품질 | 시도 × 계약월 완결도 히트맵 → 누르면 시군구 격자 → 파티션 검사·계보 | 시군구 256행을 한 번에 그리지 않고 시도(16행)에서 내려가기 |
 | 개발자 | 인증·예시(curl 복사)·플랜 표·내 키 사용량 | 키는 화면 메모리에만 |
-| 수집 상태 | 작업 큐(작업·상태·요청·시작·소요), 스케줄·센서, **API 연결 테스트**, **오류 로그**(전체 복사·.txt 저장·항목별 복사) | 아래 참고 |
+| 수집 상태 | 작업 큐(작업·상태·요청·시작·소요), 스케줄·센서, **API 연결 테스트**, **오류 로그**(항목마다 미해결·이후 해결됨 표시, 전체 복사·.txt 저장, **로그 비우기**) | 아래 참고 |
 
 **지역 선택.** 256개 `<select>` 대신 검색 + 시도|시군구 두 칸 팝오버. 검색은 이름 앞부분 > 단어 앞부분 > 포함 > '시도 시군구' 순으로 정렬하고, 자음만 치면 **시군구 이름의 초성**으로 찾습니다(`ㅂㄷ` → 분당구 — 시도 이름까지 초성 비교하면 충청북도 전체가 걸리던 문제를 고침). 최근 선택 6개, 키보드 ↑↓ Enter.
 
@@ -205,6 +224,10 @@ flowchart LR
 **API 연결 테스트.** ① API 서버 안에서 운영 DB·캐시·서빙 DB·Dagster 응답과 지연(서빙 DB 는 메모리 사용/상한까지) ② 이 브라우저 → 웹 서버(BFF) → API 로 공개 API 를 캐시 없이 요청해 상태 코드·지연·헤더 계약(버전 헤더 = 본문 버전, ETag 재검증 304, 잘못된 매개변수 4xx Problem Details, 잘못된 키 401)을 확인합니다. 키를 넣으면 그 키로 테스트(메모리에만 보관). 외부 원천 API 는 일일 한도 보호를 위해 호출하지 않고 마지막 성공 수집 시각으로 보여 줍니다. 결과는 한 번에 복사.
 
 **일시 장애 처리.** DB·캐시가 잠깐 응답하지 못하면 API 는 500 이 아니라 `503 UPSTREAM_UNAVAILABLE + Retry-After` 를 주고, 화면은 2번 자동 재시도한 뒤에도 실패하면 원인·추적 ID·[다시 시도]를 보여 줍니다 (ClickHouse 를 멈췄다 켜서 확인, [ADR-028·029](docs/decisions.md)).
+
+**로그 비우기.** 원본 기록(Dagster 실행·품질 검사·사용량)은 지우지 않고 '비운 시각'만 저장해 그 이전 항목을 숨깁니다(`POST /v1/ops/errors/clear`, `ops` 스코프, 감사 로그). 이후 새로 생긴 오류만 보이고, '비우기 이전 보기'로 다시 보거나 되돌릴 수 있습니다 — 감사 추적을 잃지 않으면서 이미 확인한 로그와 새 로그를 구분합니다.
+
+**표.** 숫자 열은 머리글과 값을 같이 오른쪽 정렬(고정폭 숫자), 정렬 화살표는 오른쪽 정렬 열에서 글자 앞에 둬 정렬해도 머리글이 움직이지 않습니다. 누를 수 있는 행은 키보드(Tab·Enter)로도 선택됩니다. 값이 비는 칸은 이유를 적습니다(예: R-ONE 비교 기간 부족).
 
 **단위 표기.** '㎡'(한 칸짜리 호환 문자)는 2 가 거의 안 보여 모든 화면에서 'm' + 위첨자 2 로 표시합니다.
 
@@ -251,7 +274,7 @@ R-ONE 약칭(서울·충북·전남광주…) → 시도 코드는 손으로 쓴
 필요: macOS(Apple Silicon) · Docker Desktop · `uv` · Node 24 (개발 시).
 
 ```bash
-make init          # .env 생성, 내부 비밀번호·pepper 자동 생성 (외부 키 2개는 직접 입력)
+make init          # .env 생성, 내부 비밀번호·pepper·웹 키 자동 생성 (외부 키는 직접 입력 — 아래 표)
 make up            # 전체 스택 빌드·기동 (첫 빌드 수 분)
 make lake-init     # Iceberg 테이블 + 시군구 목록
 make backfill-start  # 수집 센서·스케줄 켜기 → 예산 안에서 최신 월부터 자동 수집
@@ -259,6 +282,14 @@ make admin-key     # 관리자 키 (1회 표시)
 make demo-keys     # free·pro 데모 키 (1회 표시)
 make index         # 단지 차원·자체 지수·R-ONE 검증 산출 (매일 05:30 KST 스케줄도 있음)
 ```
+
+`.env` 에 직접 넣는 외부 키:
+
+| 변수 | 발급처 · 용도 |
+|---|---|
+| `DATA_GO_KR_KEY` | 공공데이터포털 (Decoding 키) — 아파트 매매 실거래가 자료, 행정안전부 법정동코드 |
+| `REB_API_KEY` | 한국부동산원 R-ONE — 매매지수(자체 지수 검증 기준) |
+| `VWORLD_API_KEY` · `VWORLD_DOMAIN` | 국토정보플랫폼 V-World — 시군구 경계(지도), 발급 시 등록한 서비스 URL |
 
 | 명령 | 설명 |
 |---|---|
@@ -285,9 +316,11 @@ curl -H "X-API-Key: $KEY" "http://127.0.0.1:8610/v1/quality/partitions/41135/202
 | 파이프라인 단위 | 43 | 실제 응답 XML fixture, 파서, 정규화, 지문·순번(hypothesis: 순서 무관·유일), 엔티티 확장 거부, 시군구 도출, R-ONE 매핑, 지수(알려진 효과 복원·구성 편향), 예산 상한, 원천 오류 분류(한도 초과 429·키 오류·5xx 재시도), 경계 단순화(면적 오차·조각 제거) |
 | 정합성 통합 | 2 | 실제 Lakekeeper·MinIO·Trino: 3회 재반영 불변, 해제 → 새 버전·이전 버전 닫힘, 사라짐 → missing, 재등장 → 해제 / 100 스레드 동시 예산 차감 → 정확히 상한 |
 | API 단위 | 29 | 키 형식·HMAC, 커서 서명, 신뢰 프록시 IP, 스코프 강제, **비밀값 가림 10종**, Dagster 응답 해석(밀리초 이벤트 시각 회귀), 확정 월 지수 |
-| API 통합 | 25 | Testcontainers(PostgreSQL·Redis·ClickHouse, 운영과 같은 마이그레이션·사용자 설정): 헤더 계약, ETag 304, **상태 응답은 내용이 바뀌면 새 ETag**, 플랜 기간, 폐기 즉시 401, 스코프, 관리 라우트 부재, 커서 완결성·위조, 주입 문자열, 사용량 격리, 429, **웹 플랜 IP별 한도**, 시세 띠·지수의 확정 월, 수집 상태·오류 로그(가짜 Dagster: 해결됨 판단·비밀 가림·Dagster 중단 시에도 200), **ClickHouse 과부하 → 503 / 버그 → 500**, 연결 점검, **운영 API 는 ops 스코프만**, **인증 실패 IP별 제한**, 경계 GeoJSON 사전 압축·304 |
+| API 통합 | 26 | Testcontainers(PostgreSQL·Redis·ClickHouse, 운영과 같은 마이그레이션·사용자 설정): 헤더 계약, ETag 304, **상태 응답은 내용이 바뀌면 새 ETag**, 플랜 기간, 폐기 즉시 401, 스코프, 관리 라우트 부재, 커서 완결성·위조, 주입 문자열, 사용량 격리, 429, **웹 플랜 IP별 한도**, 시세 띠·지수의 확정 월, 수집 상태·오류 로그(가짜 Dagster: 해결됨 판단·비밀 가림·Dagster 중단 시에도 200), **ClickHouse 과부하 → 503 / 버그 → 500**, 연결 점검, **운영 API 는 ops 스코프만**, **인증 실패 IP별 제한**, 경계 GeoJSON 사전 압축·304, **로그 비우기·되돌리기·감사 기록** |
 | dbt | 22 | 월 파티션마다 실행, 실패 시 발행 차단 (전국·시도 집계 = 시군구 합 대조 포함) |
-| 부하 | k6 | 200 + 100 RPS + 한도 초과 시나리오 |
+| 부하 | k6 | 200 + 100 RPS + 한도 초과 시나리오, 최대 처리량(동시 32) |
+
+**CI (GitHub Actions, 매 커밋·PR):** 위 단위·통합 테스트(Testcontainers 포함) + ruff·mypy·tsc·vite build + `dbt parse` + pip-audit·npm audit + gitleaks(비밀 스캔, `al_live_` 키 규칙) + Trivy(취약점) + compose 설정 검증. 액션은 커밋 SHA 고정, Dependabot 은 작은 버전만 묶어서 제안합니다.
 
 ## 12. 한계
 
@@ -302,7 +335,7 @@ curl -H "X-API-Key: $KEY" "http://127.0.0.1:8610/v1/quality/partitions/41135/202
 
 ```
 aptlake/
-├─ docker-compose.yml        # 서비스 16개(일회성 초기화 4개 포함), 프로필(lake·obs), 전 포트 127.0.0.1, 메모리 상한
+├─ docker-compose.yml        # 서비스 17개(일회성 초기화 5개 포함), 프로필(lake·obs), 전 포트 127.0.0.1, 메모리·프로세스 상한
 ├─ Makefile
 ├─ infra/                    # postgres·minio·lakekeeper·trino·clickhouse·prometheus·grafana 설정
 ├─ pipeline/                 # Dagster 자산 + 수집·정합·발행·지수 (Python 3.12, uv)
@@ -313,5 +346,5 @@ aptlake/
 ├─ web/                      # React + Vite + ECharts(필요 모듈만), nginx BFF
 ├─ loadtest/api.js           # k6
 ├─ tools/                    # .env 초기화, 원천 스파이크
-└─ docs/                     # 결정 기록·성능·운영
+└─ docs/                     # 결정 기록(ADR)·성능·운영, 화면 이미지
 ```

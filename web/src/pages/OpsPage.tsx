@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useApi } from "../lib/api";
+import { apiSend, errorText, useApi } from "../lib/api";
 import ApiTest from "../components/ApiTest";
 import { DataTable } from "../components/DataTable";
 import { Badge, CopyButton, ErrorBox, Kpi, Segmented, Skeleton, Switch, Tabs } from "../components/ui";
@@ -22,9 +22,16 @@ type Status = {
   };
   jobs: { active: Job[]; recent: Job[] }; schedules: Sched[]; serverTime: string;
 };
-type Entry = { id: string; at: string | null; level: "ERROR" | "WARN"; source: string; where: string; message: string; detail: string; ref: string | null; resolved: boolean };
+type Entry = { id: string; at: string | null; level: "ERROR" | "WARN"; source: string; where: string; message: string; detail: string; ref: string | null; resolved: boolean; cleared?: boolean };
 type Errors = { window: { hours: number; since: string }; counts: Record<string, number>; entries: Entry[]; truncated: boolean;
-  apiErrorSummary: { route: string; status: number; count: number }[]; notes: string[] };
+  apiErrorSummary: { route: string; status: number; count: number }[]; notes: string[]; cleared: { at: string; by: string | null } | null };
+
+/** 항목 상태 — 색만이 아니라 글자로도 구분 (미해결 / 이후 해결됨 / 비우기 이전) */
+function entryState(e: Entry): { label: string; tone: "bad" | "good" | undefined } {
+  if (e.cleared) return { label: "비우기 이전", tone: undefined };
+  if (e.resolved) return { label: "이후 해결됨", tone: "good" };
+  return { label: "미해결", tone: "bad" };
+}
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   QUEUED: { label: "대기", cls: "wait" }, NOT_STARTED: { label: "시작 전", cls: "wait" }, STARTING: { label: "시작 중", cls: "run" },
@@ -47,7 +54,7 @@ function jobDuration(j: Job, now: number): string {
 }
 
 export function entryText(e: Entry): string {
-  const head = `[${kst(e.at)} KST] ${e.level} [${SRC[e.source] ?? e.source}] ${e.where}${e.resolved ? " (이후 해결됨)" : ""}`;
+  const head = `[${kst(e.at)} KST] ${e.level} [${SRC[e.source] ?? e.source}] [${entryState(e).label}] ${e.where}`;
   const detail = e.detail && e.detail !== e.message ? `\n${e.detail.split("\n").map((l) => `    ${l}`).join("\n")}` : "";
   return `${head}\n  ${e.message}${detail}`;
 }
@@ -92,7 +99,20 @@ export default function OpsPage({ route }: { route: Route }) {
   const hours = route.params.get("hours") ?? "24";
   const source = route.params.get("source") ?? "all";
   const resolved = route.params.get("resolved") === "1";
-  const errs = useApi<Errors>(`/v1/ops/errors?hours=${hours}&includeResolved=${resolved}`, { refreshMs: auto ? 30_000 : undefined });
+  const showCleared = route.params.get("old") === "1";
+  const errs = useApi<Errors>(`/v1/ops/errors?hours=${hours}&includeResolved=${resolved}&includeCleared=${showCleared}`, { refreshMs: auto ? 30_000 : undefined });
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearErr, setClearErr] = useState<string | null>(null);
+  const setCleared = async (clear: boolean) => {
+    setClearErr(null);
+    try {
+      await apiSend(clear ? "POST" : "DELETE", "/v1/ops/errors/clear");
+      setConfirmClear(false);
+      errs.reload();
+    } catch (e) {
+      setClearErr(errorText(e));
+    }
+  };
   const [tab, setTab] = useState<"active" | "recent" | "schedules">("active");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<Set<string>>(new Set());
@@ -196,26 +216,43 @@ export default function OpsPage({ route }: { route: Route }) {
           </div>
           <input className="text-input" style={{ minWidth: 200 }} placeholder="로그 검색" value={q} onChange={(e) => setQ(e.target.value)} aria-label="로그 검색" />
           <Switch checked={resolved} onChange={(v) => setParams(route, { resolved: v ? "1" : null })} label="해결된 항목 포함" />
-          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          {errs.data?.cleared && <Switch checked={showCleared} onChange={(v) => setParams(route, { old: v ? "1" : null })} label="비우기 이전 보기" />}
+          <div className="tools-right">
+            {confirmClear ? (
+              <span className="confirm" role="group" aria-label="로그 비우기 확인">
+                <span className="small">지금까지의 로그를 숨길까요?</span>
+                <button type="button" className="btn danger" onClick={() => setCleared(true)}>비우기</button>
+                <button type="button" className="btn" onClick={() => setConfirmClear(false)}>취소</button>
+              </span>
+            ) : (
+              <button type="button" className="btn" onClick={() => setConfirmClear(true)} title="원본 기록은 지우지 않고, 지금 이전 항목을 화면에서 숨깁니다">로그 비우기</button>
+            )}
             <button type="button" className="btn" onClick={() => setOpen(open.size ? new Set() : new Set(entries.map((e) => e.id)))}>{open.size ? "모두 접기" : "모두 펼치기"}</button>
             <CopyButton text={allText} label={`전체 복사 (${entries.length})`} className="btn primary" disabled={errs.stale || !entries.length} />
             <button type="button" className="btn" onClick={download} disabled={errs.stale || !entries.length}>.txt 저장</button>
           </div>
         </div>
         <ErrorBox error={errs.error} onRetry={errs.reload} />
-        {errs.data?.notes.map((n) => <p key={n} className="note">{n}</p>)}
+        <ErrorBox error={clearErr} />
+        {errs.data?.cleared && (
+          <div className="banner">
+            <span><b>{kst(errs.data.cleared.at)}</b>에 로그를 비웠습니다 — 그 이전 항목은 숨김 (원본 기록은 보존). 이후 새로 생긴 오류만 표시합니다.</span>
+            <button type="button" className="btn ghost" onClick={() => setCleared(false)}>되돌리기</button>
+          </div>
+        )}
+        {errs.data?.notes.filter((n) => !n.startsWith("비우기 이전")).map((n) => <p key={n} className="note">{n}</p>)}
         <div data-stale={errs.stale} aria-busy={errs.loading}>
         {!errs.data ? (errs.loading ? <Skeleton h={200} /> : null) : entries.length === 0 ? (
           <div className="log"><div className="empty">이 기간·조건에 오류가 없습니다.</div></div>
         ) : (
           <div className="log" role="list">
             {entries.map((e) => (
-              <div key={e.id} className={`log-row ${e.resolved ? "resolved" : ""}`} role="listitem">
+              <div key={e.id} className={`log-row ${e.resolved || e.cleared ? "resolved" : ""}`} role="listitem">
                 <div className="log-head" onClick={() => toggle(e.id)} aria-expanded={open.has(e.id)}>
                   <span className="at">{kst(e.at)}</span>
                   <span className={`lvl ${e.level}`}>{e.level}</span>
                   <span className="src">{SRC[e.source] ?? e.source}</span>
-                  <span className="msg">{e.message}<span className="where">{e.where}{e.resolved ? " · 이후 해결됨" : ""}</span></span>
+                  <span className="msg"><Badge tone={entryState(e).tone}>{entryState(e).label}</Badge> {e.message}<span className="where">{e.where}</span></span>
                   <CopyButton text={() => entryText(e)} label="복사" className="btn ghost" />
                 </div>
                 {open.has(e.id) && e.detail ? <pre className="log-detail">{e.detail}</pre> : null}
