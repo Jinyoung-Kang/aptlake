@@ -55,7 +55,7 @@ jobs:
       - name: gitleaks (비밀 스캔, al_live_ API 키 규칙 포함)
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.28.0 git /repo --config /repo/.gitleaks.toml --redact
       - name: trivy (의존성·설정 취약점)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with: { scan-type: fs, scan-ref: ., severity: "HIGH,CRITICAL", ignore-unfixed: true, exit-code: "1" }
       - name: compose 설정 검증
         run: cp .env.example .env && python3 tools/init_env.py && sed -i 's/^DATA_GO_KR_KEY=$/DATA_GO_KR_KEY=x/; s/^REB_API_KEY=$/REB_API_KEY=x/' .env && docker compose --profile lake --profile obs config -q
