@@ -7,3 +7,9 @@ id = "aptlake-api-key"
 description = "AptLake API key (al_live_<keyId>.<secret>)"
 regex = '''al_live_[2-9A-HJ-NP-Z]{12}\.[A-Za-z0-9_-]{43}'''
 keywords = ["al_live_"]
+
+# 오탐 예외는 좁게: 키를 만들 때 쓰는 '문자 집합' 상수는 비밀이 아니다 (generic-api-key 규칙이 엔트로피로 잡음)
+[[allowlists]]
+description = "API 키 생성용 문자 집합 상수"
+regexTarget = "line"
+regexes = ['''^\s*KEY_ALPHABET\s*=\s*"[2-9A-Z]+"''']
