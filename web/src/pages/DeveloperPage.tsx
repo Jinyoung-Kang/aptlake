@@ -3,7 +3,7 @@ import { api, errorText } from "../lib/api";
 import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { CopyButton, ErrorBox, Kpi, sqm } from "../components/ui";
-import { num } from "../lib/format";
+import { esc, num } from "../lib/format";
 
 type Usage = { clientId: string; plan: string; limits: { rpm: number; dailyRows: number };
   items: { day: string; requests: number; rows: number; errors: number; p95Ms: number }[] };
@@ -32,6 +32,11 @@ export default function DeveloperPage() {
     const it = usage?.items ?? [];
     return {
       ...b, legend: { show: false },
+      // 기본 툴팁은 style 속성이 든 HTML 을 만든다 → CSP(인라인 스타일 금지)에 맞춰 직접 구성
+      tooltip: { ...b.tooltip, formatter: (ps: { dataIndex: number }[]) => {
+        const i = it[ps[0].dataIndex];
+        return `<b>${esc(i.day)}</b><br/>요청 <b>${num(i.requests)}</b> · 오류 ${num(i.errors)} · p95 ${num(i.p95Ms)}ms`;
+      } },
       xAxis: axisX(p, { type: "category", data: it.map((i) => i.day.slice(5)) }),
       yAxis: axisY(p, { type: "value", name: "요청", minInterval: 1 }),
       series: [{ type: "bar", name: "요청", data: it.map((i) => i.requests), barMaxWidth: 22, itemStyle: { color: p.s1, borderRadius: [3, 3, 0, 0] } }],

@@ -107,7 +107,8 @@ export default function ApiTest() {
     const k = key.trim();
     // 1) 서버 구성요소 (이 요청 자체가 'API 서버 도달' 점검도 겸한다)
     const c = await runProbe({ id: "conn", name: "API 서버 도달 (구성요소 점검)", path: "/v1/ops/connectivity", expect: "200 · 구성요소 응답",
-      check: (r, b) => (r.status === 200 ? (has(b, "items") ? null : "응답 형식 다름") : `HTTP ${r.status}`) }, k);
+      check: (r, b) => (r.status === 200 ? (has(b, "items") ? null : "응답 형식 다름") : `HTTP ${r.status}`) }, "");
+    // ↑ 구성요소 점검은 'ops' 스코프가 필요한 운영 정보 → 사용자 키가 아니라 웹 화면(BFF) 키로 요청한다
     if (c.pass) setConn(c.body as Conn);
     else setConnErr(c.status == null ? "구성요소 점검 요청이 서버에 닿지 못했습니다 (웹 서버 또는 API 가 꺼져 있음)." : `구성요소 점검 실패: ${c.reason}`);
     // 2) 공개 API — 순서대로 (동시에 보내면 지연이 서로 섞인다)

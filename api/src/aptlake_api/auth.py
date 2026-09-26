@@ -16,7 +16,7 @@ import hmac
 import ipaddress
 import time
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 import orjson
 from fastapi import Request
@@ -144,6 +144,33 @@ async def _lookup_key_shared(res: Resources, key_id: str, s: Settings) -> dict |
     return data
 
 
+AUTH_FAIL_PER_MIN = 30
+
+
+async def _auth_failed(request: Request, s: Settings, code: str, detail: str | None = None) -> NoReturn:
+    """키 인증 실패는 IP(해시) 단위로 센다. 분당 30회를 넘으면 401 대신 429.
+
+    잘못된 키 요청은 한도 검사 전에 거절되므로, 세지 않으면 키 추측·잘못된 키로 서버를 두드리는 요청이
+    무제한으로 들어온다. 성공한 요청은 세지 않으므로 같은 IP 의 정상 키 사용은 막지 않는다.
+    """
+    res: Resources = request.app.state.res
+    now = time.time()
+    k = f"al:authfail:{_ip_subject(client_ip(request, s), s)}:{int(now // 60)}"
+    pipe = res.redis.pipeline()
+    pipe.incr(k)
+    pipe.expire(k, 120)
+    n, _ = await pipe.execute()
+    if int(n) > AUTH_FAIL_PER_MIN:
+        raise ApiError(
+            429,
+            "AUTH_RATE_LIMITED",
+            "Too Many Requests",
+            f"잘못된 키 요청이 분당 {AUTH_FAIL_PER_MIN}회를 넘었습니다. 잠시 후 다시 시도하세요.",
+            headers={"Retry-After": str(max(60 - int(now % 60), 1))},
+        )
+    raise ApiError(401, code, "Unauthorized", detail)
+
+
 async def resolve_principal(request: Request) -> Principal:
     s = settings()
     res: Resources = request.app.state.res
@@ -154,18 +181,18 @@ async def resolve_principal(request: Request) -> Principal:
         return Principal("anonymous", subject, subject, plans["anonymous"], ANON_SCOPES)
     parsed = keys.parse(raw)
     if parsed is None:
-        raise ApiError(401, "INVALID_API_KEY", "Unauthorized", "API 키 형식이 올바르지 않습니다.")
+        await _auth_failed(request, s, "INVALID_API_KEY", "API 키 형식이 올바르지 않습니다.")
     key_id, secret = parsed
     row = await _lookup_key(res, key_id, s)
     # 존재하지 않는 키도 같은 비용의 HMAC 비교를 해 응답 시간으로 존재 여부가 드러나지 않게 한다
     stored = row["secret_hmac"] if row else "0" * 64
     ok = keys.verify(s.api_key_pepper.get_secret_value(), secret, stored)
     if not row or not ok:
-        raise ApiError(401, "INVALID_API_KEY", "Unauthorized")
+        await _auth_failed(request, s, "INVALID_API_KEY")
     if row["revoked_at"] or row["status"] != "active":
-        raise ApiError(401, "KEY_REVOKED", "Unauthorized", "폐기되었거나 정지된 키입니다.")
+        await _auth_failed(request, s, "KEY_REVOKED", "폐기되었거나 정지된 키입니다.")
     if dt.datetime.fromisoformat(row["expires_at"]) <= dt.datetime.now(tz=dt.UTC):
-        raise ApiError(401, "KEY_EXPIRED", "Unauthorized", "만료된 키입니다.")
+        await _auth_failed(request, s, "KEY_EXPIRED", "만료된 키입니다.")
     request.state.touch_key = key_id
     if row["plan_id"] == WEB_PLAN:
         # 웹 프록시(BFF) 키: 한도는 키 전체가 아니라 브라우저 IP 단위 (원 IP 는 HMAC 으로만)

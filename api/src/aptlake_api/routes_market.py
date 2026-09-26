@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import gzip
 import json
 import math
 from typing import Annotated, Any
@@ -310,7 +311,13 @@ async def geo_sgg(request: Request, p: Principal = require_scope("read")) -> Res
                     for r in rows
                 ],
             }
-            cache.update(etag=etag, body=orjson.dumps(fc))
+            body = orjson.dumps(fc)
+            # 1.1MB 를 요청마다 압축하면 약 200ms(측정) → 데이터 버전당 한 번만 압축해 둔다
+            cache.update(etag=etag, body=body, gz=gzip.compress(body, compresslevel=9, mtime=0))
+    headers["Vary"] = "Accept-Encoding"
+    if "gzip" in request.headers.get("accept-encoding", ""):
+        # Content-Encoding 이 이미 있으면 GZip 미들웨어는 다시 압축하지 않고 그대로 보낸다
+        return Response(cache["gz"], media_type="application/geo+json", headers={**headers, "Content-Encoding": "gzip"})
     return Response(cache["body"], media_type="application/geo+json", headers=headers)
 
 

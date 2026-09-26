@@ -1,4 +1,7 @@
-"""수집 상태 · 오류 로그 API (/v1/ops). 운영 메타데이터이므로 일일 '데이터 행' 한도에 넣지 않는다."""
+"""수집 상태 · 오류 로그 API (/v1/ops). 운영 메타데이터이므로 일일 '데이터 행' 한도에 넣지 않는다.
+
+'ops' 스코프가 있는 키(웹 BFF 키·운영자 키)만 — 익명·일반 데이터 키에는 내부 운영 정보를 주지 않는다.
+"""
 
 from __future__ import annotations
 
@@ -36,7 +39,7 @@ async def _pg(request: Request, sql: str, params: tuple = ()) -> list[dict]:
 
 
 @router.get("/status", summary="수집 상태: 요약 · 작업 큐 · 스케줄/센서")
-async def status(request: Request, p: Principal = require_scope("read")) -> Response:
+async def status(request: Request, p: Principal = require_scope("ops")) -> Response:
     async def compute():
         dag: ops.DagsterClient = request.app.state.dagster
         pipeline: dict[str, Any] = {"available": True}
@@ -159,7 +162,7 @@ async def errors(
     hours: Annotated[int, Query(ge=1, le=720)] = 24,
     source: SOURCE = "all",
     includeResolved: bool = False,  # noqa: N803
-    p: Principal = require_scope("read"),
+    p: Principal = require_scope("ops"),
 ) -> Response:
     async def compute():
         entries: list[dict] = []
@@ -387,7 +390,7 @@ async def _timed(coro_fn) -> dict[str, Any]:
 @router.get(
     "/connectivity", summary="API 연결 점검: API 서버가 의존하는 구성요소의 응답 여부·지연, 원천 수집 최근 상태"
 )
-async def connectivity(request: Request, p: Principal = require_scope("read")) -> Response:
+async def connectivity(request: Request, p: Principal = require_scope("ops")) -> Response:
     """구성요소마다 가장 가벼운 질의 한 번 (동시 실행, 각 2초 제한).
 
     외부 원천(국토부·V-World)은 **직접 호출하지 않는다** — 일일 호출 한도가 있는 키를 공개 화면의 버튼으로

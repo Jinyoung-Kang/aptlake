@@ -192,8 +192,12 @@ async def test_rate_limit_returns_429_with_retry_after(apps):
 # ───────────── 웹 BFF 플랜 · 상태 응답 ETag · 시장 요약 · 수집 상태 ─────────────
 
 
-def client_at(app, ip: str) -> httpx.AsyncClient:
-    return httpx.AsyncClient(transport=httpx.ASGITransport(app=app, client=(ip, 1)), base_url="http://t")
+def client_at(app, ip: str, key: str | None = None) -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app, client=(ip, 1)),
+        base_url="http://t",
+        headers={"X-API-Key": key} if key else None,
+    )
 
 
 async def test_web_plan_limits_per_browser_ip(apps, stack):
@@ -333,15 +337,16 @@ def fake_dagster(now: float):
     return ops.DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 
 
-async def test_ops_status_and_error_log(apps):
+async def test_ops_status_and_error_log(apps, adm, admin_key):
     import json
     import time
 
     public = apps[0]
     real = public.state.dagster
     public.state.dagster = fake_dagster(time.time())
+    ops_key, _ = await new_key(adm, admin_key, scopes=("read", "ops"))
     try:
-        async with client_at(public, "10.40.0.1") as c:
+        async with client_at(public, "10.40.0.1", ops_key) as c:
             s = (await c.get("/v1/ops/status")).json()
             assert s["pipeline"]["available"] is True
             assert {j["runId"]: j["status"] for j in s["jobs"]["active"]} == {"q-1": "QUEUED", "r-1": "STARTED"}
@@ -366,7 +371,7 @@ async def test_ops_status_and_error_log(apps):
         public.state.dagster = real
 
 
-async def test_ops_status_survives_dagster_down(apps):
+async def test_ops_status_survives_dagster_down(apps, adm, admin_key):
     from aptlake_api import ops
 
     def down(request: httpx.Request) -> httpx.Response:
@@ -378,7 +383,8 @@ async def test_ops_status_survives_dagster_down(apps):
         "http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(down))
     )
     try:
-        async with client_at(public, "10.40.0.2") as c:
+        ops_key, _ = await new_key(adm, admin_key, scopes=("read", "ops"))
+        async with client_at(public, "10.40.0.2", ops_key) as c:
             r = await c.get("/v1/ops/status")
             assert r.status_code == 200 and r.json()["pipeline"]["available"] is False
             assert r.json()["summary"]["totalPartitions"] >= 0  # 운영 DB 부분은 그대로
@@ -427,14 +433,15 @@ async def test_transient_db_errors_are_503_not_500(apps, monkeypatch):
         assert r.status_code == 500 and r.json()["code"] == "INTERNAL"  # 버그는 여전히 500
 
 
-async def test_connectivity_check(apps):
+async def test_connectivity_check(apps, adm, admin_key):
     import time
 
     public = apps[0]
     real = public.state.dagster
     public.state.dagster = fake_dagster(time.time())
     try:
-        async with client_at(public, "10.50.0.2") as c:
+        ops_key, _ = await new_key(adm, admin_key, scopes=("read", "ops"))
+        async with client_at(public, "10.50.0.2", ops_key) as c:
             body = (await c.get("/v1/ops/connectivity")).json()
         assert body["ok"] is True
         got = {i["key"]: i for i in body["items"]}
@@ -447,3 +454,49 @@ async def test_connectivity_check(apps):
     finally:
         await public.state.dagster.aclose()
         public.state.dagster = real
+
+
+async def test_auth_failures_are_throttled_per_ip_without_blocking_valid_keys(apps, adm, admin_key):
+    good, _ = await new_key(adm, admin_key)
+    async with client_at(apps[0], "10.60.0.1") as c:
+        codes = [(await c.get("/v1/regions", headers={"X-API-Key": "al_live_bogus"})).status_code for _ in range(31)]
+        assert codes[:30] == [401] * 30  # 형식 오류도 실패로 센다
+        r = await c.get("/v1/regions", headers={"X-API-Key": "al_live_bogus"})
+        assert r.status_code == 429 and r.json()["code"] == "AUTH_RATE_LIMITED" and int(r.headers["retry-after"]) >= 1
+        assert (await c.get("/v1/regions", headers={"X-API-Key": good})).status_code == 200  # 정상 키는 영향 없음
+    async with client_at(apps[0], "10.60.0.2") as c:  # 다른 IP 는 따로 센다
+        assert (await c.get("/v1/regions", headers={"X-API-Key": "al_live_bogus"})).status_code == 401
+
+
+async def test_geo_is_served_precompressed(apps, stack):
+    import json
+
+    import psycopg
+
+    geom = {"type": "MultiPolygon", "coordinates": [[[[127.0, 37.5], [127.1, 37.5], [127.1, 37.6], [127.0, 37.5]]]]}
+    with psycopg.connect(stack["su"], autocommit=True) as pg:
+        pg.execute(
+            """INSERT INTO ops.region_boundary (sgg_cd, geometry, area_rel_error, source, source_sha256, simplify, fetched_at)
+               VALUES ('11110', %s, 0.001, 'V-World LT_C_ADSIGG_INFO', repeat('a', 64), '{}', now())
+               ON CONFLICT (sgg_cd) DO NOTHING""",
+            (json.dumps(geom),),
+        )
+    async with client_at(apps[0], "10.60.0.3") as c:
+        r = await c.get("/v1/geo/sgg", headers={"Accept-Encoding": "gzip"})
+        assert (
+            r.status_code == 200 and r.headers["content-encoding"] == "gzip" and r.headers["vary"] == "Accept-Encoding"
+        )
+        assert r.json()["features"][0]["id"] == "11110"  # httpx 가 gzip 을 풀어 준다
+        plain = await c.get("/v1/geo/sgg", headers={"Accept-Encoding": "identity"})
+        assert "content-encoding" not in plain.headers and plain.json() == r.json()
+        assert (await c.get("/v1/geo/sgg", headers={"If-None-Match": r.headers["etag"]})).status_code == 304
+
+
+async def test_ops_endpoints_need_ops_scope(apps, adm, admin_key):
+    """운영 정보(오류 로그의 내부 호스트·스택)는 익명·일반 데이터 키에 주지 않는다."""
+    data_key, _ = await new_key(adm, admin_key)  # read 만
+    async with client_at(apps[0], "10.70.0.1") as anon, client_at(apps[0], "10.70.0.2", data_key) as keyed:
+        for c in (anon, keyed):
+            for path in ("/v1/ops/status", "/v1/ops/errors", "/v1/ops/connectivity"):
+                r = await c.get(path)
+                assert r.status_code == 403 and r.json()["code"] == "SCOPE_REQUIRED", path

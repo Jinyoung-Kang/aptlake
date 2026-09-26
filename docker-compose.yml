@@ -28,6 +28,8 @@ services:
       interval: 3s
       retries: 20
     mem_limit: 384m
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped
     logging: *logging
 
@@ -46,6 +48,8 @@ services:
       interval: 3s
       retries: 20
     mem_limit: 512m
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped
     logging: *logging
 
@@ -87,6 +91,8 @@ services:
       interval: 3s
       retries: 20
     mem_limit: 256m
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped
     logging: *logging
 
@@ -117,6 +123,8 @@ services:
       interval: 5s
       retries: 40
     mem_limit: 2g
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 1024  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped
     logging: *logging
 
@@ -143,6 +151,8 @@ services:
       interval: 3s
       retries: 30
     mem_limit: 1536m
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 1024  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped
     logging: *logging
 
@@ -178,6 +188,8 @@ services:
       interval: 3s
       retries: 20
     mem_limit: 192m
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped
     logging: *logging
 
@@ -226,6 +238,7 @@ services:
       interval: 5s
       retries: 20
     mem_limit: 768m
+    pids_limit: 256  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     read_only: true
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]
@@ -246,6 +259,7 @@ services:
       interval: 5s
       retries: 20
     mem_limit: 512m
+    pids_limit: 128  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     read_only: true
     tmpfs: [/tmp]
     security_opt: ["no-new-privileges:true"]
@@ -263,6 +277,8 @@ services:
     networks:
       default: { ipv4_address: 172.30.61.250 }
     mem_limit: 64m
+    pids_limit: 64  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
+    cap_drop: [ALL]  # nginx-unprivileged: 8080 포트·uid 101 이라 필요한 권한 없음
     read_only: true
     tmpfs: [/tmp, /var/cache/nginx, /var/run]
     security_opt: ["no-new-privileges:true"]
@@ -302,6 +318,7 @@ services:
     ports: ["127.0.0.1:3600:3000"]
     # 상주(웹서버·데몬) ≈ 0.7GB + 실행 1개(지수 산출 최대 RSS 0.98GB 측정) → 여유 포함 2.5GB
     mem_limit: 2560m
+    pids_limit: 1024  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
     logging: *logging
@@ -316,6 +333,8 @@ services:
       - prom:/prometheus
     ports: ["127.0.0.1:9690:9090"]
     mem_limit: 256m
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped
     logging: *logging
 
@@ -332,6 +351,8 @@ services:
       - grafana:/var/lib/grafana
     ports: ["127.0.0.1:3620:3000"]
     mem_limit: 256m
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped
     logging: *logging
 

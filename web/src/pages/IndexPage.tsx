@@ -54,7 +54,7 @@ export default function IndexPage({ route }: { route: Route }) {
         formatter: (ps: { dataIndex: number }[]) => {
           const r = rows[ps[0].dataIndex];
           return `<b>${ymLabel(r.period)}</b>${r.provisional ? " (잠정)" : ""}<br/>자체 지수 <b>${num(r.v, 2)}</b> (95% ${num(r.lo, 2)}~${num(r.hi, 2)})` +
-            `<br/>R-ONE ${r.ref == null ? DASH : num(r.ref, 2)}<br/><span style="color:${p.text3}">관측 거래 ${num(r.nObs)}건</span>`;
+            `<br/>R-ONE ${r.ref == null ? DASH : num(r.ref, 2)}<br/><span class="tt-muted">관측 거래 ${num(r.nObs)}건</span>`;
         },
       },
       xAxis: axisX(p, { type: "category", data: rows.map((r) => r.period), boundaryGap: false, axisLabel: { color: p.text3, fontSize: 11, formatter: (v: string) => ymLabel(v) } }),

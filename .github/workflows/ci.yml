@@ -6,13 +6,22 @@ on:
 permissions:
   contents: read
 
+# 같은 브랜치에 새 커밋이 오면 이전 실행은 취소 (러너 시간 절약)
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# 액션은 태그가 아니라 커밋 SHA 로 고정한다 — 태그는 액션 저장소 쪽에서 옮길 수 있다 (공급망 공격 방지).
+# 버전 주석은 Dependabot 이 SHA 와 함께 갱신한다.
+
 jobs:
   pipeline:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults: { run: { working-directory: pipeline } }
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - run: uv sync --frozen
       - run: uv run ruff check src tests && uv run ruff format --check src tests
       - run: uv run mypy src
@@ -24,10 +33,11 @@ jobs:
 
   api:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults: { run: { working-directory: api } }
     steps:
-      - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - run: uv sync --frozen
       - run: uv run ruff check src tests && uv run ruff format --check src tests
       - run: uv run mypy src
@@ -38,10 +48,11 @@ jobs:
 
   web:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults: { run: { working-directory: web } }
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: 24, cache: npm, cache-dependency-path: web/package-lock.json }
       - run: npm ci
       - run: npx tsc -b && npx vite build
@@ -49,13 +60,14 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: { fetch-depth: 0 }
       - name: gitleaks (비밀 스캔, al_live_ API 키 규칙 포함)
-        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.28.0 git /repo --config /repo/.gitleaks.toml --redact
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.30.1 git /repo --config /repo/.gitleaks.toml --redact
       - name: trivy (의존성·설정 취약점)
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with: { scan-type: fs, scan-ref: ., severity: "HIGH,CRITICAL", ignore-unfixed: true, exit-code: "1" }
       - name: compose 설정 검증
         run: cp .env.example .env && python3 tools/init_env.py && sed -i 's/^DATA_GO_KR_KEY=$/DATA_GO_KR_KEY=x/; s/^REB_API_KEY=$/REB_API_KEY=x/' .env && docker compose --profile lake --profile obs config -q

@@ -41,9 +41,10 @@ def main() -> int:
         c.execute(
             """INSERT INTO api.api_key (key_id, client_id, secret_hmac, scopes, expires_at)
                VALUES (%s, %s, %s, %s, %s)
-               ON CONFLICT (key_id) DO UPDATE SET secret_hmac = EXCLUDED.secret_hmac,
+               ON CONFLICT (key_id) DO UPDATE SET secret_hmac = EXCLUDED.secret_hmac, scopes = EXCLUDED.scopes,
                  expires_at = EXCLUDED.expires_at, revoked_at = NULL""",
-            (key_id, client_id, keys.hmac_secret(pepper, secret), ["read"], expires),
+            # 웹 화면은 데이터 조회(read)와 수집 상태 메뉴(ops)를 쓴다
+            (key_id, client_id, keys.hmac_secret(pepper, secret), ["read", "ops"], expires),
         )
         revoked = c.execute(
             """UPDATE api.api_key SET revoked_at = now()

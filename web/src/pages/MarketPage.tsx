@@ -4,7 +4,7 @@ import { Chart, echarts, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { MonthPicker } from "../components/MonthPicker";
 import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm, sqm, StatRow, Tabs } from "../components/ui";
-import { DASH, num, ymLabel } from "../lib/format";
+import { DASH, esc, num, ymLabel } from "../lib/format";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
 
@@ -96,12 +96,12 @@ function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: 
         formatter: (x: { name: string }) => {
           const r = byCode.get(x.name);
           const s = values.get(x.name);
-          const title = r ? `<b>${r.name}</b> <span style="color:${p.text3}">${r.sidoName}</span>` : x.name;
+          const title = r ? `<b>${esc(r.name)}</b> <span class="tt-muted">${esc(r.sidoName)}</span>` : esc(x.name);
           if (!s) return `${title}<br/>이 달 거래 없음`;
           const yoy = s.medianYoY == null ? DASH : `${s.medianYoY > 0 ? "▲ +" : s.medianYoY < 0 ? "▼ " : ""}${s.medianYoY.toFixed(1)}%`;
           return `${title}<br/>${M2}당 중위가 <b>${s.lowSample || s.median == null ? DASH : num(s.median)}</b> 만원/${M2}` +
             `<br/>전년비 ${yoy} · 거래 ${num(s.trades)}건 · 해제율 ${s.cancelRate == null ? DASH : `${s.cancelRate.toFixed(1)}%`}` +
-            `<br/><span style="color:${p.text3}">표본 ${num(s.sample)}건 — 클릭하면 지역 분석</span>`;
+            `<br/><span class="tt-muted">표본 ${num(s.sample)}건 — 클릭하면 지역 분석</span>`;
         },
       },
       visualMap: {

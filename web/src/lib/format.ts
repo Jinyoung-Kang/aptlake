@@ -127,3 +127,12 @@ export function quantile(values: number[], q: number): number | null {
   const lo = Math.floor(h), hi = Math.ceil(h);
   return s[lo] + (h - lo) * (s[hi] - s[lo]);
 }
+
+/**
+ * 차트 툴팁은 HTML 문자열로 그려진다 (ECharts 가 innerHTML 로 넣음).
+ * API 가 준 이름(시군구·시도·단지)은 반드시 이 함수로 감싼다 — 원천 자료에 태그가 섞여 와도 실행되지 않게.
+ */
+export function esc(v: unknown): string {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+}
+

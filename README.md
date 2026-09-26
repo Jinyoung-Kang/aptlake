@@ -129,7 +129,9 @@ flowchart LR
 | 스코프 누락 | 모든 라우트가 `require_scope` 를 선언했는지 **기동 시 검사**, 빠지면 기동 실패 (include_router 안쪽까지) | [deps.py](api/src/aptlake_api/deps.py) |
 | 관리 API 원격 호출 | 관리 라우트는 별도 프로세스·포트(:8611), 웹 프록시는 공개 API 만 전달(`/v1/admin` 은 404), 모든 변경은 append-only 감사 로그 | compose `api-internal`, [aptlake.conf.template](web/templates/aptlake.conf.template) |
 | 브라우저에 키 노출 | 웹은 BFF: nginx 가 서버 쪽 웹 키를 붙이고 브라우저에는 키가 없음. 웹 키 한도는 브라우저 IP(HMAC) 단위, 키 순환 시 이전 키 자동 폐기 | [provision.py](api/src/aptlake_api/provision.py), [auth.py](api/src/aptlake_api/auth.py) |
-| 운영 화면으로 비밀 유출 | 오류 로그·센서 메시지의 비밀값 가림(인증키 파라미터·DSN 비밀번호·인증 헤더·S3 자격증명·서명), 실행 설정(run config)은 내보내지 않음, Dagster 는 고정 읽기 질의만 | [ops.py](api/src/aptlake_api/ops.py) |
+| 운영 화면으로 비밀 유출 | 오류 로그·센서 메시지의 비밀값 가림(인증키 파라미터·DSN 비밀번호·인증 헤더·S3 자격증명·서명), 실행 설정(run config)은 내보내지 않음, Dagster 는 고정 읽기 질의만. 운영 API(`/v1/ops/*`)는 **`ops` 스코프** 키(웹 BFF·운영자)만 — 익명·일반 데이터 키는 403 | [ops.py](api/src/aptlake_api/ops.py), [V005](api/migrations/V005__ops_scope.sql) |
+| 키 추측·잘못된 키 폭주 | 인증 실패를 IP(해시)별로 세어 분당 30회 초과 시 401 대신 429 (정상 키는 영향 없음) | [auth.py](api/src/aptlake_api/auth.py) |
+| 로그로 키 유출 | 공공데이터 API 키는 URL 쿼리에 실리므로 httpx 요청 로그(URL 전체)를 경고 이상만 남김 | `aptlake_pipeline/__init__.py` |
 | SQL 주입 | ClickHouse 서버측 파라미터 바인딩만, 식별자 허용 목록, 경로·쿼리 정규식 검증. dbt var·Trino 리터럴은 형식 검증 후에만 | [routes_public.py](api/src/aptlake_api/routes_public.py), [silver.py](pipeline/src/aptlake_pipeline/silver.py) |
 | 대량 추출 | 분당 요청(슬라이딩 윈도우, Redis Lua 원자) + 일일 행 한도 + 기간 상한 + **서명된 커서**(다른 질의 재사용·변조 시 400) + 대량은 비동기 내보내기(pro). 행 한도는 거래 단위 레코드(거래 목록·이력·산점도 점·단지 이력)에만 매기고, 원자료를 내보내지 않는 집계(월 통계·지도·순위·지수)는 요청 수 한도만 | [auth.py](api/src/aptlake_api/auth.py), [cursor.py](api/src/aptlake_api/cursor.py) |
 | IP 위조 | `X-Forwarded-For` 는 웹 프록시 고정 IP 에서 온 경우만, 오른쪽부터 신뢰하지 않는 첫 주소. 익명 사용자 IP 는 HMAC 으로만 저장 | `client_ip()` |
@@ -139,9 +141,11 @@ flowchart LR
 | Redis 과권한 | ACL: default 끔, api(`al:*`)·pipeline(`budget:*`, `al:ds:*`) 키 접두사·명령 범위 분리 | compose `redis` |
 | Trino 권한 | 파일 기반 접근 제어: pipeline·dbt 쓰기, analyst 읽기 전용, 그 외 거부 | [rules.json](infra/trino/etc/rules.json) |
 | XML 공격 | `defusedxml` (엔티티 확장 거부 테스트) | [parse.py](pipeline/src/aptlake_pipeline/rtms/parse.py) |
-| 비밀 유출 | `.env` git 제외(600), 내부 비밀 자동 생성, 설정 객체 repr 마스킹, gitleaks 규칙(`al_live_`), 컨테이너 read-only·cap_drop·no-new-privileges | [.gitleaks.toml](.gitleaks.toml), CI |
-| 브라우저 | CSP `default-src 'self'`, X-Frame-Options, nosniff, 접근 로그에 쿼리 문자열을 남기지 않음, 개발자 화면에 넣은 키는 React state 에만 (저장소·URL 에 쓰지 않음) | [aptlake.conf.template](web/templates/aptlake.conf.template) |
-| 공급망 | uv.lock·package-lock 고정, pip-audit·npm audit·Trivy·Dependabot | [ci.yml](.github/workflows/ci.yml) |
+| 비밀 유출 | `.env` git 제외(600), 내부 비밀 자동 생성, 설정 객체 repr 마스킹, gitleaks 규칙(`al_live_`) | [.gitleaks.toml](.gitleaks.toml), CI |
+| 컨테이너 탈출·자원 고갈 | 상주 서비스 12개 모두 `no-new-privileges` + 프로세스 수 상한(`pids_limit`, 측정값의 약 4배) + 메모리 상한, API·웹은 읽기 전용 파일시스템·권한 전부 제거(`cap_drop: ALL`), 모든 포트 127.0.0.1 | [docker-compose.yml](docker-compose.yml) |
+| 브라우저 | CSP 에 **인라인 스크립트·인라인 스타일 모두 금지**(차트 툴팁도 클래스만), Permissions-Policy·COOP·CORP·X-Frame-Options·nosniff, 차트 툴팁(HTML)에 들어가는 이름은 모두 이스케이프(XSS), 접근 로그에 쿼리 문자열을 남기지 않음, 개발자 화면에 넣은 키는 React state 에만 | [aptlake.conf.template](web/templates/aptlake.conf.template), [format.ts](web/src/lib/format.ts) |
+| 웹 키 남용 · 폭주 | 웹 키는 브라우저의 같은 출처 요청(`Sec-Fetch-Site: same-origin`)에만 붙음 → curl 등은 익명 한도. nginx 가 IP 당 초당 50회로 먼저 자름(429) | [aptlake.conf.template](web/templates/aptlake.conf.template) |
+| 공급망 | uv.lock·package-lock 고정, GitHub Actions 는 **커밋 SHA 고정**, pip-audit·npm audit·Trivy·gitleaks, Dependabot(베이스 이미지·compose 이미지 포함, 묶음 PR) | [ci.yml](.github/workflows/ci.yml), [dependabot.yml](.github/dependabot.yml) |
 
 ## 6. 성능 (측정값)
 
@@ -156,6 +160,15 @@ flowchart LR
 | 전국 한 달 파이프라인 | — | **1분 45초** (45,980건: 수집 47s · silver 17s · dbt 16s · 발행 3.4s) |
 
 첫 측정은 p95 4.9초·실패 8.9% 였습니다. 원인은 (1) Redis 연결 풀 고갈(`MaxConnectionsError` → 500), (2) 요청당 Redis 왕복 약 8회, (3) 단일 워커. 대기형 풀, Lua 한 번에 한도·행 사용량 조회, 프로세스 내 키 캐시(5초), 캐시 값 한 키 저장, 워커 4개로 바꿔 위 수치가 됐습니다.
+
+**2차 최적화 (2026-09-26, 같은 조건 전후 비교)**
+
+| 항목 | 전 | 후 | 바꾼 것 |
+|---|---|---|---|
+| API 최대 처리량 (동시 32, 캐시 적중, 20초×2회) | 4,380~4,480 req/s · 중앙 5.3~5.8ms | **5,670~5,880 req/s** · 중앙 3.2~4.4ms | 요청 봉투를 `BaseHTTPMiddleware` → 순수 ASGI 로, 키 최근 사용 시각 DB 쓰기를 응답 뒤 백그라운드로 |
+| 시군구 경계 `/v1/geo/sgg` (웹 경유 중앙값) | 201 ms | **4.7 ms** | 1.1MB 를 요청마다 gzip → 데이터 버전당 한 번만 압축해 캐시 |
+| 정적 JS (웹 경유 중앙값) | 6.6 ms | **1.6 ms** | 빌드 때 gzip -9 로 미리 압축(`gzip_static`) |
+| 웹 → API 연결 | 요청마다 새 TCP 연결 | keepalive 재사용 | nginx upstream `keepalive` + 도커 DNS 재해석(`resolve`) |
 
 ## 7. 웹 화면
 
@@ -272,7 +285,7 @@ curl -H "X-API-Key: $KEY" "http://127.0.0.1:8610/v1/quality/partitions/41135/202
 | 파이프라인 단위 | 43 | 실제 응답 XML fixture, 파서, 정규화, 지문·순번(hypothesis: 순서 무관·유일), 엔티티 확장 거부, 시군구 도출, R-ONE 매핑, 지수(알려진 효과 복원·구성 편향), 예산 상한, 원천 오류 분류(한도 초과 429·키 오류·5xx 재시도), 경계 단순화(면적 오차·조각 제거) |
 | 정합성 통합 | 2 | 실제 Lakekeeper·MinIO·Trino: 3회 재반영 불변, 해제 → 새 버전·이전 버전 닫힘, 사라짐 → missing, 재등장 → 해제 / 100 스레드 동시 예산 차감 → 정확히 상한 |
 | API 단위 | 29 | 키 형식·HMAC, 커서 서명, 신뢰 프록시 IP, 스코프 강제, **비밀값 가림 10종**, Dagster 응답 해석(밀리초 이벤트 시각 회귀), 확정 월 지수 |
-| API 통합 | 22 | Testcontainers(PostgreSQL·Redis·ClickHouse, 운영과 같은 마이그레이션·사용자 설정): 헤더 계약, ETag 304, **상태 응답은 내용이 바뀌면 새 ETag**, 플랜 기간, 폐기 즉시 401, 스코프, 관리 라우트 부재, 커서 완결성·위조, 주입 문자열, 사용량 격리, 429, **웹 플랜 IP별 한도**, 시세 띠·지수의 확정 월, 수집 상태·오류 로그(가짜 Dagster: 해결됨 판단·비밀 가림·Dagster 중단 시에도 200), **ClickHouse 과부하 → 503 / 버그 → 500**, 연결 점검 |
+| API 통합 | 25 | Testcontainers(PostgreSQL·Redis·ClickHouse, 운영과 같은 마이그레이션·사용자 설정): 헤더 계약, ETag 304, **상태 응답은 내용이 바뀌면 새 ETag**, 플랜 기간, 폐기 즉시 401, 스코프, 관리 라우트 부재, 커서 완결성·위조, 주입 문자열, 사용량 격리, 429, **웹 플랜 IP별 한도**, 시세 띠·지수의 확정 월, 수집 상태·오류 로그(가짜 Dagster: 해결됨 판단·비밀 가림·Dagster 중단 시에도 200), **ClickHouse 과부하 → 503 / 버그 → 500**, 연결 점검, **운영 API 는 ops 스코프만**, **인증 실패 IP별 제한**, 경계 GeoJSON 사전 압축·304 |
 | dbt | 22 | 월 파티션마다 실행, 실패 시 발행 차단 (전국·시도 집계 = 시군구 합 대조 포함) |
 | 부하 | k6 | 200 + 100 RPS + 한도 초과 시나리오 |
 

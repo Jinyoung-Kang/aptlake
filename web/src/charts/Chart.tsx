@@ -15,8 +15,9 @@ echarts.use([
 
 export { echarts };
 
-/** 툴팁(HTML)용 제곱미터 표기 — 캔버스(축 이름·범례)는 'm²' 문자를 그대로 쓴다. */
-export const M2 = 'm<sup style="font-size:.72em;line-height:0">2</sup>';
+/** 툴팁(HTML)용 제곱미터 표기 — 캔버스(축 이름·범례)는 'm²' 문자를 그대로 쓴다.
+ *  툴팁 HTML 에는 style 속성을 쓰지 않고 클래스만 쓴다 (CSP 가 인라인 스타일을 허용하지 않음). */
+export const M2 = 'm<sup class="tt-sup">2</sup>';
 
 export function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();

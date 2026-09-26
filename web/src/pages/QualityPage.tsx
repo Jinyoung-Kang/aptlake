@@ -3,7 +3,7 @@ import { useApi } from "../lib/api";
 import { axisX, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { Badge, CopyButton, ErrorBox, Kpi, Skeleton, StatRow, Switch } from "../components/ui";
-import { DASH, kst, num, relative, ymAdd, ymLabel, ymOf } from "../lib/format";
+import { DASH, esc, kst, num, relative, ymAdd, ymLabel, ymOf } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
 
@@ -97,7 +97,7 @@ export default function QualityPage({ route }: { route: Route }) {
       ...b,
       grid: { left: 8, right: 12, top: 10, bottom: 58, containLabel: true },
       tooltip: { ...b.tooltip, trigger: "item", formatter: (x: { data: [number, number, number, string] }) =>
-        `<b>${sidoName(rows[x.data[1]])}</b> · ${ymLabel(`${months[x.data[0]].slice(0, 4)}-${months[x.data[0]].slice(4)}`)}<br/>반영 완료 <b>${x.data[2]}%</b><br/>${x.data[3]}<br/><span style="color:${p.text3}">누르면 시군구별 보기</span>` },
+        `<b>${esc(sidoName(rows[x.data[1]]))}</b> · ${ymLabel(`${months[x.data[0]].slice(0, 4)}-${months[x.data[0]].slice(4)}`)}<br/>반영 완료 <b>${x.data[2]}%</b><br/>${x.data[3]}<br/><span class="tt-muted">누르면 시군구별 보기</span>` },
       xAxis: axisX(p, { type: "category", data: months, axisLabel: { color: p.text3, fontSize: 10, formatter: (v: string) => (v.endsWith("01") ? v.slice(0, 4) : ""), interval: 0 }, splitArea: { show: false } }),
       yAxis: { type: "category", data: rows.map(sidoName), inverse: true, axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: p.text2, fontSize: 11 } },
       visualMap: { min: 0, max: 100, dimension: 2, orient: "horizontal", left: "center", bottom: 4, itemWidth: 12, itemHeight: 160,
@@ -118,7 +118,7 @@ export default function QualityPage({ route }: { route: Route }) {
       ...b,
       grid: { left: 8, right: 12, top: 10, bottom: 58, containLabel: true },
       tooltip: { ...b.tooltip, trigger: "item", formatter: (x: { data: [number, number, number, number | null] }) =>
-        `<b>${sggRows[x.data[1]].name}</b> · ${months[x.data[0]]}<br/>${STATUS_LABEL[STATUS_ORDER[x.data[2]]]} · 원천 ${x.data[3] ?? DASH}건<br/><span style="color:${p.text3}">누르면 파티션 상세</span>` },
+        `<b>${esc(sggRows[x.data[1]].name)}</b> · ${months[x.data[0]]}<br/>${STATUS_LABEL[STATUS_ORDER[x.data[2]]]} · 원천 ${x.data[3] ?? DASH}건<br/><span class="tt-muted">누르면 파티션 상세</span>` },
       xAxis: axisX(p, { type: "category", data: months, axisLabel: { color: p.text3, fontSize: 10, formatter: (v: string) => (v.endsWith("01") ? v.slice(0, 4) : ""), interval: 0 } }),
       yAxis: { type: "category", data: sggRows.map((r) => r.name), inverse: true, axisTick: { show: false }, axisLine: { show: false }, axisLabel: { color: p.text2, fontSize: 11 } },
       visualMap: { type: "piecewise", dimension: 2, orient: "horizontal", left: "center", bottom: 4, textStyle: { color: p.text2, fontSize: 11 },

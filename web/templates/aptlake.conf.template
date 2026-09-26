@@ -1,56 +1,89 @@
-# 정적 SPA + 공개 API 프록시 (관리 API 는 프록시하지 않는다)
-# 웹 화면은 BFF: 브라우저에는 키가 없고, 여기서 서버 쪽 웹 전용 키를 붙인다 (한도는 API 가 브라우저 IP 단위로 적용).
-# 사용자가 직접 키를 넣은 요청(개발자 화면)은 그 키를 그대로 전달한다.
-map $http_x_api_key $aptlake_api_key {
-    ""      "${WEB_API_KEY}";
-    default $http_x_api_key;
+# 정적 SPA + 공개 API 프록시 (관리 API 는 프록시하지 않는다). http 블록 안에 include 된다.
+
+# ── BFF: 웹 화면 자신의 요청에만 서버 쪽 웹 전용 키를 붙인다 ──
+# 브라우저는 같은 출처 fetch 에 Sec-Fetch-Site: same-origin 을 붙인다. 키 없이 다른 도구(curl·스크립트)로
+# 들어온 요청은 키를 붙이지 않아 anonymous 플랜(분당 20회)이 적용된다 — 웹 키 한도를 도구로 빼 쓰지 못하게.
+# (헤더는 위조할 수 있으므로 최종 방어선은 API 의 브라우저 IP 단위 한도다. 여기서는 문턱을 올린다.)
+# 사용자가 직접 넣은 키(개발자 화면·연결 테스트)는 그대로 전달한다.
+map "$http_x_api_key|$http_sec_fetch_site" $aptlake_api_key {
+    "|same-origin"  "${WEB_API_KEY}";
+    "~^\|"          "";
+    default         $http_x_api_key;
+}
+
+# ── 1차 방어: IP 당 초당 요청 (API 의 분당 한도·Redis 까지 가기 전에 폭주를 자른다) ──
+limit_req_zone $binary_remote_addr zone=perip:10m rate=50r/s;
+limit_req_status 429;
+
+# ── API 업스트림: 연결 재사용(keepalive) + 도커 DNS 로 주기적 재해석(api 컨테이너 재생성 시 IP 변경) ──
+resolver 127.0.0.11 valid=10s ipv6=off;
+upstream aptlake_api {
+    zone aptlake_api 64k;
+    server api:8610 resolve;
+    keepalive 16;
 }
 
 server {
     listen 8080;
     client_max_body_size 16k;
+    client_body_timeout 10s;
+    client_header_timeout 10s;
     root /usr/share/nginx/html;
+    gzip_static on;   # 빌드 때 미리 압축한 .gz 를 그대로 (요청마다 압축하지 않음)
 
-    # api 컨테이너가 재생성돼 IP 가 바뀌어도 따라가도록 도커 DNS 로 매번(10초 캐시) 다시 해석
-    resolver 127.0.0.11 valid=10s ipv6=off;
-    set $api_upstream http://api:8610;
-
+    # 보안 헤더는 여기 한 곳에서만 (location 에서 add_header 를 쓰면 상속이 끊기므로 쓰지 않는다)
     add_header X-Content-Type-Options nosniff always;
     add_header X-Frame-Options DENY always;
     add_header Referrer-Policy no-referrer always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" always;
+    add_header Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=()" always;
+    add_header Cross-Origin-Opener-Policy same-origin always;
+    add_header Cross-Origin-Resource-Policy same-origin always;
+    # 인라인 스크립트·인라인 스타일 모두 금지 (차트 툴팁도 style 속성 대신 클래스만 쓴다)
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" always;
 
     location /v1/admin { return 404; }
 
     location ~ ^/(v1/|openapi\.json$) {
-        proxy_pass $api_upstream;
+        limit_req zone=perip burst=100 nodelay;
+        proxy_pass http://aptlake_api;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header Host $host;
         # 클라이언트가 보낸 X-Forwarded-For 는 버리고 실제 접속 주소로 덮어쓴다
         proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Request-Id $request_id;
         proxy_set_header X-API-Key $aptlake_api_key;
+        # API 가 붙인 같은 이름의 보안 헤더는 위의 값 하나로 (중복 헤더 방지)
+        proxy_hide_header X-Content-Type-Options;
+        proxy_hide_header X-Frame-Options;
+        proxy_hide_header Referrer-Policy;
+        proxy_hide_header Content-Security-Policy;
+        proxy_connect_timeout 3s;
         proxy_read_timeout 30s;
     }
 
     location = /docs {
-        proxy_pass $api_upstream;
+        limit_req zone=perip burst=20 nodelay;
+        proxy_pass http://aptlake_api;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
         proxy_set_header X-Forwarded-For $remote_addr;
-        # Swagger UI 는 jsdelivr 의 스크립트를 쓰므로 이 경로만 CSP 를 API 가 정한 값으로 둔다
+        # Swagger UI 는 jsdelivr 의 스크립트·인라인 스크립트를 쓰므로 이 경로만 CSP 를 따로 둔다
         proxy_hide_header Content-Security-Policy;
+        proxy_hide_header X-Content-Type-Options;
+        proxy_hide_header X-Frame-Options;
         add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; img-src 'self' data: https://fastapi.tiangolo.com; frame-ancestors 'none'" always;
+        add_header X-Content-Type-Options nosniff always;
+        add_header X-Frame-Options DENY always;
     }
 
+    # 파일 이름에 내용 해시가 들어간 빌드 결과물 → 1년 캐시
     location /assets/ {
-        expires 1y;
-        add_header Cache-Control "public, immutable" always;
-        add_header X-Content-Type-Options nosniff always;
+        expires max;
     }
 
     location / {
         try_files $uri /index.html;
-        add_header Cache-Control "no-cache" always;
-        add_header X-Content-Type-Options nosniff always;
-        add_header X-Frame-Options DENY always;
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" always;
+        expires epoch;   # index.html 은 매번 재검증 (새 배포 즉시 반영)
     }
 }
