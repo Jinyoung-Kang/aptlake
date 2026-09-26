@@ -130,7 +130,7 @@ services:
 
   # ───────────────────────── 서빙 ─────────────────────────
   clickhouse:
-    image: clickhouse/clickhouse-server:25.8
+    image: clickhouse/clickhouse-server:26.6
     environment:
       CLICKHOUSE_USER: admin
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
@@ -158,7 +158,7 @@ services:
 
   ch-migrate:
     # 서빙 스키마를 기동 때마다 멱등 적용 (IF NOT EXISTS) — initdb 스크립트는 첫 기동에만 돌기 때문
-    image: clickhouse/clickhouse-server:25.8
+    image: clickhouse/clickhouse-server:26.6
     entrypoint: ["sh", "-c", "clickhouse-client --host clickhouse --user admin --password \"$$CLICKHOUSE_ADMIN_PASSWORD\" --multiquery < /init/01-schema.sql && echo ch schema up to date"]
     environment:
       CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
