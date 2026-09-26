@@ -17,18 +17,29 @@ export function Badge({ children, tone, title }: { children: ReactNode; tone?: "
   return <span className={`badge ${tone ?? ""}`} title={title}>{children}</span>;
 }
 
+/** 제곱미터: 'm' 뒤 위첨자 2 를 글자 크기의 72%로 (호환 문자 ㎡·m² 글리프는 작아서 읽기 어렵다). */
+export function Sqm() {
+  return <span className="sqm">m<sup>2</sup></span>;
+}
+
+/** 문자열 속 '㎡'·'m²' 를 <Sqm/> 로 바꾼다 (API 가 준 단위·라벨에도 쓴다). 문자열이 아니면 그대로. */
+export function sqm(text: ReactNode): ReactNode {
+  if (typeof text !== "string" || !/㎡|m²/.test(text)) return text;
+  return text.split(/㎡|m²/).flatMap((part, i) => (i ? [<Sqm key={i} />, part] : [part]));
+}
+
 export function Kpi({ k, v, unit, d, title }: { k: ReactNode; v: ReactNode; unit?: string; d?: ReactNode; title?: string }) {
   return (
     <div className="kpi" title={title}>
-      <div className="k">{k}</div>
-      <div className="v">{v}{unit ? <small>{unit}</small> : null}</div>
+      <div className="k">{sqm(k)}</div>
+      <div className="v">{v}{unit ? <small>{sqm(unit)}</small> : null}</div>
       {d ? <div className="d">{d}</div> : null}
     </div>
   );
 }
 
 export function StatRow({ k, v }: { k: ReactNode; v: ReactNode }) {
-  return <div className="stat-row"><span className="k">{k}</span><span className="v">{v}</span></div>;
+  return <div className="stat-row"><span className="k">{sqm(k)}</span><span className="v">{sqm(v)}</span></div>;
 }
 
 export function Segmented<T extends string>({ value, options, onChange, label }: {
@@ -38,7 +49,7 @@ export function Segmented<T extends string>({ value, options, onChange, label }:
     <div className="seg" role="group" aria-label={label}>
       {options.map((o) => (
         <button key={o.value} type="button" aria-pressed={o.value === value} title={o.title} onClick={() => onChange(o.value)}>
-          {o.label}
+          {sqm(o.label)}
         </button>
       ))}
     </div>
@@ -52,7 +63,7 @@ export function Tabs<T extends string>({ value, options, onChange }: {
     <div className="tabs" role="tablist">
       {options.map((o) => (
         <button key={o.value} role="tab" type="button" aria-selected={o.value === value} onClick={() => onChange(o.value)}>
-          {o.label}{o.n != null ? <span className="n">{num(o.n)}</span> : null}
+          {sqm(o.label)}{o.n != null ? <span className="n">{num(o.n)}</span> : null}
         </button>
       ))}
     </div>
@@ -68,9 +79,14 @@ export function Switch({ checked, onChange, label }: { checked: boolean; onChang
   );
 }
 
-export function ErrorBox({ error }: { error: string | null | undefined }) {
+export function ErrorBox({ error, onRetry }: { error: string | null | undefined; onRetry?: () => void }) {
   if (!error) return null;
-  return <p className="error" role="alert">{error}</p>;
+  return (
+    <div className="error" role="alert">
+      <span>{error}</span>
+      {onRetry ? <button type="button" className="btn" onClick={onRetry}>다시 시도</button> : null}
+    </div>
+  );
 }
 
 export function Empty({ children }: { children: ReactNode }) {

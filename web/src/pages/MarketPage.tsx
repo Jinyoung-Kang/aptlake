@@ -1,16 +1,16 @@
 import { useMemo, useRef, useState } from "react";
 import { useApi, type IndexSummaryItem, type Overview, type SggSummary } from "../lib/api";
-import { Chart, echarts, type Palette } from "../charts/Chart";
+import { Chart, echarts, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { MonthPicker } from "../components/MonthPicker";
-import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, StatRow, Tabs } from "../components/ui";
+import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm, sqm, StatRow, Tabs } from "../components/ui";
 import { DASH, num, ymLabel } from "../lib/format";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
 
 type Metric = "median" | "medianYoY" | "trades" | "cancelRate";
 const METRICS: { value: Metric; label: string; unit: string; title: string }[] = [
-  { value: "median", label: "㎡당 중위가", unit: "만원/㎡", title: "해제·이상치 제외 ㎡당 거래가 중위수" },
+  { value: "median", label: "m²당 중위가", unit: "만원/m²", title: "해제·이상치 제외 m²당 거래가 중위수" },
   { value: "medianYoY", label: "가격 변화(전년비)", unit: "%", title: "전년 같은 달 대비 중위수 변화율 — 두 달 모두 표본 30건 이상" },
   { value: "trades", label: "거래량", unit: "건", title: "해제 제외 신고 건수" },
   { value: "cancelRate", label: "해제율", unit: "%", title: "해제 건수 ÷ 신고 건수" },
@@ -99,7 +99,7 @@ function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: 
           const title = r ? `<b>${r.name}</b> <span style="color:${p.text3}">${r.sidoName}</span>` : x.name;
           if (!s) return `${title}<br/>이 달 거래 없음`;
           const yoy = s.medianYoY == null ? DASH : `${s.medianYoY > 0 ? "▲ +" : s.medianYoY < 0 ? "▼ " : ""}${s.medianYoY.toFixed(1)}%`;
-          return `${title}<br/>㎡당 중위가 <b>${s.lowSample || s.median == null ? DASH : num(s.median)}</b> 만원/㎡` +
+          return `${title}<br/>${M2}당 중위가 <b>${s.lowSample || s.median == null ? DASH : num(s.median)}</b> 만원/${M2}` +
             `<br/>전년비 ${yoy} · 거래 ${num(s.trades)}건 · 해제율 ${s.cancelRate == null ? DASH : `${s.cancelRate.toFixed(1)}%`}` +
             `<br/><span style="color:${p.text3}">표본 ${num(s.sample)}건 — 클릭하면 지역 분석</span>`;
         },
@@ -162,7 +162,7 @@ function RankList({ rows, kind }: { rows: SggSummary[]; kind: "volume" | "gainer
 export default function MarketPage({ route }: { route: Route }) {
   const ym = route.params.get("ym");
   const metric = (route.params.get("metric") as Metric) || "median";
-  const { data, error, loading, stale } = useApi<Overview>(`/v1/market/overview${ym ? `?ym=${ym}` : ""}`);
+  const { data, error, loading, stale, reload } = useApi<Overview>(`/v1/market/overview${ym ? `?ym=${ym}` : ""}`);
   const geo = useApi<Geo>("/v1/geo/sgg");
   const idx = useApi<{ items: IndexSummaryItem[] }>("/v1/index/summary");
   const { sidoName } = useRegions();
@@ -186,14 +186,14 @@ export default function MarketPage({ route }: { route: Route }) {
           {data?.provisional && !stale && <Badge tone="warn" title="계약월 말일 + 60일 전까지는 신고가 계속 추가됩니다">잠정</Badge>}
         </div>
       </div>
-      <ErrorBox error={error} />
+      <ErrorBox error={error} onRetry={reload} />
       {loading && !data ? <Skeleton h={90} /> : null}
       <div data-stale={stale} aria-busy={loading}>
       {data && (
         <div className="kpis">
           <Kpi k={`전국 거래 · ${ymLabel(data.month)}`} v={num(nation?.trades)} unit="건"
                d={<>전월 대비 <Change v={nation?.tradesMoM} /> · 전년 대비 <Change v={nation?.tradesYoY} /></>} />
-          <Kpi k="전국 ㎡당 중위가" v={num(nation?.median)} unit="만원/㎡"
+          <Kpi k="전국 m²당 중위가" v={num(nation?.median)} unit="만원/m²"
                d={<>전년 같은 달 대비 <Change v={nation?.medianYoY} /> · 표본 {num(nation?.sample)}건</>} />
           <Kpi k="해제율" v={nation?.cancelRate == null ? DASH : num(nation.cancelRate, 1)} unit="%"
                d={`해제 ${num(nation?.cancelled)}건 (신고 후 계약 해제)`} />
@@ -214,10 +214,10 @@ export default function MarketPage({ route }: { route: Route }) {
                 </div>
               </div>
               <div className="panel map-wrap">
-                {geo.data ? <MapPanel data={data} metric={metric} geo={geo.data} /> : geo.error ? <ErrorBox error={geo.error} /> : <Skeleton h={600} />}
+                {geo.data ? <MapPanel data={data} metric={metric} geo={geo.data} /> : geo.error ? <ErrorBox error={geo.error} onRetry={geo.reload} /> : <Skeleton h={600} />}
               </div>
               <p className="note">
-                {METRICS.find((m) => m.value === metric)?.title}. 구간은 이 달 시군구 값의 분위(6등분)로 나눕니다
+                {sqm(METRICS.find((m) => m.value === metric)?.title)}. 구간은 이 달 시군구 값의 분위(6등분)로 나눕니다
                 {metric === "medianYoY" ? "(변화율은 고정 구간)" : ""}. 경계: {geo.data?.source ?? "국토정보플랫폼 V-World"}.
               </p>
             </section>
@@ -232,14 +232,14 @@ export default function MarketPage({ route }: { route: Route }) {
                 <RankList rows={data.rankings[rankTab]} kind={rankTab} />
               </div>
               <p className="note">
-                {rankTab === "volume" ? "거래량 순 · 변화는 전월 대비 거래 건수" : "㎡당 중위가 전년 동월 대비 · 두 달 모두 표본 30건 이상인 시군구만 (작은 표본의 착시 방지)"}
+                {rankTab === "volume" ? "거래량 순 · 변화는 전월 대비 거래 건수" : <><Sqm />당 중위가 전년 동월 대비 · 두 달 모두 표본 30건 이상인 시군구만 (작은 표본의 착시 방지)</>}
               </p>
             </section>
             <section className="section">
               <div className="section-head"><h2>전국 요약</h2></div>
               <div className="stat-list one">
                 <StatRow k="신고 건수" v={`${num((nation?.trades ?? 0) + (nation?.cancelled ?? 0))}건`} />
-                <StatRow k="㎡당 가격 1사분위 ~ 3사분위" v={`${num(nation?.p25)} ~ ${num(nation?.p75)}`} />
+                <StatRow k="m²당 가격 1사분위 ~ 3사분위" v={`${num(nation?.p25)} ~ ${num(nation?.p75)}`} />
                 <StatRow k="자료 기준" v={`${data.datasetVersion}`} />
               </div>
             </section>
@@ -259,7 +259,7 @@ export default function MarketPage({ route }: { route: Route }) {
               { key: "trades", header: "거래(건)", align: "right", cell: (r) => num(r.trades), sort: (r) => r.trades },
               { key: "mom", header: "전월비", align: "right", cell: (r) => <Change v={r.tradesMoM} />, sort: (r) => r.tradesMoM },
               { key: "yoy", header: "전년비", align: "right", cell: (r) => <Change v={r.tradesYoY} />, sort: (r) => r.tradesYoY },
-              { key: "median", header: "㎡당 중위가", align: "right", cell: (r) => num(r.median), sort: (r) => r.median },
+              { key: "median", header: "m²당 중위가", align: "right", cell: (r) => num(r.median), sort: (r) => r.median },
               { key: "myoy", header: "중위가 전년비", align: "right", cell: (r) => <Change v={r.medianYoY} />, sort: (r) => r.medianYoY },
               { key: "cancel", header: "해제율", align: "right", cell: (r) => (r.cancelRate == null ? DASH : `${num(r.cancelRate, 1)}%`), sort: (r) => r.cancelRate },
               { key: "spark", header: "12개월 거래", cell: (r) => <Sparkline values={r.spark.trades} label={`${sidoName(r.regionId)} 최근 12개월 거래량`} /> },

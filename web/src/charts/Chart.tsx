@@ -15,6 +15,9 @@ echarts.use([
 
 export { echarts };
 
+/** 툴팁(HTML)용 제곱미터 표기 — 캔버스(축 이름·범례)는 'm²' 문자를 그대로 쓴다. */
+export const M2 = 'm<sup style="font-size:.72em;line-height:0">2</sup>';
+
 export function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }

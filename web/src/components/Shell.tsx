@@ -3,7 +3,7 @@ import { api, useApi, type TickerItem } from "../lib/api";
 import { kst, num } from "../lib/format";
 import { href, navigate } from "../lib/router";
 import { pushRecent, searchRegions, useRegions } from "../lib/regions";
-import { Change } from "./ui";
+import { Change, sqm } from "./ui";
 
 export const NAV = [
   { path: "/market", label: "시장 개요" },
@@ -87,8 +87,8 @@ function Ticker() {
       <div className="ticker-inner">
         {data.items.map((t) => (
           <div className="tick" key={t.key} title={t.changeBasis ?? undefined}>
-            <span className="l">{t.label}</span>
-            <span className="v">{t.value == null ? "–" : num(t.value, t.unit === "%" ? 1 : t.key.startsWith("index") ? 1 : 0)}{t.unit && t.unit !== "건" ? t.unit : ""}</span>
+            <span className="l">{sqm(t.label)}</span>
+            <span className="v">{t.value == null ? "–" : num(t.value, t.unit === "%" ? 1 : t.key.startsWith("index") ? 1 : 0)}{t.unit && t.unit !== "건" ? sqm(t.unit) : ""}</span>
             {t.change != null && <Change v={t.change} digits={t.key.startsWith("index") ? 2 : 1} />}
             {t.provisional ? <span className="muted small">잠정</span> : null}
           </div>

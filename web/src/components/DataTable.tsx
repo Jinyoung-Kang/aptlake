@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { sqm } from "./ui";
 
 export type Column<T> = {
   key: string;
@@ -43,7 +44,7 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, selectedKey, i
                 <th key={c.key} className={`${c.align === "right" ? "num" : ""} ${c.sort ? "sortable" : ""}`} style={{ width: c.width }}
                     title={c.title} aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined}
                     onClick={c.sort ? () => setSort(active ? { key: c.key, dir: sort!.dir === "asc" ? "desc" : "asc" } : { key: c.key, dir: "desc" }) : undefined}>
-                  {c.header}
+                  {sqm(c.header)}
                   {active ? <span className="arrow">{sort!.dir === "asc" ? "▲" : "▼"}</span> : null}
                 </th>
               );

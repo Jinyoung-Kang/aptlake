@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useApi, type IndexSummaryItem } from "../lib/api";
 import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
-import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline } from "../components/ui";
+import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm } from "../components/ui";
 import { DASH, num, ymLabel } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
@@ -21,7 +21,7 @@ export default function IndexPage({ route }: { route: Route }) {
   const rid = route.params.get("region") ?? "00";
   const span = (route.params.get("span") as Span) || "all";
   const { sidoName } = useRegions();
-  const { data, error, loading, stale } = useApi<IndexResp>(`/v1/index?regionId=${rid}`);
+  const { data, error, loading, stale, reload } = useApi<IndexResp>(`/v1/index?regionId=${rid}`);
   const summary = useApi<{ items: SummaryItem[] }>("/v1/index/summary");
   const regions = summary.data?.items ?? [];
   const cur = regions.find((r) => r.regionId === rid);
@@ -103,7 +103,7 @@ export default function IndexPage({ route }: { route: Route }) {
           </div>
         </div>
       )}
-      <ErrorBox error={error} />
+      <ErrorBox error={error} onRetry={reload} />
       {loading && !data ? <Skeleton h={380} /> : null}
       {data && view && (
         <div className="layout" data-stale={stale} aria-busy={loading}>
@@ -119,7 +119,7 @@ export default function IndexPage({ route }: { route: Route }) {
             <div className="panel panel-pad"><Chart build={build} deps={[view]} height={380} label="자체 가격지수와 R-ONE 지수 비교" /></div>
             <details className="note" style={{ marginTop: 10 }}>
               <summary style={{ cursor: "pointer", color: "var(--text-2)" }}>산출 방법</summary>
-              <p>log(㎡당 가격) = 단지 고정효과 + 월 더미 + 층 구간 + 면적 구간 + 오차. 월 계수를 지수로 바꿉니다(첫 달 = 100).
+              <p>log(<Sqm />당 가격) = 단지 고정효과 + 월 더미 + 층 구간 + 면적 구간 + 오차. 월 계수를 지수로 바꿉니다(첫 달 = 100).
                  같은 단지 안의 가격 변화로 월 효과를 추정하므로, 비싼 단지 거래가 특정 달에 몰려도 지수가 튀지 않습니다.
                  표준오차는 단지 단위 군집 강건 분산, 수집이 완결된 달(시군구 90% 이상 반영)만 씁니다.</p>
               <p>{data.disclaimer}</p>
@@ -140,7 +140,7 @@ export default function IndexPage({ route }: { route: Route }) {
       )}
       <section className="section">
         <div className="section-head"><h2>지역별 비교</h2><span className="sub">확정된 최근 달 기준 · 추이는 최근 24개월(잠정 포함)</span></div>
-        <ErrorBox error={summary.error} />
+        <ErrorBox error={summary.error} onRetry={summary.reload} />
         <DataTable
           rows={regions}
           rowKey={(r) => r.regionId}

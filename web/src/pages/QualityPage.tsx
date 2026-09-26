@@ -32,9 +32,9 @@ function statusColor(p: Palette, s: string) {
 }
 
 function PartitionDetail({ sgg, ym }: { sgg: string; ym: string }) {
-  const { data, error, stale } = useApi<Part>(`/v1/quality/partitions/${sgg}/${ym}`);
+  const { data, error, stale, reload } = useApi<Part>(`/v1/quality/partitions/${sgg}/${ym}`);
   const { byCode } = useRegions();
-  if (error) return <ErrorBox error={error} />;
+  if (error) return <ErrorBox error={error} onRetry={reload} />;
   if (!data || stale) return <Skeleton h={200} />;  // 다른 파티션의 상세가 새 제목 아래 남지 않게
   const p = data.partition;
   return (
@@ -132,7 +132,7 @@ export default function QualityPage({ route }: { route: Route }) {
       <div className="page-head">
         <div><div className="crumb">데이터 품질</div><h1>수집 완결도와 품질 검사</h1></div>
       </div>
-      <ErrorBox error={summary.error} />
+      <ErrorBox error={summary.error} onRetry={summary.reload} />
       {s ? (
         <div className="kpis">
           <Kpi k="최근 원천 수집" v={relative(s.freshness.lastFetchedAt)} d={`${kst(s.freshness.lastFetchedAt, false)} · 내용 변경 ${relative(s.freshness.lastChangedAt)}`} />
@@ -141,18 +141,18 @@ export default function QualityPage({ route }: { route: Route }) {
                d={<>{num(merged)} / {num(total)} · 격리 {num(s.partitions.QUARANTINED ?? 0)} · 재시도 {num(s.partitions.RETRY ?? 0)}<div className="progress"><span style={{ width: `${total ? (merged / total) * 100 : 0}%` }} /></div></>} />
           <Kpi k="현재 실패 중인 검사" v={num((s.failedChecks7d ?? []).filter((f) => !f.resolved).length)} unit="건" d="최근 7일, 이후 통과한 검사는 제외" />
         </div>
-      ) : <Skeleton h={90} />}
+      ) : summary.loading ? <Skeleton h={90} /> : null}
 
       <section className="section">
         <div className="section-head">
           <h2>시도별 수집 완결도</h2><span className="sub">칸 = 시도 × 계약월, 색 = 시군구 중 반영 완료 비율 · 칸을 누르면 시군구별</span>
         </div>
-        <ErrorBox error={rollup.error} />
+        <ErrorBox error={rollup.error} onRetry={rollup.reload} />
         <div className="panel panel-pad">
           {rollup.data && sidos.length ? (
             <Chart build={buildRollup} deps={[rollup.data, sidos, months]} height={Math.max(360, sidos.length * 22 + 80)} label="시도별 월별 반영 완료 비율 히트맵"
                    onClick={(e) => { const d = e.data as [number, number] | undefined; if (d) setParams(route, { sido: sidos[d[1]].sidoCd, cell: null }); }} />
-          ) : <Skeleton h={360} />}
+          ) : rollup.loading ? <Skeleton h={360} /> : <div className="empty">완결도 자료를 불러오지 못했습니다.</div>}
         </div>
       </section>
 
@@ -167,7 +167,7 @@ export default function QualityPage({ route }: { route: Route }) {
               {grid.data && !grid.stale ? (
                 <Chart build={buildGrid} deps={[grid.data, sggRows, months]} height={Math.max(260, sggRows.length * 20 + 80)} label={`${sidoName(sido)} 시군구별 수집 상태`}
                        onClick={(e) => { const d = e.data as [number, number] | undefined; if (d) setParams(route, { cell: `${sggRows[d[1]].sggCd}:${months[d[0]]}` }); }} />
-              ) : grid.error ? <ErrorBox error={grid.error} /> : <Skeleton h={260} />}
+              ) : grid.error ? <ErrorBox error={grid.error} onRetry={grid.reload} /> : <Skeleton h={260} />}
             </div>
             {cell && (() => {
               const [code, m] = cell.split(":");

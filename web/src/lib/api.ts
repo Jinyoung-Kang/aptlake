@@ -13,14 +13,39 @@ export class ApiError extends Error {
 const cache = new Map<string, { at: number; data: unknown }>();
 const TTL_MS = 60_000;
 
+// 일시 장애(DB 과부하·재시작, 프록시 연결 실패)는 잠깐 뒤 다시 하면 대개 성공한다 → 최대 2번, 서버가 준 Retry-After(최대 3초) 존중
+const RETRYABLE = new Set([502, 503, 504]);
+const MAX_RETRIES = 2;
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener("abort", () => { clearTimeout(t); reject(new DOMException("Aborted", "AbortError")); }, { once: true });
+  });
+}
+
+/** fetch + 일시 오류 재시도. 429(한도)·4xx·500(버그)은 재시도하지 않는다. */
+export async function fetchRetry(path: string, init: RequestInit): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(path, init);
+      if (!RETRYABLE.has(res.status) || attempt >= MAX_RETRIES) return res;
+      const ra = Number(res.headers.get("retry-after"));
+      await sleep(Math.min(ra > 0 ? ra * 1000 : 700 * (attempt + 1), 3000), init.signal ?? undefined);
+    } catch (e) {
+      if (init.signal?.aborted || attempt >= MAX_RETRIES) throw e;
+      await sleep(700 * (attempt + 1), init.signal ?? undefined);  // 네트워크 오류(연결 거부 등)
+    }
+  }
+}
+
 export async function api<T>(path: string, opts: { key?: string; signal?: AbortSignal; fresh?: boolean } = {}): Promise<T> {
   const hit = !opts.key && !opts.fresh ? cache.get(path) : undefined;
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data as T;
   const headers: Record<string, string> = { Accept: "application/json" };
   if (opts.key) headers["X-API-Key"] = opts.key;
-  const res = await fetch(path, { headers, signal: opts.signal });
+  const res = await fetchRetry(path, { headers, signal: opts.signal });
   const body = await res.json().catch(() => null);
-  if (!res.ok) throw new ApiError(body ?? { status: res.status, code: "HTTP_ERROR", title: res.statusText });
+  if (!res.ok) throw new ApiError(body?.code ? body : { status: res.status, code: `HTTP_${res.status}`, title: res.statusText || "HTTP 오류" });
   if (!opts.key) cache.set(path, { at: Date.now(), data: body });
   return body as T;
 }
@@ -28,11 +53,15 @@ export async function api<T>(path: string, opts: { key?: string; signal?: AbortS
 export function errorText(e: unknown): string {
   if (e instanceof ApiError) {
     const p = e.problem;
+    const trace = p.traceId ? ` · 추적 ID ${p.traceId.slice(0, 12)}` : "";
     if (p.status === 429) return `요청 한도를 넘었습니다 (${p.code}). 잠시 후 다시 시도하세요.`;
+    if (p.status === 503 || p.status === 502 || p.status === 504)
+      return `${p.detail ?? "서버가 일시적으로 응답하지 못했습니다."} 자동으로 ${MAX_RETRIES}번 다시 시도했지만 실패했습니다 (${p.code}${trace}).`;
+    if (p.status >= 500) return `서버 내부 오류로 불러오지 못했습니다 (${p.code}${trace}). 수집 상태 메뉴의 오류 로그에서 추적 ID 로 찾을 수 있습니다.`;
     return `${p.title}${p.detail ? ` — ${p.detail}` : ""} (${p.code})`;
   }
   if (e instanceof DOMException && e.name === "AbortError") return "";
-  return "서버에 연결할 수 없습니다.";
+  return "서버에 연결할 수 없습니다 (자동 재시도 후에도 실패). 웹 서버·API 컨테이너가 켜져 있는지 확인하세요.";
 }
 
 export type Loadable<T> = {

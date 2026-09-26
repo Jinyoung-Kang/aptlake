@@ -1,10 +1,10 @@
 import { useEffect, useMemo } from "react";
 import { useApi, useAvailable, type MonthRow } from "../lib/api";
-import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
+import { axisX, axisY, base, Chart, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { MonthPicker, MonthRangePicker, RangePills } from "../components/MonthPicker";
 import RegionPicker from "../components/RegionPicker";
-import { Badge, Change, Empty, ErrorBox, Kpi, RangeBar, Skeleton, StatRow, Tabs } from "../components/ui";
+import { Badge, Change, Empty, ErrorBox, Kpi, RangeBar, Skeleton, Sqm, StatRow, Tabs } from "../components/ui";
 import { DASH, manwon, monthRange, num, ymAdd, ymLabel } from "../lib/format";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { recentRegions, useRegions } from "../lib/regions";
@@ -31,13 +31,13 @@ function PriceVolumeChart({ rows }: { rows: MonthRow[] }) {
     const b = base(p);
     return {
       ...b,
-      legend: { ...b.legend, data: ["㎡당 중위가", "1~3사분위", "거래(해제 제외)", "해제"] },
+      legend: { ...b.legend, data: ["m²당 중위가", "1~3사분위", "거래(해제 제외)", "해제"] },
       axisPointer: { link: [{ xAxisIndex: "all" }] },
       tooltip: {
         ...b.tooltip,
         formatter: (ps: { dataIndex: number }[]) => {
           const r = rows[ps[0].dataIndex];
-          return `<b>${ymLabel(r.dealYm)}</b>${r.provisional ? " (잠정)" : ""}<br/>㎡당 중위가 <b>${num(r.medianPricePerM2)}</b> 만원/㎡` +
+          return `<b>${ymLabel(r.dealYm)}</b>${r.provisional ? " (잠정)" : ""}<br/>${M2}당 중위가 <b>${num(r.medianPricePerM2)}</b> 만원/${M2}` +
             `<br/>1~3사분위 ${num(r.p25PricePerM2)} ~ ${num(r.p75PricePerM2)}<br/>거래 ${num(r.trades)}건 · 해제 ${num(r.cancelled)}건 · 표본 ${num(r.sampleSize)}건` +
             (r.lowSample ? "<br/>표본 5건 미만 — 분위수 생략" : "");
         },
@@ -51,7 +51,7 @@ function PriceVolumeChart({ rows }: { rows: MonthRow[] }) {
         axisX(p, { type: "category", data: x, gridIndex: 1, axisLabel: { color: p.text3, fontSize: 11, formatter: (v: string) => ymLabel(v) } }),
       ],
       yAxis: [
-        axisY(p, { type: "value", gridIndex: 0, scale: true, name: "만원/㎡", nameGap: 8, splitNumber: 4 }),
+        axisY(p, { type: "value", gridIndex: 0, scale: true, name: "만원/m²", nameGap: 8, splitNumber: 4 }),
         axisY(p, { type: "value", gridIndex: 1, name: "건", nameGap: 8, splitNumber: 2 }),
       ],
       series: [
@@ -59,7 +59,7 @@ function PriceVolumeChart({ rows }: { rows: MonthRow[] }) {
         { name: "1~3사분위", type: "line", stack: "band", xAxisIndex: 0, yAxisIndex: 0, symbol: "none", lineStyle: { opacity: 0 },
           data: rows.map((r) => (r.p25PricePerM2 != null && r.p75PricePerM2 != null ? r.p75PricePerM2 - r.p25PricePerM2 : null)),
           areaStyle: { color: p.band }, itemStyle: { color: p.band } },
-        { name: "㎡당 중위가", type: "line", xAxisIndex: 0, yAxisIndex: 0, data: rows.map((r) => r.medianPricePerM2), symbol: "circle", symbolSize: 5, showSymbol: rows.length <= 24,
+        { name: "m²당 중위가", type: "line", xAxisIndex: 0, yAxisIndex: 0, data: rows.map((r) => r.medianPricePerM2), symbol: "circle", symbolSize: 5, showSymbol: rows.length <= 24,
           lineStyle: { width: 2, color: p.s1 }, itemStyle: { color: p.s1 }, connectNulls: false,
           markArea: { silent: true, itemStyle: { color: p.grid, opacity: 0.6 }, label: { show: true, color: p.text3, fontSize: 11, position: "insideTop" }, data: provArea.map((a) => [{ ...a[0], name: "잠정" }, a[1]]) } },
         { name: "거래(해제 제외)", type: "bar", stack: "vol", xAxisIndex: 1, yAxisIndex: 1, data: rows.map((r) => r.trades), barMaxWidth: 18, itemStyle: { color: p.s1 } },
@@ -67,7 +67,7 @@ function PriceVolumeChart({ rows }: { rows: MonthRow[] }) {
       ],
     };
   };
-  return <Chart build={build} deps={[rows]} height={430} label="월별 ㎡당 가격 중위수와 1~3사분위, 거래량 결합 차트" />;
+  return <Chart build={build} deps={[rows]} height={430} label="월별 m²당 가격 중위수와 1~3사분위, 거래량 결합 차트" />;
 }
 
 function Overview({ rows, all, from }: { rows: MonthRow[]; all: MonthRow[]; from: string }) {
@@ -88,7 +88,7 @@ function Overview({ rows, all, from }: { rows: MonthRow[]; all: MonthRow[]; from
           <div className="stat-list one">
             <StatRow k="최근 12개월 거래" v={`${num(t12)}건`} />
             <StatRow k="최근 12개월 해제율" v={t12 + c12 ? `${num((c12 / (t12 + c12)) * 100, 1)}%` : DASH} />
-            <StatRow k="최근 확정 월 중위가" v={lastOk ? `${num(lastOk.medianPricePerM2)} 만원/㎡` : DASH} />
+            <StatRow k="최근 확정 월 중위가" v={lastOk ? `${num(lastOk.medianPricePerM2)} 만원/m²` : DASH} />
             <StatRow k="12개월 중위가 범위" v={meds.length ? `${num(Math.min(...meds))} ~ ${num(Math.max(...meds))}` : DASH} />
           </div>
           {meds.length > 1 && lastOk?.medianPricePerM2 != null && (
@@ -101,7 +101,7 @@ function Overview({ rows, all, from }: { rows: MonthRow[]; all: MonthRow[]; from
         </aside>
       </div>
       <section className="section" style={{ marginTop: 22 }}>
-        <div className="section-head"><h2>월별 데이터</h2><span className="sub">최신 월부터 · 단위 만원/㎡</span></div>
+        <div className="section-head"><h2>월별 데이터</h2><span className="sub">최신 월부터 · 단위 만원/<Sqm /></span></div>
         <DataTable
           rows={tableRows}
           rowKey={(r) => r.dealYm}
@@ -126,7 +126,7 @@ function Overview({ rows, all, from }: { rows: MonthRow[]; all: MonthRow[]; from
 }
 
 function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string; min: string; max: string; onMonth: (v: string) => void }) {
-  const { data, error, loading, stale } = useApi<Dist>(`/v1/regions/${sgg}/distribution?ym=${ym}`);
+  const { data, error, loading, stale, reload } = useApi<Dist>(`/v1/regions/${sgg}/distribution?ym=${ym}`);
   const s = data?.stats;
   const hist = (p: Palette) => {
     const b = base(p);
@@ -135,8 +135,8 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
     return {
       ...b,
       legend: { show: false },
-      tooltip: { ...b.tooltip, trigger: "item", formatter: (x: { data: [number, number, number] }) => `${num(x.data[0])} ~ ${num(x.data[2])} 만원/㎡<br/><b>${num(x.data[1])}건</b>` },
-      xAxis: axisX(p, { type: "value", scale: true, name: "만원/㎡", nameLocation: "middle", nameGap: 26, nameTextStyle: { color: p.text3 }, splitLine: { show: false } }),
+      tooltip: { ...b.tooltip, trigger: "item", formatter: (x: { data: [number, number, number] }) => `${num(x.data[0])} ~ ${num(x.data[2])} 만원/${M2}<br/><b>${num(x.data[1])}건</b>` },
+      xAxis: axisX(p, { type: "value", scale: true, name: "만원/m²", nameLocation: "middle", nameGap: 26, nameTextStyle: { color: p.text3 }, splitLine: { show: false } }),
       yAxis: axisY(p, { type: "value", name: "건", minInterval: 1 }),
       series: [{
         type: "bar", barWidth: "96%",
@@ -156,8 +156,8 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
     return {
       ...b,
       legend: { ...b.legend, data: ["정상 거래", "해제", "이상치"] },
-      tooltip: { ...b.tooltip, trigger: "item", formatter: (x: { seriesName: string; data: [number, number, number | null] }) => `${x.seriesName}<br/>전용 ${num(x.data[0], 2)}㎡ · ${x.data[2] ?? DASH}층<br/><b>${manwon(x.data[1])}원</b>` },
-      xAxis: axisX(p, { type: "value", scale: true, name: "전용면적(㎡)", nameLocation: "middle", nameGap: 26, nameTextStyle: { color: p.text3 }, splitLine: { lineStyle: { color: p.grid } } }),
+      tooltip: { ...b.tooltip, trigger: "item", formatter: (x: { seriesName: string; data: [number, number, number | null] }) => `${x.seriesName}<br/>전용 ${num(x.data[0], 2)}${M2} · ${x.data[2] ?? DASH}층<br/><b>${manwon(x.data[1])}원</b>` },
+      xAxis: axisX(p, { type: "value", scale: true, name: "전용면적(m²)", nameLocation: "middle", nameGap: 26, nameTextStyle: { color: p.text3 }, splitLine: { lineStyle: { color: p.grid } } }),
       yAxis: axisY(p, { type: "value", scale: true, name: "거래금액(억)", axisLabel: { color: p.text3, formatter: (v: number) => num(v / 10000, 0) } }),
       series: [
         { name: "정상 거래", type: "scatter", data: normal, symbolSize: 6, itemStyle: { color: p.s1, opacity: 0.55 } },
@@ -172,7 +172,7 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
         <MonthPicker value={ym} min={min} max={max} onChange={onMonth} label="계약월" />
         {data?.provisional && !stale && <Badge tone="warn">잠정</Badge>}
       </div>
-      <ErrorBox error={error} />
+      <ErrorBox error={error} onRetry={reload} />
       {loading && !data ? <Skeleton h={300} /> : null}
       <div data-stale={stale} aria-busy={loading}>
       {data && !s && !stale && <Empty>{ymLabel(ym)}에는 거래가 없습니다.</Empty>}
@@ -180,13 +180,13 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
         <>
           <div className="kpis">
             <Kpi k="표본 (해제·이상치 제외)" v={num(s.sample)} unit="건" d={`신고 ${num(s.reported)}건 · 해제 ${num(s.cancelled)}건`} />
-            <Kpi k="㎡당 중위가" v={num(s.median)} unit="만원/㎡" d={`1~3사분위 ${num(s.p25)} ~ ${num(s.p75)}`} />
+            <Kpi k="m²당 중위가" v={num(s.median)} unit="만원/m²" d={`1~3사분위 ${num(s.p25)} ~ ${num(s.p75)}`} />
             <Kpi k="5~95 백분위" v={`${num(s.p05)} ~ ${num(s.p95)}`} d="양 끝 5%를 뺀 가격 폭" />
           </div>
           <div className="grid-2">
             <section className="section">
-              <div className="section-head"><h2>㎡당 가격 분포</h2><span className="sub">구간 너비 {num(data.binWidth)} 만원/㎡</span></div>
-              <div className="panel panel-pad"><Chart build={hist} deps={[data]} height={300} label="㎡당 가격 히스토그램" /></div>
+              <div className="section-head"><h2><Sqm />당 가격 분포</h2><span className="sub">구간 너비 {num(data.binWidth)} 만원/<Sqm /></span></div>
+              <div className="panel panel-pad"><Chart build={hist} deps={[data]} height={300} label="m²당 가격 히스토그램" /></div>
             </section>
             <section className="section">
               <div className="section-head"><h2>면적 × 거래금액</h2><span className="sub">점 하나 = 거래 하나</span></div>
@@ -195,15 +195,15 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
           </div>
           <div className="grid-2">
             <DataTable rows={data.byArea} rowKey={(r) => r.band} caption="면적대별" columns={[
-              { key: "band", header: "전용면적(㎡)", cell: (r) => <span className="name">{r.band}</span> },
+              { key: "band", header: "전용면적(m²)", cell: (r) => <span className="name">{r.band}</span> },
               { key: "n", header: "거래", align: "right", cell: (r) => num(r.n) },
-              { key: "m", header: "㎡당 중위가", align: "right", cell: (r) => num(r.medianPpm2) },
+              { key: "m", header: "m²당 중위가", align: "right", cell: (r) => num(r.medianPpm2) },
               { key: "p", header: "중위 거래가", align: "right", cell: (r) => manwon(r.medianPrice) },
             ]} />
             <DataTable rows={data.byFloor} rowKey={(r) => r.band} caption="층별" columns={[
               { key: "band", header: "층", cell: (r) => <span className="name">{r.band}</span> },
               { key: "n", header: "거래", align: "right", cell: (r) => num(r.n) },
-              { key: "m", header: "㎡당 중위가", align: "right", cell: (r) => num(r.medianPpm2) },
+              { key: "m", header: "m²당 중위가", align: "right", cell: (r) => num(r.medianPpm2) },
             ]} />
           </div>
           <div className="note">{data.notes.map((n) => <p key={n}>{n}</p>)}</div>
@@ -215,10 +215,10 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
 }
 
 function Complexes({ sgg, from, to }: { sgg: string; from: string; to: string }) {
-  const { data, error, loading, stale } = useApi<{ items: ComplexRow[] }>(`/v1/regions/${sgg}/complexes?from=${from}&to=${to}&limit=50`);
+  const { data, error, loading, stale, reload } = useApi<{ items: ComplexRow[] }>(`/v1/regions/${sgg}/complexes?from=${from}&to=${to}&limit=50`);
   return (
     <div data-stale={stale} aria-busy={loading}>
-      <ErrorBox error={error} />
+      <ErrorBox error={error} onRetry={reload} />
       {loading && !data ? <Skeleton h={300} /> : null}
       {data && (
         <DataTable rows={data.items} rowKey={(r) => r.complexKey} onRowClick={(r) => navigate(`/complex/${r.complexKey}`)}
@@ -228,8 +228,8 @@ function Complexes({ sgg, from, to }: { sgg: string; from: string; to: string })
             { key: "apt", header: "단지", cell: (r) => <span className="name">{r.aptName}<span className="sub">{r.umdName}{r.buildYear ? ` · ${r.buildYear}년 준공` : ""}</span></span>, sort: (r) => r.aptName },
             { key: "trades", header: "거래", align: "right", cell: (r) => num(r.trades), sort: (r) => r.trades },
             { key: "cancel", header: "해제", align: "right", cell: (r) => num(r.cancelled), sort: (r) => r.cancelled },
-            { key: "med", header: "㎡당 중위가", align: "right", cell: (r) => num(r.medianPpm2), sort: (r) => r.medianPpm2 },
-            { key: "last", header: "최근 거래", align: "right", cell: (r) => <span>{manwon(r.lastPrice)}<span className="sub">{r.lastDate.replaceAll("-", ".")} · {num(r.lastArea, 1)}㎡</span></span>, sort: (r) => r.lastDate },
+            { key: "med", header: "m²당 중위가", align: "right", cell: (r) => num(r.medianPpm2), sort: (r) => r.medianPpm2 },
+            { key: "last", header: "최근 거래", align: "right", cell: (r) => <span>{manwon(r.lastPrice)}<span className="sub">{r.lastDate.replaceAll("-", ".")} · {num(r.lastArea, 1)}<Sqm /></span></span>, sort: (r) => r.lastDate },
           ]}
           foot={<span>{ymLabel(from)} ~ {ymLabel(to)} 거래 기준 상위 50개 단지 · 행을 누르면 단지 상세</span>}
         />
@@ -254,7 +254,7 @@ export default function RegionPage({ route }: { route: Route }) {
   const ok = /^\d{5}$/.test(sgg) && !!from && !!to;
   // YoY 비교를 위해 표시 기간보다 12개월 앞까지 받는다 (표·지표 계산용)
   const fetchFrom = from && min ? (ymAdd(from, -12) < min ? min : ymAdd(from, -12)) : from;
-  const { data, error, loading, stale } = useApi<MonthsResp>(ok ? `/v1/regions/${sgg}/months?from=${fetchFrom}&to=${to}` : null);
+  const { data, error, loading, stale, reload } = useApi<MonthsResp>(ok ? `/v1/regions/${sgg}/months?from=${fetchFrom}&to=${to}` : null);
   const region = byCode.get(sgg);
 
   const rows = useMemo(() => {
@@ -284,12 +284,12 @@ export default function RegionPage({ route }: { route: Route }) {
       {quote && (
         <div style={{ marginBottom: 14 }} data-stale={stale}>
           <div className="quote">
-            <span className="price">{num(quote.cur.medianPricePerM2)}</span><span className="unit">만원/㎡</span>
+            <span className="price">{num(quote.cur.medianPricePerM2)}</span><span className="unit">만원/<Sqm /></span>
             <span className="chg"><Change v={quote.yoy} title="전년 같은 달 대비" /></span>
             <span className="muted small">전년 같은 달 대비</span>
           </div>
           <div className="quote-sub">
-            ㎡당 거래가 중위수 · {ymLabel(quote.cur.dealYm)} 계약분 {quote.cur.provisional ? "(잠정)" : ""} · 표본 {num(quote.cur.sampleSize)}건 · 거래 {num(quote.cur.trades)}건
+            <Sqm />당 거래가 중위수 · {ymLabel(quote.cur.dealYm)} 계약분 {quote.cur.provisional ? "(잠정)" : ""} · 표본 {num(quote.cur.sampleSize)}건 · 거래 {num(quote.cur.trades)}건
           </div>
         </div>
       )}
@@ -303,7 +303,7 @@ export default function RegionPage({ route }: { route: Route }) {
           <span className="muted small">{monthRange(from, to).length}개월</span>
         </div>
       )}
-      <ErrorBox error={error} />
+      <ErrorBox error={error} onRetry={reload} />
       {loading && !data ? <Skeleton h={420} /> : null}
       {data && tab === "overview" && <div data-stale={stale} aria-busy={loading}><Overview rows={rows} all={full} from={from} /></div>}
       {tab === "distribution" && ok && avail && (

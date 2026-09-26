@@ -142,7 +142,7 @@ button { font: inherit; color: inherit; }
 .page-head .tools { margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
 .layout.wide-aside { grid-template-columns: minmax(0, 1fr) 380px; }
-@media (max-width: 1080px) { .layout, .layout.wide-aside { grid-template-columns: 1fr; } }
+@media (max-width: 1080px) { .layout, .layout.wide-aside { grid-template-columns: minmax(0, 1fr); } }  /* 1fr 은 차트 캔버스 폭에 끌려 넓어진다 */
 .section { margin-bottom: 26px; }
 .section-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; border-bottom: 2px solid var(--text); padding-bottom: 6px; margin-bottom: 10px; }
 .section-head h2 { font-size: 17px; margin: 0; letter-spacing: -0.01em; }
@@ -324,6 +324,8 @@ table.t .rank { color: var(--text-3); width: 28px; }
 
 /* 상태 메시지 */
 .error { color: var(--bad); background: var(--bad-soft); padding: 10px 12px; border-radius: var(--radius); font-size: 13px; }
+div.error { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; }
+div.error .btn { flex: none; height: 28px; }
 .empty { color: var(--text-3); padding: 28px 12px; text-align: center; font-size: 13px; }
 .skeleton { background: linear-gradient(90deg, var(--bg-sub), var(--border), var(--bg-sub)); background-size: 200% 100%; animation: sk 1.2s infinite; border-radius: 4px; }
 @keyframes sk { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
@@ -363,8 +365,8 @@ pre.code { background: var(--bg-sub); border: 1px solid var(--border); border-ra
 .map-tools { position: absolute; top: 8px; right: 8px; display: flex; gap: 6px; z-index: 2; }
 .map-tools .btn { box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
 .btn.icon { width: 32px; padding: 0; justify-content: center; font-size: 17px; line-height: 1; }
-.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-@media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+@media (max-width: 900px) { .grid-2 { grid-template-columns: minmax(0, 1fr); } }
 .drawer { position: sticky; top: 120px; }
 .timeline { list-style: none; padding: 0; margin: 0; }
 .timeline li { border-left: 2px solid var(--border); padding: 0 0 12px 14px; position: relative; font-size: 13px; }
@@ -378,3 +380,11 @@ pre.code { background: var(--bg-sub); border: 1px solid var(--border); border-ra
   .quote .price { font-size: 28px; }
   .meta-chip { display: none; }
 }
+
+/* 제곱미터: 호환 문자 ㎡ 는 한 칸에 욱여넣어 2 가 거의 안 보인다 → m + 위첨자 2(72%) */
+.sqm { white-space: nowrap; }
+.sqm sup { font-size: .72em; line-height: 0; vertical-align: .42em; margin-left: .05em; font-weight: inherit; }
+.h3 { font-size: 14px; font-weight: 700; margin: 6px 0 8px; }
+.h3 .small { font-weight: 400; margin-left: 4px; }
+.stat-row .sub { display: block; font-size: 12px; color: var(--text-3); font-weight: 400; }
+

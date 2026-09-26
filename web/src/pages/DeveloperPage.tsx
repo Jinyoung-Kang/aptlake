@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api, errorText } from "../lib/api";
 import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
-import { CopyButton, ErrorBox, Kpi } from "../components/ui";
+import { CopyButton, ErrorBox, Kpi, sqm } from "../components/ui";
 import { num } from "../lib/format";
 
 type Usage = { clientId: string; plan: string; limits: { rpm: number; dailyRows: number };
@@ -10,7 +10,7 @@ type Usage = { clientId: string; plan: string; limits: { rpm: number; dailyRows:
 
 const BASE = "http://127.0.0.1:8610";
 const EXAMPLES: { title: string; desc: string; path: string }[] = [
-  { title: "시군구 월별 통계", desc: "거래·해제·㎡당 가격 분위수 (플랜 기간 상한 적용)", path: "/v1/regions/41135/months?from=2025-07&to=2026-06" },
+  { title: "시군구 월별 통계", desc: "거래·해제·m²당 가격 분위수 (플랜 기간 상한 적용)", path: "/v1/regions/41135/months?from=2025-07&to=2026-06" },
   { title: "거래 목록 (커서 페이지)", desc: "응답의 page.nextCursor 를 cursor 로 넘기면 다음 페이지. 서명된 값이라 조건을 바꾸면 400", path: "/v1/trades?sggCd=41135&from=2026-06-01&to=2026-06-30&limit=200" },
   { title: "거래 버전 이력", desc: "해제·등기일 등 원천 값이 바뀐 기록 (SCD2)", path: "/v1/trades/{tradeId}/history" },
   { title: "시장 개요", desc: "전국·시도·시군구 한 달 요약과 순위", path: "/v1/market/overview?ym=2026-06" },
@@ -56,7 +56,7 @@ export default function DeveloperPage() {
               const cmd = `curl -s -H "X-API-Key: $APTLAKE_KEY" "${BASE}${e.path}"`;
               return (
                 <div key={e.path} style={{ marginBottom: 12 }}>
-                  <div style={{ fontWeight: 700 }}>{e.title} <span className="muted small">{e.desc}</span></div>
+                  <div style={{ fontWeight: 700 }}>{e.title} <span className="muted small">{sqm(e.desc)}</span></div>
                   <div className="code-block"><pre className="code">{cmd}</pre><CopyButton text={cmd} className="btn copy" /></div>
                 </div>
               );

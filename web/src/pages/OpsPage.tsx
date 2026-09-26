@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useApi } from "../lib/api";
+import ApiTest from "../components/ApiTest";
 import { DataTable } from "../components/DataTable";
 import { Badge, CopyButton, ErrorBox, Kpi, Segmented, Skeleton, Switch, Tabs } from "../components/ui";
 import { DASH, duration, kst, kstShort, num, relative, ymLabel } from "../lib/format";
@@ -136,7 +137,7 @@ export default function OpsPage({ route }: { route: Route }) {
           <span className="muted small">서버 시각 {kst(s?.serverTime, true)}</span>
         </div>
       </div>
-      <ErrorBox error={status.error} />
+      <ErrorBox error={status.error} onRetry={status.reload} />
       {s && !s.pipeline.available && <p className="error">{s.pipeline.reason}</p>}
       {s ? (
         <div className="kpis">
@@ -150,7 +151,7 @@ export default function OpsPage({ route }: { route: Route }) {
           <Kpi k="마지막 발행" v={<span style={{ fontSize: 16 }}>{s.summary.lastPublish?.version ?? DASH}</span>}
                d={`${relative(s.summary.lastPublish?.at)} · 발행 대기 ${num(s.summary.publishPending)}개월`} />
         </div>
-      ) : <Skeleton h={90} />}
+      ) : status.loading ? <Skeleton h={90} /> : null}
 
       <section className="section">
         <div className="section-head"><h2>작업 큐 · 스케줄</h2><span className="sub">Dagster 실행 기록 (읽기 전용)</span></div>
@@ -159,7 +160,7 @@ export default function OpsPage({ route }: { route: Route }) {
           { value: "recent", label: "최근 48시간", n: s?.jobs.recent.length ?? 0 },
           { value: "schedules", label: "스케줄·센서", n: s?.schedules.length ?? 0 },
         ]} />
-        {!s ? <Skeleton h={200} /> : tab === "schedules" ? (
+        {!s ? (status.loading ? <Skeleton h={200} /> : <div className="empty">수집 상태를 불러오지 못했습니다. 위의 다시 시도를 누르세요.</div>) : tab === "schedules" ? (
           <DataTable rows={s.schedules} rowKey={(x) => x.name} columns={[
             { key: "n", header: "작업", cell: (x) => <span className="name">{x.label}<span className="sub">{x.type === "sensor" ? "센서" : "스케줄"} · {x.name}</span></span> },
             { key: "r", header: "규칙", cell: (x) => x.rule },
@@ -176,6 +177,8 @@ export default function OpsPage({ route }: { route: Route }) {
           <JobsTable jobs={recentOrder(s.jobs.recent)} now={now} empty="최근 48시간 기록이 없습니다." />
         )}
       </section>
+
+      <ApiTest />
 
       <section className="section">
         <div className="section-head">
@@ -199,10 +202,10 @@ export default function OpsPage({ route }: { route: Route }) {
             <button type="button" className="btn" onClick={download} disabled={errs.stale || !entries.length}>.txt 저장</button>
           </div>
         </div>
-        <ErrorBox error={errs.error} />
+        <ErrorBox error={errs.error} onRetry={errs.reload} />
         {errs.data?.notes.map((n) => <p key={n} className="note">{n}</p>)}
         <div data-stale={errs.stale} aria-busy={errs.loading}>
-        {!errs.data ? <Skeleton h={200} /> : entries.length === 0 ? (
+        {!errs.data ? (errs.loading ? <Skeleton h={200} /> : null) : entries.length === 0 ? (
           <div className="log"><div className="empty">이 기간·조건에 오류가 없습니다.</div></div>
         ) : (
           <div className="log" role="list">
