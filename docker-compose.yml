@@ -107,7 +107,7 @@ services:
 
   # ───────────────────────── 질의·변환 (lake 프로필) ─────────────────────────
   trino:
-    image: trinodb/trino:476
+    image: trinodb/trino:483
     profiles: ["lake"]
     volumes:
       - ./infra/trino/etc/config.properties:/etc/trino/config.properties:ro
