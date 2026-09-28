@@ -12,6 +12,7 @@
 """
 
 import datetime as dt
+import hashlib
 import json
 import logging
 import os
@@ -207,9 +208,10 @@ def bronze_rtms(context: AssetExecutionContext, config: BronzeConfig):
     if config.fetch:
         try:
             summary = ingest.ingest_month(ym, targets, reserve, run_id=context.run_id)
-            if summary.source_quota_exceeded:
-                context.log.warning(f"source daily quota exceeded: {summary.source_quota_exceeded}")
-                budget.mark_exhausted(summary.source_quota_exceeded)
+            if summary.source_stopped:
+                # 한도 초과·인증키 오류 모두 그날 수집을 멈춘다 (센서가 자정까지 실행을 만들지 않음, 사유는 수집 상태 화면에)
+                context.log.warning(f"source stopped for today: {summary.source_stopped}")
+                budget.mark_exhausted(summary.source_stopped)
         finally:
             budget.persist()
     else:
@@ -511,17 +513,24 @@ def due_partitions_sensor(context: SensorEvaluationContext):
         return SkipReason("no regions yet")
     today = kst_today()
     keys = monthly.get_partition_keys()
-    ops_db.ensure_grid(list(keys), leaf)  # 새 달·백필 대상 파티션 등록 (PENDING, 즉시 기한)
+    # 새 달·백필 대상 파티션 등록 (PENDING, 즉시 기한). 격자 모양(월 범위·시군구 목록)이 바뀔 때만 —
+    # 5분마다 약 1.8만 행 INSERT … ON CONFLICT 를 되풀이하지 않도록 모양의 지문을 센서 커서에 둔다
+    shape = hashlib.sha256(f"{keys[0]}:{keys[-1]}:{','.join(leaf)}".encode()).hexdigest()[:16]
+    if context.cursor != shape:
+        ops_db.ensure_grid(list(keys), leaf)
+        context.update_cursor(shape)
     with ops_db.conn() as c:
+        # 파티션 정의 범위 안의 달, 현존 수집 대상 시군구만 — 범위 밖 행(시험용 합성 파티션, 시작 월 변경,
+        # 통합·폐지된 시군구)이 하나라도 섞이면 알 수 없는 파티션 키로 틱 전체가 실패했다
         due = c.execute(
             """SELECT deal_ym, status, array_agg(sgg_cd ORDER BY sgg_cd) AS sgg
                FROM ops.ingest_partition
                WHERE ((next_due_at <= now() AND status IN ('PENDING','RETRY','MERGED','LOADED'))
                       -- 죽은 실행이 남긴 FETCHING (1시간 넘게 갱신 없음) 도 다시 수집
                       OR (status = 'FETCHING' AND updated_at < now() - interval '1 hour'))
-                 AND deal_ym >= %s
+                 AND deal_ym BETWEEN %s AND %s AND sgg_cd = ANY(%s)
                GROUP BY deal_ym, status""",
-            (keys[0],),
+            (keys[0], keys[-1], list(leaf)),
         ).fetchall()
     active = context.instance.get_runs(
         filters=RunsFilter(

@@ -11,8 +11,9 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from . import cursor as cursor_mod
+from . import ops
 from .auth import Principal
-from .deps import DISCLAIMER, require_scope, respond
+from .deps import DISCLAIMER, provisional, require_scope, respond
 from .errors import ApiError
 from .responses import OrjsonResponse
 from .settings import settings
@@ -41,9 +42,7 @@ def _check_range(p: Principal, start: dt.date, end: dt.date) -> None:
         raise ApiError(422, "RANGE_EXCEEDS_PLAN", "Range Too Large", f"{p.plan.plan_id} 플랜은 최대 {limit}개월")
 
 
-def _provisional(month: dt.date) -> bool:
-    nxt = dt.date(month.year + (month.month == 12), month.month % 12 + 1, 1)
-    return dt.date.today() < (nxt - dt.timedelta(days=1)) + dt.timedelta(days=settings().provisional_days)
+_provisional = provisional  # KST 기준 (deps)
 
 
 _region_cache: dict[str, Any] = {"ver": None, "rows": {}}
@@ -668,7 +667,7 @@ async def quality_partition(
                 "lastFetchedAt": _iso(part["last_fetched_at"]),
                 "lastChangedAt": _iso(part["last_changed_at"]),
                 "nextDueAt": _iso(part["next_due_at"]),
-                "lastError": part["last_error"],
+                "lastError": ops.redact(part["last_error"]) or None,  # 공개 응답 — 비밀값 가림 (오류 로그와 같은 규칙)
             },
             "checks": [
                 {
@@ -744,7 +743,9 @@ async def create_export(request: Request, body: ExportRequest, p: Principal = re
         raise ApiError(403, "PLAN_NOT_ALLOWED", "Forbidden", "대량 내려받기는 pro 플랜만 가능합니다.")
     if body.to < body.from_ or (body.to - body.from_).days > 366 * 20:
         raise ApiError(400, "INVALID_RANGE", "Invalid Range")
-    async with request.app.state.res.pg.connection() as c:
+    async with request.app.state.res.pg.connection() as c, c.transaction():
+        # '확인 후 추가'를 클라이언트별 잠금 안에서 — 동시에 여러 요청이 와도 진행 중 2개를 넘지 않게
+        await c.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"export:{p.client_id}",))
         running = await (
             await c.execute(
                 "SELECT count(*) AS n FROM api.export_job WHERE client_id=%s AND status IN ('queued','running')",

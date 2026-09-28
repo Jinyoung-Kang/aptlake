@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import hashlib
 import json
@@ -29,6 +30,7 @@ from shapely.geometry import MultiPolygon, Polygon, mapping
 
 from . import ops_db
 from .config import settings
+from .http_safe import checked
 from .ingest import RAW_BUCKET, RawArchive
 
 URL = "https://api.vworld.kr/req/data"
@@ -58,32 +60,33 @@ class BoundaryResult:
 
 def fetch_raw(client: httpx.Client | None = None) -> bytes:
     s = settings()
-    http = client or httpx.Client(timeout=300)
-    params: dict[str, str | int] = {
-        "service": "data",
-        "request": "GetFeature",
-        "data": LAYER,
-        "key": str(s.vworld_api_key),
-        "domain": s.vworld_domain,
-        "format": "json",
-        "geomFilter": KOREA_BOX,
-        "size": 1000,
-        "page": 1,
-        "geometry": "true",
-        "attribute": "true",
-        "crs": "EPSG:4326",
-    }
-    r = http.get(URL, params=params)
-    r.raise_for_status()
-    body = r.content
-    resp = json.loads(body)["response"]
-    if resp.get("status") != "OK":
-        # 오류 본문에 키가 섞일 수 있으므로 상태·오류 코드만 남긴다
-        raise RuntimeError(f"V-World status={resp.get('status')} error={resp.get('error', {}).get('code')}")
-    total, pages = int(resp["record"]["total"]), int(resp["page"]["total"])
-    if pages != 1 or total > 1000:
-        raise RuntimeError(f"unexpected paging: total={total} pages={pages} (한 페이지 1,000건 가정이 깨짐)")
-    return body
+    with contextlib.ExitStack() as stack:  # 직접 만든 클라이언트만 닫는다
+        http = client or stack.enter_context(httpx.Client(timeout=300))
+        params: dict[str, str | int] = {
+            "service": "data",
+            "request": "GetFeature",
+            "data": LAYER,
+            "key": str(s.vworld_api_key),
+            "domain": s.vworld_domain,
+            "format": "json",
+            "geomFilter": KOREA_BOX,
+            "size": 1000,
+            "page": 1,
+            "geometry": "true",
+            "attribute": "true",
+            "crs": "EPSG:4326",
+        }
+        r = http.get(URL, params=params)
+        checked(r, "V-World")
+        body = r.content
+        resp = json.loads(body)["response"]
+        if resp.get("status") != "OK":
+            # 오류 본문에 키가 섞일 수 있으므로 상태·오류 코드만 남긴다
+            raise RuntimeError(f"V-World status={resp.get('status')} error={resp.get('error', {}).get('code')}")
+        total, pages = int(resp["record"]["total"]), int(resp["page"]["total"])
+        if pages != 1 or total > 1000:
+            raise RuntimeError(f"unexpected paging: total={total} pages={pages} (한 페이지 1,000건 가정이 깨짐)")
+        return body
 
 
 def _parts(g) -> list[Polygon]:

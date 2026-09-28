@@ -68,6 +68,20 @@ def presign(object_key: str) -> str:
     )
 
 
+STALE_AFTER = "30 minutes"  # 이보다 오래 running 이면 작업자가 도중에 죽은 것 (정상 작업은 수 분 안에 끝남)
+
+
+async def _fail_stalled(res: Resources) -> int:
+    """작업자(내부 API 프로세스)가 작업 도중 재시작되면 그 작업은 running 으로 영원히 남는다.
+    클라이언트당 동시 2개 제한에 계속 잡혀 내보내기를 영영 못 하게 되므로 실패로 정리한다."""
+    async with res.pg.connection() as c:
+        cur = await c.execute(
+            f"""UPDATE api.export_job SET status='failed', error='stalled (worker restarted)', finished_at=now()
+               WHERE status='running' AND started_at < now() - interval '{STALE_AFTER}'"""
+        )
+        return cur.rowcount
+
+
 async def _claim(res: Resources) -> dict | None:
     async with res.pg.connection() as c, c.transaction():
         return await (  # type: ignore[return-value]  # dict_row 은 풀에서 지정
@@ -130,8 +144,14 @@ def _write_parquet_and_upload(sql: str, qp: dict, key: str) -> int:
 
 
 async def worker(res: Resources, poll_s: float = 2.0) -> None:
+    last_sweep = 0.0
     while True:
         try:
+            now = asyncio.get_running_loop().time()
+            if now - last_sweep > 60:  # 1분마다 멈춘 작업 정리
+                last_sweep = now
+                if n := await _fail_stalled(res):
+                    log.warning("marked %d stalled export jobs as failed", n)
             job = await _claim(res)
             if job is None:
                 await asyncio.sleep(poll_s)

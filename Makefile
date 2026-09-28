@@ -56,9 +56,10 @@ backfill-start: ## 수집 센서 켜기 (예산 안에서 증분 > 재시도 > �
 	$(DAGSTER) dagster schedule start weekly_iceberg_maintenance -m aptlake_pipeline.definitions
 	$(DAGSTER) dagster schedule start monthly_regions -m aptlake_pipeline.definitions
 
-backfill-stop: ## 수집 센서·스케줄 끄기
+backfill-stop: ## 수집 센서·스케줄 끄기 (원천 API 를 부르지 않는 주간 Iceberg 정리는 계속 둔다)
 	-$(DAGSTER) dagster sensor stop due_partitions_sensor -m aptlake_pipeline.definitions
 	-$(DAGSTER) dagster schedule stop daily_dims_and_index -m aptlake_pipeline.definitions
+	-$(DAGSTER) dagster schedule stop monthly_regions -m aptlake_pipeline.definitions
 
 pipeline-redeploy: ## 파이프라인 코드 무중단 교체: 센서 멈춤 → 대기 실행 취소 → 진행 중 실행 완료 대기 → 재빌드 → 센서 재개
 	-$(DAGSTER) dagster sensor stop due_partitions_sensor -m aptlake_pipeline.definitions

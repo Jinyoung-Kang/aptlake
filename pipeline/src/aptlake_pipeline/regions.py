@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 from dataclasses import dataclass
 
@@ -19,6 +20,7 @@ import pyarrow as pa
 
 from . import ops_db
 from .config import settings
+from .http_safe import checked
 from .lake import catalog
 
 URL = "https://apis.data.go.kr/1741000/StanReginCd/getStanReginCdList"
@@ -37,22 +39,25 @@ class Region:
 
 def fetch_rows(client: httpx.Client | None = None) -> list[dict]:
     key = str(settings().data_go_kr_key)
-    http = client or httpx.Client(timeout=60)
-    rows: list[dict] = []
-    page = 1
-    while True:
-        r = http.get(URL, params={"serviceKey": key, "type": "json", "pageNo": page, "numOfRows": 1000, "flag": "Y"})
-        r.raise_for_status()
-        body = r.json()["StanReginCd"]
-        head = body[0]["head"]
-        result = head[2]["RESULT"]["resultCode"]
-        if result != "INFO-0":
-            raise RuntimeError(f"StanReginCd {result}")
-        part = body[1]["row"] if len(body) > 1 else []
-        rows.extend(part)
-        if not part or len(rows) >= int(head[0]["totalCount"]):
-            return rows
-        page += 1
+    with contextlib.ExitStack() as stack:  # 직접 만든 클라이언트만 닫는다
+        http = client or stack.enter_context(httpx.Client(timeout=60))
+        rows: list[dict] = []
+        page = 1
+        while True:
+            r = http.get(
+                URL, params={"serviceKey": key, "type": "json", "pageNo": page, "numOfRows": 1000, "flag": "Y"}
+            )
+            checked(r, "MOIS StanReginCd")
+            body = r.json()["StanReginCd"]
+            head = body[0]["head"]
+            result = head[2]["RESULT"]["resultCode"]
+            if result != "INFO-0":
+                raise RuntimeError(f"StanReginCd {result}")
+            part = body[1]["row"] if len(body) > 1 else []
+            rows.extend(part)
+            if not part or len(rows) >= int(head[0]["totalCount"]):
+                return rows
+            page += 1
 
 
 def derive_regions(rows: list[dict]) -> list[Region]:

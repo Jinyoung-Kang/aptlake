@@ -321,7 +321,15 @@ def fake_dagster(now: float):
                             "skipReason": None,
                             "runIds": [],
                             "error": {"message": "boom postgresql://pipeline:hunter2@postgres/aptlake"},
-                        }
+                        },
+                        {  # 앞선 실패는 이 뒤 정상 틱으로 해결됨 (최근 실패는 그대로 미해결)
+                            "status": "FAILURE",
+                            "timestamp": now - 900,
+                            "skipReason": None,
+                            "runIds": [],
+                            "error": {"message": "old boom"},
+                        },
+                        {"status": "SKIPPED", "timestamp": now - 600, "skipReason": "x", "runIds": [], "error": None},
                     ],
                 },
             }
@@ -360,12 +368,16 @@ async def test_ops_status_and_error_log(apps, adm, admin_key):
             [run_err] = [x for x in pipe if x["ref"] == "fail-new"]
             assert run_err["where"] == "월 수집·반영·발행 · 202408 · bronze__rtms"
             assert run_err["at"].startswith(time.strftime("%Y-%m-%d", time.gmtime(time.time() - 550)))
-            assert any(x["id"].startswith("tick:") for x in pipe)
+            assert [x["message"] for x in pipe if x["id"].startswith("tick:")] == [
+                "boom postgresql://pipeline:***@postgres/aptlake"
+            ]
             assert "LEAKME" not in json.dumps(e) and "hunter2" not in json.dumps(e)
 
             e2 = (await c.get("/v1/ops/errors", params={"hours": 24, "includeResolved": "true"})).json()
             flags = {x["ref"]: x["resolved"] for x in e2["entries"] if x["source"] == "pipeline" and x["ref"]}
             assert flags == {"fail-old": True, "fail-new": False}
+            ticks = {x["message"]: x["resolved"] for x in e2["entries"] if x["id"].startswith("tick:")}
+            assert ticks == {"old boom": True, "boom postgresql://pipeline:***@postgres/aptlake": False}
     finally:
         await public.state.dagster.aclose()
         public.state.dagster = real
@@ -534,3 +546,26 @@ async def test_error_log_clear_hides_old_entries_and_can_be_restored(apps, adm, 
     finally:
         await public.state.dagster.aclose()
         public.state.dagster = real
+
+
+async def test_stalled_export_job_is_failed_so_client_can_export_again(apps, stack, adm, admin_key):
+    """작업자가 도중에 재시작돼 running 으로 남은 작업은 실패로 정리한다 (동시 2개 한도에 영원히 잡히지 않게)."""
+    import psycopg
+
+    from aptlake_api import exports
+
+    key, cid = await new_key(adm, admin_key, "pro", scopes=("read", "bulk"))
+    kid = keys.parse(key)[0]
+    with psycopg.connect(stack["su"], autocommit=True) as c:
+        old, fresh = (
+            c.execute(
+                """INSERT INTO api.export_job (client_id, key_id, status, params, started_at)
+                   VALUES (%s, %s, 'running', '{}', now() - %s::interval) RETURNING job_id""",
+                (cid, kid, ago),
+            ).fetchone()[0]
+            for ago in ("2 hours", "1 minute")
+        )
+    assert await exports._fail_stalled(apps[1].state.res) >= 1
+    with psycopg.connect(stack["su"], autocommit=True) as c:
+        st = dict(c.execute("SELECT job_id, status FROM api.export_job WHERE job_id IN (%s, %s)", (old, fresh)))
+    assert st == {old: "failed", fresh: "running"}  # 진행 중인 정상 작업은 건드리지 않는다

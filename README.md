@@ -31,8 +31,8 @@
 | **데이터** | 전국 256개 시군구 아파트 매매 신고 — 서빙 약 159만 건 (2026-09-26 기준, 과거 자료 수집 진행 중) |
 | **스택** | Python 3.12 · Dagster · Apache Iceberg(Lakekeeper) · Trino · dbt · MinIO(Silo) · ClickHouse · PostgreSQL · Redis · FastAPI · React 19 · TypeScript · ECharts · nginx · Docker Compose(17개 서비스) · Prometheus·Grafana · k6 |
 | **성능** | 지역·월 통계 p95 **38.6ms** @ 200 RPS, 최대 처리량 **약 5,800 req/s**, 전국 한 달 수집→검증→발행 **1분 45초** |
-| **품질** | 자동 테스트 **122개**(파이프라인 45 · API 55 · dbt 22) + 정적 분석 · 비밀·취약점 스캔을 CI 에서 매 커밋 실행 |
-| **문서** | 설계 결정 기록 25건(ADR-008~032, [docs/decisions.md](docs/decisions.md)) · 성능 측정 원자료([docs/performance.md](docs/performance.md)) · 운영 절차([docs/runbook.md](docs/runbook.md)) |
+| **품질** | 자동 테스트 **125개**(파이프라인 47 · API 56 · dbt 22) + 정적 분석 · 비밀·취약점 스캔을 CI 에서 매 커밋 실행 |
+| **문서** | 설계 결정 기록 26건(ADR-008~033, [docs/decisions.md](docs/decisions.md)) · 성능 측정 원자료([docs/performance.md](docs/performance.md)) · 운영 절차([docs/runbook.md](docs/runbook.md)) |
 
 ---
 
@@ -158,7 +158,7 @@ flowchart LR
 | 저장소 과권한 | MinIO 계정 분리: ingest(raw Put/Get), catalog(lake), export(exports). raw 버킷 Object Lock(GOVERNANCE 365일), exports 1일 자동 삭제 | [minio/init.sh](infra/minio/init.sh) |
 | DB 과권한 | PostgreSQL 역할 분리 (migrator 소유 / pipeline / api_app). api_app 은 격리 재시도에 필요한 **열만** UPDATE, 감사 로그 INSERT·SELECT 만 | [V001](api/migrations/V001__ops_api_schema.sql) |
 | Redis 과권한 | ACL: default 끔, api(`al:*`)·pipeline(`budget:*`, `al:ds:*`) 키 접두사·명령 범위 분리 | compose `redis` |
-| Trino 권한 | 파일 기반 접근 제어: pipeline·dbt 쓰기, analyst 읽기 전용, 그 외 거부 | [rules.json](infra/trino/etc/rules.json) |
+| Trino 권한 | 파일 기반 접근 제어: pipeline·dbt 쓰기, analyst 읽기 전용, 그 외 거부. 호스트 포트 없음(컨테이너 네트워크 안에서만) | [rules.json](infra/trino/etc/rules.json) |
 | XML 공격 | `defusedxml` (엔티티 확장 거부 테스트) | [parse.py](pipeline/src/aptlake_pipeline/rtms/parse.py) |
 | 비밀 유출 | `.env` git 제외(600), 내부 비밀 자동 생성, 설정 객체 repr 마스킹, gitleaks 규칙(`al_live_`) | [.gitleaks.toml](.gitleaks.toml), CI |
 | 컨테이너 탈출·자원 고갈 | 상주 서비스 12개 모두 `no-new-privileges` + 프로세스 수 상한(`pids_limit`, 측정값의 약 4배) + 메모리 상한, API·웹은 읽기 전용 파일시스템·권한 전부 제거(`cap_drop: ALL`), 모든 포트 127.0.0.1 | [docker-compose.yml](docker-compose.yml) |
@@ -313,14 +313,14 @@ curl -H "X-API-Key: $KEY" "http://127.0.0.1:8610/v1/quality/partitions/41135/202
 
 | 층 | 수 | 내용 |
 |---|---|---|
-| 파이프라인 단위 | 43 | 실제 응답 XML fixture, 파서, 정규화, 지문·순번(hypothesis: 순서 무관·유일), 엔티티 확장 거부, 시군구 도출, R-ONE 매핑, 지수(알려진 효과 복원·구성 편향), 예산 상한, 원천 오류 분류(한도 초과 429·키 오류·5xx 재시도), 경계 단순화(면적 오차·조각 제거) |
+| 파이프라인 단위 | 45 | 실제 응답 XML fixture, 파서, 정규화, 지문·순번(hypothesis: 순서 무관·유일), 엔티티 확장 거부, 시군구 도출, R-ONE 매핑, 지수(알려진 효과 복원·구성 편향), 예산 상한, 원천 오류 분류(한도 초과 429·**인증키 거부는 실행 중단**·요청 오류는 그 파티션만·5xx 재시도), **HTTP 오류 메시지에 인증키 없음**, 경계 단순화(면적 오차·조각 제거) |
 | 정합성 통합 | 2 | 실제 Lakekeeper·MinIO·Trino: 3회 재반영 불변, 해제 → 새 버전·이전 버전 닫힘, 사라짐 → missing, 재등장 → 해제 / 100 스레드 동시 예산 차감 → 정확히 상한 |
 | API 단위 | 29 | 키 형식·HMAC, 커서 서명, 신뢰 프록시 IP, 스코프 강제, **비밀값 가림 10종**, Dagster 응답 해석(밀리초 이벤트 시각 회귀), 확정 월 지수 |
-| API 통합 | 26 | Testcontainers(PostgreSQL·Redis·ClickHouse, 운영과 같은 마이그레이션·사용자 설정): 헤더 계약, ETag 304, **상태 응답은 내용이 바뀌면 새 ETag**, 플랜 기간, 폐기 즉시 401, 스코프, 관리 라우트 부재, 커서 완결성·위조, 주입 문자열, 사용량 격리, 429, **웹 플랜 IP별 한도**, 시세 띠·지수의 확정 월, 수집 상태·오류 로그(가짜 Dagster: 해결됨 판단·비밀 가림·Dagster 중단 시에도 200), **ClickHouse 과부하 → 503 / 버그 → 500**, 연결 점검, **운영 API 는 ops 스코프만**, **인증 실패 IP별 제한**, 경계 GeoJSON 사전 압축·304, **로그 비우기·되돌리기·감사 기록** |
+| API 통합 | 27 | Testcontainers(PostgreSQL·Redis·ClickHouse, 운영과 같은 마이그레이션·사용자 설정): 헤더 계약, ETag 304, **상태 응답은 내용이 바뀌면 새 ETag**, 플랜 기간, 폐기 즉시 401, 스코프, 관리 라우트 부재, 커서 완결성·위조, 주입 문자열, 사용량 격리, 429, **웹 플랜 IP별 한도**, 시세 띠·지수의 확정 월, 수집 상태·오류 로그(가짜 Dagster: 해결됨 판단·비밀 가림·Dagster 중단 시에도 200), **ClickHouse 과부하 → 503 / 버그 → 500**, 연결 점검, **운영 API 는 ops 스코프만**, **인증 실패 IP별 제한**, 경계 GeoJSON 사전 압축·304, **로그 비우기·되돌리기·감사 기록**, **작업자 재시작으로 멈춘 내보내기 정리** |
 | dbt | 22 | 월 파티션마다 실행, 실패 시 발행 차단 (전국·시도 집계 = 시군구 합 대조 포함) |
 | 부하 | k6 | 200 + 100 RPS + 한도 초과 시나리오, 최대 처리량(동시 32) |
 
-**CI (GitHub Actions, 매 커밋·PR):** 위 단위·통합 테스트(Testcontainers 포함) + ruff·mypy·tsc·vite build + `dbt parse` + pip-audit·npm audit + gitleaks(비밀 스캔, `al_live_` 키 규칙) + Trivy(취약점) + compose 설정 검증. 액션은 커밋 SHA 고정, Dependabot 은 작은 버전만 묶어서 제안합니다.
+**CI (GitHub Actions, 매 커밋·PR):** 위 단위·통합 테스트(Testcontainers 포함) + ruff·mypy·tsc·vite build + `dbt parse` + pip-audit·npm audit + gitleaks(비밀 스캔, `al_live_` 키 규칙) + Trivy(취약점) + compose 설정 검증 + **이미지 3종 빌드**. 액션은 커밋 SHA 고정, Dependabot 은 작은 버전만 묶어서 제안합니다.
 
 ## 12. 한계
 
@@ -328,7 +328,7 @@ curl -H "X-API-Key: $KEY" "http://127.0.0.1:8610/v1/quality/partitions/41135/202
 - 동일 지문 그룹 안에서 한 건만 바뀌면 순번 정렬이 바뀌어 두 건이 동시에 변경으로 보일 수 있습니다.
 - 개발계정 호출 한도 때문에 전체 백필은 며칠 걸립니다 (`BACKFILL_FROM`, 기본 2021-01).
 - 포털 한도는 **인증키 단위**라 같은 키를 쓰는 다른 프로그램의 호출도 합산됩니다. 내부 카운터보다 포털이 먼저 한도 초과를 알리면 그날 예산을 소진 처리하고 다음 날 이어갑니다.
-- 로컬 단일 노드 기준입니다. Lakekeeper 는 인증 없이 도커 네트워크 안에서만 쓰고(호스트 127.0.0.1), 운영이라면 OIDC 와 TLS 가 필요합니다.
+- 로컬 단일 노드 기준입니다. Lakekeeper·Trino 는 인증 없이 도커 네트워크 안에서만 쓰고(호스트 포트 없음), Dagster UI 는 127.0.0.1 에서만 열립니다(인증 없음). 공개 배포라면 OIDC·TLS·앞단 인증 프록시가 필요합니다.
 - 부하 측정은 k6 가 같은 Docker VM 에서 돌아 CPU 를 나눠 씁니다. 수치는 이 맥 기준입니다.
 
 ## 13. 구조

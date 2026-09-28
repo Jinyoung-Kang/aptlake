@@ -9,13 +9,18 @@ from .lake import execute
 
 TABLES = [
     "bronze.rtms_raw",
+    # stage 는 월마다 덮어써 스냅샷이 가장 빨리 쌓인다 (정리 대상에서 빠져 있었음)
+    "stage.apt_trade",
     "silver.apt_trade",
     "silver.apt_complex",
+    "silver.region",
     "gold.trade_serving",
     "gold.region_month",
+    "gold.region_rollup_month",
     "gold.trade_version",
     "gold.complex_summary",
     "gold.price_index",
+    "gold.index_reference",
 ]
 RETENTION = "7d"
 

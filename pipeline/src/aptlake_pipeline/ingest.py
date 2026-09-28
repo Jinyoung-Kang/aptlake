@@ -26,7 +26,7 @@ from . import ops_db
 from .budget import BudgetExhausted
 from .config import settings
 from .lake import catalog, eq
-from .rtms.client import FetchFailed, FetchResult, QuotaExceeded, RtmsClient
+from .rtms.client import FetchFailed, FetchResult, RtmsClient, SourceUnavailable
 from .rtms.parse import REQUIRED_FIELDS, SCHEMA_VERSION, SOURCE_FIELDS_V1, to_typed
 
 log = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ class IngestSummary:
     quarantined: dict[str, str] = field(default_factory=dict)
     retry: dict[str, str] = field(default_factory=dict)
     skipped_budget: list[str] = field(default_factory=list)
-    source_quota_exceeded: str | None = None  # 원천이 일일 한도 초과를 알린 경우 그 사유
+    source_stopped: str | None = None  # 원천이 한도 초과·인증키 오류를 알려 그날 수집을 멈춘 경우 그 사유
     calls: int = 0
     bronze_rows: int = 0
     bronze_snapshot: int | None = None
@@ -189,13 +189,13 @@ async def _fetch_all(
                 r = await client.fetch(sgg, deal_ym)
                 results.append(r)
                 summary.calls += r.calls
-            except (BudgetExhausted, QuotaExceeded) as e:
+            except (BudgetExhausted, SourceUnavailable) as e:
                 stop.set()
-                if isinstance(e, QuotaExceeded):
-                    summary.source_quota_exceeded = str(e)
+                if isinstance(e, SourceUnavailable):
+                    summary.source_stopped = f"{type(e).__name__}: {e}"
                 summary.skipped_budget.append(sgg)
                 ops_db.mark_failed(deal_ym, sgg, f"budget: {e}")
-                # 예산 소진은 파티션 결함이 아니므로 attempts 를 되돌린다
+                # 예산 소진·원천 중단은 파티션 결함이 아니므로 attempts 를 되돌린다
                 with ops_db.conn() as c:
                     c.execute(
                         """UPDATE ops.ingest_partition SET attempts = greatest(attempts - 1, 0),

@@ -58,6 +58,18 @@ jobs:
       - run: npx tsc -b && npx vite build
       - run: npm audit --omit=dev --audit-level=high
 
+  # 이미지가 실제로 빌드되는지 (Dependabot 의 베이스 이미지 올림, dbt parse 가 도는 파이프라인 이미지 포함)
+  images:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: { context: [api, pipeline, web] }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: docker build (${{ matrix.context }})
+        run: docker build -t aptlake-${{ matrix.context }}:ci ${{ matrix.context }}
+
   security:
     runs-on: ubuntu-latest
     timeout-minutes: 20

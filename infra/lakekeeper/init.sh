@@ -4,9 +4,17 @@
 set -eu
 LK=http://lakekeeper:8181
 
-code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$LK/management/v1/bootstrap" \
-  -H 'Content-Type: application/json' --data '{"accept-terms-of-use": true}')
-case "$code" in 2*|400|409) echo "bootstrap: $code" ;; *) echo "bootstrap failed: $code"; exit 1 ;; esac
+# 연결 실패(000)·5xx 는 카탈로그가 아직 뜨는 중일 수 있어 최대 60초 재시도, 그 밖의 응답은 즉시 판정
+i=0
+while :; do
+  code=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$LK/management/v1/bootstrap" \
+    -H 'Content-Type: application/json' --data '{"accept-terms-of-use": true}') || true
+  case "$code" in
+    2*|400|409) echo "bootstrap: $code"; break ;;
+    000|5*) i=$((i + 1)); [ "$i" -ge 30 ] && { echo "bootstrap failed: $code"; exit 1; }; sleep 2 ;;
+    *) echo "bootstrap failed: $code"; exit 1 ;;
+  esac
+done
 
 if curl -sf "$LK/management/v1/warehouse" | grep -q '"name":"aptlake"'; then
   echo "warehouse: exists"; exit 0

@@ -19,6 +19,19 @@ from .settings import settings
 
 SCOPE_ATTR = "__aptlake_scope__"
 KST = dt.timezone(dt.timedelta(hours=9))
+
+
+def kst_today() -> dt.date:
+    """서비스의 '오늘' — 컨테이너 시계(UTC)가 아니라 한국 날짜. 캐시 키의 날짜와 같은 기준이어야 한다."""
+    return dt.datetime.now(tz=KST).date()
+
+
+def provisional(month: dt.date) -> bool:
+    """계약월 말일 + provisional_days 전이면 잠정 (신고가 더 들어올 수 있음). 날짜는 KST 기준."""
+    nxt = dt.date(month.year + (month.month == 12), month.month % 12 + 1, 1)
+    return kst_today() < (nxt - dt.timedelta(days=1)) + dt.timedelta(days=settings().provisional_days)
+
+
 PUBLIC_UNSCOPED = {"/healthz", "/readyz", "/docs", "/openapi.json", "/docs/oauth2-redirect", "/redoc"}
 DISCLAIMER = "공개 신고 자료를 가공한 학습·포트폴리오용 데이터입니다. 공식 통계가 아니며 투자 판단 근거로 쓰지 마세요."
 

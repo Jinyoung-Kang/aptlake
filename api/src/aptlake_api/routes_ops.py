@@ -23,6 +23,15 @@ from .responses import OrjsonResponse
 from .settings import settings
 
 router = APIRouter(prefix="/v1/ops")
+
+
+def stop_label(reason: str | None) -> str:
+    """파이프라인이 그날 수집을 멈춘 사유 → 사람이 할 일이 드러나는 문구."""
+    if reason and reason.startswith("KeyRejected"):
+        return "원천이 인증키를 거부 — .env 의 DATA_GO_KR_KEY(만료·승인) 확인, 자정(KST) 뒤 다시 시도"
+    return "원천 일일 한도 초과 — 자정(KST) 뒤 자동 재개 (같은 키를 쓰는 다른 프로그램 호출도 합산)"
+
+
 KST = dt.timezone(dt.timedelta(hours=9))
 
 
@@ -136,6 +145,7 @@ async def status(request: Request, p: Principal = require_scope("ops")) -> Respo
                     "used": int(b["used_calls"]) if b else 0,
                     "byPriority": b["by_priority"] if b else {},
                     "exhaustedReason": b["exhausted_reason"] if b else None,
+                    "stopLabel": stop_label(b["exhausted_reason"]) if b and b["exhausted_reason"] else None,
                     "exhaustedAt": _iso(b["exhausted_at"]) if b else None,
                 },
                 # 추정: 남은 파티션(시군구×월) 1개 = 원천 호출 1회, 하루 상한만큼 쓴다고 가정한 단순 계산
@@ -214,8 +224,14 @@ async def errors(
                 for part in await asyncio.gather(*(one(r) for r in failed)):
                     entries += part
                 for s in (await dag.instigators())["sensors"]:
-                    for t in s["sensorState"].get("ticks") or []:
+                    ticks = s["sensorState"].get("ticks") or []
+                    # 실행 실패와 같은 규칙: 그 뒤에 오류 없이 끝난 틱(요청·건너뜀)이 있으면 '해결됨'
+                    tick_ok = max((float(t["timestamp"]) for t in ticks if not t.get("error")), default=0.0)
+                    for t in ticks:
                         if t.get("error") and float(t["timestamp"]) >= since.timestamp():
+                            tick_resolved = tick_ok > float(t["timestamp"])
+                            if tick_resolved and not includeResolved:
+                                continue
                             entries.append(
                                 {
                                     "id": f"tick:{s['name']}:{t['timestamp']}",
@@ -226,7 +242,7 @@ async def errors(
                                     "message": ops.redact(t["error"]["message"]).splitlines()[0][:300],
                                     "detail": ops.redact(t["error"]["message"]),
                                     "ref": None,
-                                    "resolved": False,
+                                    "resolved": tick_resolved,
                                 }
                             )
             except ops.DagsterUnavailable:
@@ -275,7 +291,7 @@ async def errors(
                         "level": "WARN",
                         "source": "ingest",
                         "where": f"원천 호출 예산 · {r['day']}",
-                        "message": f"원천이 일일 한도 초과를 알림 — 그날 수집 중단, KST 자정 뒤 자동 재개 ({r['exhausted_reason']})",
+                        "message": f"{stop_label(r['exhausted_reason'])} ({ops.redact(r['exhausted_reason'])})",
                         "detail": "공공데이터포털 한도는 인증키 단위라 같은 키를 쓰는 다른 프로그램의 호출도 합산됩니다.",
                         "ref": None,
                         "resolved": False,
@@ -516,7 +532,7 @@ async def connectivity(request: Request, p: Principal = require_scope("ops")) ->
             pct = settings().rtms_budget_pct
             cap = b["limit_calls"] * pct // 100 if b else None
             if b and b["exhausted_reason"]:
-                rtms_state = "원천 한도 소진(포털 응답) — 자정(KST) 뒤 재개"
+                rtms_state = stop_label(b["exhausted_reason"])
             elif b and cap is not None and b["used_calls"] >= cap:
                 rtms_state = f"오늘 호출 상한({pct}%) 도달 — 자정(KST) 뒤 재개"
             else:

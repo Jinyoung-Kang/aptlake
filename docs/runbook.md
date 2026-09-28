@@ -14,6 +14,10 @@
 - 포털이 `HTTP 429 / returnReasonCode 22` 를 주면 그날 예산이 소진 처리되고(`ops.api_budget`), 센서는 KST 자정 뒤 자동으로 이어간다.
 - 같은 인증키를 다른 프로그램(예: 다른 프로젝트의 실거래 수집)과 함께 쓰면 한도가 합산된다 → 이 서비스 전용 키를 발급받거나 `RTMS_BUDGET_PCT` 를 낮춘다.
 
+## 인증키가 거부됐을 때 (수집 상태: "인증키 거부 · 키 확인 필요")
+- 포털이 미승인·미등록 키·기간 만료·미등록 IP(사유 코드 20·30·31·32, 또는 사유 없는 401·403)를 주면 파티션을 격리하지 않고 **그날 실행을 멈춘다** (`ops.api_budget.exhausted_reason` 이 `KeyRejected: …`).
+- 공공데이터포털 마이페이지에서 키 상태·활용신청(아파트 매매 실거래가 자료)을 확인하고, 새 키면 `.env` 의 `DATA_GO_KR_KEY` 를 바꾼 뒤 `make pipeline-redeploy`. 그날 멈춤은 KST 자정에 풀린다.
+
 ## 격리(QUARANTINED) 파티션 재시도
 ```bash
 curl -X POST -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/partitions/41135/2026-08/retry
@@ -72,6 +76,12 @@ curl -X DELETE -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/keys/<keyId
 ## 서빙에 달이 빠졌을 때
 - `SELECT * FROM ops.month_state WHERE needs_publish;` 에 있으면 센서가 5분 안에 발행 전용 실행(원천 호출 0회)을 요청한다.
 - 수동: `make month ym=202607` 대신 발행만 하려면 Dagster UI 에서 month_pipeline 을 run config `ops.bronze__rtms_raw.config.fetch: false` 로 실행.
+
+## 레이크 직접 질의
+Trino·Lakekeeper 는 인증이 없어 호스트 포트를 열지 않는다. 읽기 전용 사용자로 컨테이너 안에서:
+```bash
+docker compose --profile lake exec trino trino --user analyst --execute "SELECT count(*) FROM lake.silver.apt_trade WHERE is_current"
+```
 
 ## 유지보수
 - 매주 일 04:00 KST `weekly_iceberg_maintenance`: optimize → expire_snapshots(7일) → remove_orphan_files(7일). 7일 안의 시간여행은 항상 가능.

@@ -43,7 +43,8 @@ def main(argv: list[str]) -> int:
     cmd = argv[1] if len(argv) > 1 else ""
     with psycopg.connect(settings().pg_dsn.get_secret_value()) as c:
         if cmd == "bootstrap-admin":
-            print(_issue(c, "operator", "pro", ["admin", "read"], 30))
+            # 운영자: 관리(admin) + 데이터 조회(read) + 수집 상태·오류 로그(ops)
+            print(_issue(c, "operator", "pro", ["admin", "read", "ops"], 30))
         elif cmd == "loadtest-key":
             # 부하 측정용 (분당 한도 사실상 없음, 1일 만료). 측정이 끝나면 관리 API 로 폐기할 것
             print(_issue(c, "loadtest", "loadtest", ["read"], 1))

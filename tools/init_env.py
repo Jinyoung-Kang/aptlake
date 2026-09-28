@@ -9,7 +9,8 @@ import stat
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-EXTERNAL = {"DATA_GO_KR_KEY", "REB_API_KEY", "VWORLD_API_KEY", "VWORLD_DOMAIN"}
+REQUIRED = {"DATA_GO_KR_KEY", "REB_API_KEY"}
+EXTERNAL = REQUIRED | {"VWORLD_API_KEY", "VWORLD_DOMAIN"}  # V-World 는 지도 경계용(선택)
 GENERATED_SUFFIXES = ("_PASSWORD", "_SECRET", "_PEPPER", "_SIGNING_KEY", "_ENCRYPTION_KEY")
 KEY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"  # api/src/aptlake_api/keys.py 와 같은 형식
 
@@ -23,6 +24,7 @@ def main() -> None:
     env, example = ROOT / ".env", ROOT / ".env.example"
     if not env.exists():
         shutil.copy(example, env)
+    env.chmod(stat.S_IRUSR | stat.S_IWUSR)  # 비밀값을 쓰기 전에 권한부터 좁힌다
     lines = env.read_text().splitlines()
     present = {l.split("=", 1)[0] for l in lines if "=" in l and not l.startswith("#")}
     # .env.example 에 새로 생긴 변수는 뒤에 덧붙인다
@@ -41,9 +43,13 @@ def main() -> None:
                 filled.append(k)
         out.append(l)
     env.write_text("\n".join(out) + "\n")
-    env.chmod(stat.S_IRUSR | stat.S_IWUSR)
-    missing = [l.split("=", 1)[0] for l in out if l.split("=", 1)[0] in EXTERNAL and not l.split("=", 1)[1].strip()]
-    print(f".env: generated {len(filled)} secrets" + (f"; 직접 채워야 할 키: {', '.join(missing)}" if missing else ""))
+    empty = {l.split("=", 1)[0] for l in out if "=" in l and not l.startswith("#") and not l.split("=", 1)[1].strip()}
+    msg = f".env: generated {len(filled)} secrets"
+    if empty & REQUIRED:
+        msg += f"; 직접 채워야 할 키: {', '.join(sorted(empty & REQUIRED))}"
+    if empty & (EXTERNAL - REQUIRED):
+        msg += f"; 선택(지도 경계): {', '.join(sorted(empty & (EXTERNAL - REQUIRED)))}"
+    print(msg)
 
 
 if __name__ == "__main__":

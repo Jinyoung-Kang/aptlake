@@ -15,6 +15,7 @@ import pyarrow as pa
 
 from . import ops_db
 from .config import settings
+from .http_safe import checked
 from .lake import catalog
 
 URL = "https://www.reb.or.kr/r-one/openapi/SttsApiTblData.do"
@@ -47,7 +48,7 @@ def _get(http: httpx.Client, url: str, **params: str | int) -> list[dict]:
     page = 1
     while True:
         r = http.get(url, params={"KEY": key, "Type": "json", "pIndex": page, "pSize": 1000, **params})
-        r.raise_for_status()
+        checked(r, "R-ONE")
         body = r.json()
         name = next(iter(body))
         if name == "RESULT":  # 오류 응답 형식
@@ -69,46 +70,51 @@ def refresh() -> dict[str, object]:
             r["sido_cd"]: r["sido_nm"]
             for r in c.execute("SELECT DISTINCT sido_cd, sido_nm FROM ops.region WHERE active").fetchall()
         }
-    http = httpx.Client(timeout=60)
-    items = _get(http, ITEMS_URL, STATBL_ID=STATBL_ID)
-    top = [i for i in items if i["ITM_TAG"] == "분류" and "&gt;" not in i["ITM_FULLNM"] and ">" not in i["ITM_FULLNM"]]
-    mapping: dict[int, str] = {}
-    for i in top:
-        region = map_cls_to_sido(i["ITM_NM"], sido)
-        if region:
-            mapping[int(i["ITM_ID"])] = region
-    now = dt.datetime.now(tz=dt.UTC)
-    out = []
-    for cls_id, region in mapping.items():
-        for r in _get(http, URL, STATBL_ID=STATBL_ID, DTACYCLE_CD="MM", CLS_ID=cls_id):
-            if r.get("DTA_VAL") is None:
-                continue
-            out.append(
-                {
-                    "region_id": region,
-                    "period": r["WRTTIME_IDTFR_ID"],
-                    "value": float(r["DTA_VAL"]),
-                    "source": SOURCE,
-                    "fetched_at": now,
-                }
+    with httpx.Client(timeout=60) as http:
+        items = _get(http, ITEMS_URL, STATBL_ID=STATBL_ID)
+        top = [
+            i for i in items if i["ITM_TAG"] == "분류" and "&gt;" not in i["ITM_FULLNM"] and ">" not in i["ITM_FULLNM"]
+        ]
+        mapping: dict[int, str] = {}
+        for i in top:
+            region = map_cls_to_sido(i["ITM_NM"], sido)
+            if region:
+                mapping[int(i["ITM_ID"])] = region
+        now = dt.datetime.now(tz=dt.UTC)
+        out = []
+        for cls_id, region in mapping.items():
+            for r in _get(http, URL, STATBL_ID=STATBL_ID, DTACYCLE_CD="MM", CLS_ID=cls_id):
+                if r.get("DTA_VAL") is None:
+                    continue
+                out.append(
+                    {
+                        "region_id": region,
+                        "period": r["WRTTIME_IDTFR_ID"],
+                        "value": float(r["DTA_VAL"]),
+                        "source": SOURCE,
+                        "fetched_at": now,
+                    }
+                )
+        if not out:
+            # 원천 장애·형식 변경으로 한 건도 못 받았으면 기존 기준값을 빈 표로 덮어쓰지 않는다
+            raise RuntimeError(f"R-ONE returned no rows (mapped regions={len(mapping)}) — keeping previous reference")
+        table = catalog().load_table("gold.index_reference")
+        table.overwrite(
+            pa.Table.from_pylist(
+                out,
+                schema=pa.schema(
+                    [
+                        ("region_id", pa.string()),
+                        ("period", pa.string()),
+                        ("value", pa.float64()),
+                        ("source", pa.string()),
+                        ("fetched_at", pa.timestamp("us", tz="UTC")),
+                    ]
+                ),
             )
-    table = catalog().load_table("gold.index_reference")
-    table.overwrite(
-        pa.Table.from_pylist(
-            out,
-            schema=pa.schema(
-                [
-                    ("region_id", pa.string()),
-                    ("period", pa.string()),
-                    ("value", pa.float64()),
-                    ("source", pa.string()),
-                    ("fetched_at", pa.timestamp("us", tz="UTC")),
-                ]
-            ),
         )
-    )
-    return {
-        "regions": sorted(mapping.values()),
-        "rows": len(out),
-        "unmapped": sorted(i["ITM_NM"] for i in top if int(i["ITM_ID"]) not in mapping),
-    }
+        return {
+            "regions": sorted(mapping.values()),
+            "rows": len(out),
+            "unmapped": sorted(i["ITM_NM"] for i in top if int(i["ITM_ID"]) not in mapping),
+        }

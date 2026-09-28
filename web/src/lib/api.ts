@@ -12,6 +12,15 @@ export class ApiError extends Error {
 
 const cache = new Map<string, { at: number; data: unknown }>();
 const TTL_MS = 60_000;
+// 탭을 오래 열어 두고 조건·페이지를 계속 바꿔도 메모리가 늘지 않도록 항목 수를 묶는다 (삽입 순서 = 오래된 순)
+const CACHE_MAX = 64;
+function remember(path: string, data: unknown): void {
+  const now = Date.now();
+  cache.delete(path);
+  for (const [k, v] of cache) if (now - v.at >= TTL_MS) cache.delete(k);
+  while (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
+  cache.set(path, { at: now, data });
+}
 
 // 일시 장애(DB 과부하·재시작, 프록시 연결 실패)는 잠깐 뒤 다시 하면 대개 성공한다 → 최대 2번, 서버가 준 Retry-After(최대 3초) 존중
 const RETRYABLE = new Set([502, 503, 504]);
@@ -46,7 +55,7 @@ export async function api<T>(path: string, opts: { key?: string; signal?: AbortS
   const res = await fetchRetry(path, { headers, signal: opts.signal });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(body?.code ? body : { status: res.status, code: `HTTP_${res.status}`, title: res.statusText || "HTTP 오류" });
-  if (!opts.key) cache.set(path, { at: Date.now(), data: body });
+  if (!opts.key) remember(path, body);
   return body as T;
 }
 

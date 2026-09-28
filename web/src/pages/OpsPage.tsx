@@ -16,7 +16,7 @@ type Status = {
   pipeline: { available: boolean; reason?: string };
   summary: {
     partitions: Record<string, number>; totalPartitions: number; publishedMonths: number; publishPending: number;
-    budget: { day: string; limit: number; cap: number; used: number; byPriority: Record<string, number>; exhaustedReason: string | null; exhaustedAt: string | null };
+    budget: { day: string; limit: number; cap: number; used: number; byPriority: Record<string, number>; exhaustedReason: string | null; exhaustedAt: string | null; stopLabel?: string | null };
     backfillEstimate: { remainingCalls: number; days: number | null; basis: string };
     lastPublish: { version: string; at: string } | null;
   };
@@ -163,7 +163,7 @@ export default function OpsPage({ route }: { route: Route }) {
         <div className="kpis">
           <Kpi k="파이프라인" v={s.pipeline.available ? `${running} 실행 · ${queued} 대기` : "연결 안 됨"} d={`최근 48시간 ${num(s.jobs.recent.length)}건 완료·실패`} />
           <Kpi k={`오늘 원천 호출 (${b?.day ?? ""})`} v={`${num(b?.used)} / ${num(b?.cap)}`}
-               d={<>{b?.exhaustedReason ? <Badge tone="warn" title={b.exhaustedReason}>원천 한도 소진 · 자정 뒤 재개</Badge> : `일 한도 ${num(b?.limit)}의 80%`}
+               d={<>{b?.exhaustedReason ? <Badge tone="warn" title={b.stopLabel ?? b.exhaustedReason}>{b.exhaustedReason.startsWith("KeyRejected") ? "인증키 거부 · 키 확인 필요" : "원천 한도 소진 · 자정 뒤 재개"}</Badge> : `일 한도 ${num(b?.limit)}의 80%`}
                    <div className={`progress ${b && b.used >= b.cap ? "warn" : ""}`}><span style={{ width: `${b ? Math.min(100, (b.used / b.cap) * 100) : 0}%` }} /></div></>} />
           <Kpi k="수집 진행 (시군구×월)" v={`${num(total ? (merged / total) * 100 : 0, 1)}%`}
                d={<>남은 {num(s.summary.backfillEstimate.remainingCalls)}개 · 추정 {s.summary.backfillEstimate.days ?? DASH}일<div className="progress"><span style={{ width: `${total ? (merged / total) * 100 : 0}%` }} /></div></>}

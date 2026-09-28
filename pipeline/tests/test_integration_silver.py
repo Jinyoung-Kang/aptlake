@@ -65,11 +65,13 @@ def _cleanup():
     from aptlake_pipeline import ops_db
     from aptlake_pipeline.lake import execute
 
-    for t in ("bronze.rtms_raw", "stage.apt_trade", "silver.apt_trade"):
+    # 실제 운영 DB·레이크를 같이 쓰므로 반영 단계가 남기는 흔적(단지 차원·발행 대기 표시)까지 모두 지운다
+    for t in ("bronze.rtms_raw", "stage.apt_trade", "silver.apt_trade", "silver.apt_complex"):
         execute(f"DELETE FROM lake.{t} WHERE sgg_cd = '{SGG}'")
     with ops_db.conn() as c:
         c.execute("DELETE FROM ops.ingest_partition WHERE sgg_cd = %s", (SGG,))
         c.execute("DELETE FROM ops.dq_result WHERE partition = %s", (YM,))
+        c.execute("DELETE FROM ops.month_state WHERE deal_ym = %s", (YM,))
 
 
 _seq = {"n": 0}

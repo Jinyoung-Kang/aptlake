@@ -6,7 +6,12 @@
 #   exports : Parquet 내보내기 — export 계정만, 1일 뒤 자동 삭제
 set -eu
 
-mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+# 의존 서비스가 막 뜬 직후(데몬 재시작 등)에도 실패하지 않도록 최대 60초 기다린다
+i=0
+until mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null 2>&1 \
+  && mc ready local >/dev/null 2>&1; do
+  i=$((i + 1)); [ "$i" -ge 30 ] && { echo "minio not ready"; exit 1; }; sleep 2
+done
 
 mc mb --ignore-existing --with-lock local/raw
 mc retention set --default GOVERNANCE 365d local/raw >/dev/null

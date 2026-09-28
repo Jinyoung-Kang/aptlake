@@ -89,13 +89,16 @@ def trino_conn(user: str = "pipeline") -> Iterator[trino.dbapi.Connection]:
 
 
 def execute(sql: str, params: Sequence[Any] | None = None, user: str = "pipeline") -> list[tuple]:
+    """문장을 끝까지 실행하고 결과 행을 돌려준다. 오류는 절대 삼키지 않는다.
+
+    Trino 는 오래 걸리는 문장(MERGE·optimize)의 실패를 결과를 가져오는 도중(fetchall)에 알린다.
+    예전 구현은 여기서 TrinoUserError 를 잡아 빈 결과로 돌려줘, 실패한 MERGE(예: 대상 행 하나에 원천 행
+    여러 개)가 성공처럼 보일 수 있었다 → 모든 오류를 그대로 올린다.
+    """
     with trino_conn(user) as conn:
         cur = conn.cursor()
         cur.execute(sql, params)
-        try:
-            return cur.fetchall()
-        except trino.exceptions.TrinoUserError:
-            return []
+        return cur.fetchall()
 
 
 def ensure_tables() -> None:

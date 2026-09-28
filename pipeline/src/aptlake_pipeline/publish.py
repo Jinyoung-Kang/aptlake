@@ -1,7 +1,9 @@
 """ClickHouse 발행 (기획서 그림 2).
 
-월 파티션: Trino gold → *_staging 파티션 적재 → 건수·합계 대조 → REPLACE PARTITION (원자적 교체).
-대조가 틀리면 예외 → 서빙 테이블은 이전 데이터 그대로 (부분 발행 없음).
+월 파티션: Trino gold → 네 표(region_month·rollup_month·trade_current·trade_version) 모두 *_staging 에 적재·대조
+→ 넷 다 맞을 때만 REPLACE PARTITION 네 번을 연달아 (표마다 원자적 교체).
+하나라도 틀리면 예외 → 네 표 모두 이전 데이터 그대로 (표 사이 부분 발행 없음).
+예전에는 표마다 적재·대조·교체를 차례로 해서, 세 번째 표 대조가 실패하면 앞의 두 표만 새 데이터가 되는 창이 있었다.
 차원·지수(소형): 새 테이블에 적재 → 대조 → EXCHANGE TABLES (원자적 교체).
 발행이 끝나면 데이터셋 버전을 올리고(ops.dataset_version + Redis), API 캐시 키가 버전을 포함하므로
 이전 결과 캐시는 자연히 무효가 된다.
@@ -50,7 +52,7 @@ def _rows(sql: str) -> list[tuple]:
     return execute(sql, user="pipeline")
 
 
-def _replace_partition(
+def _stage(
     client: Client,
     table: str,
     partition: str,
@@ -59,6 +61,7 @@ def _replace_partition(
     checks: dict[str, str],
     expected: dict[str, Any],
 ) -> int:
+    """스테이징 파티션에 적재하고 Trino 결과와 대조한다. 서빙 테이블은 건드리지 않는다."""
     staging = f"{DB}.{table}_staging"
     client.command(f"ALTER TABLE {staging} DROP PARTITION {partition}")
     if rows:
@@ -71,14 +74,22 @@ def _replace_partition(
     actual = dict(zip(checks, got, strict=True))
     for k, v in expected.items():
         if (actual[k] or 0) != (v or 0):
-            client.command(f"ALTER TABLE {staging} DROP PARTITION {partition}")
             raise ReconciliationError(f"{table} {partition}: {k} trino={v} clickhouse={actual[k]}")
-    if rows:
+    return len(rows)
+
+
+def _swap(client: Client, table: str, partition: str, n_rows: int) -> None:
+    staging = f"{DB}.{table}_staging"
+    if n_rows:
         client.command(f"ALTER TABLE {DB}.{table} REPLACE PARTITION {partition} FROM {staging}")
     else:
         client.command(f"ALTER TABLE {DB}.{table} DROP PARTITION {partition}")
     client.command(f"ALTER TABLE {staging} DROP PARTITION {partition}")
-    return len(rows)
+
+
+def _drop_staged(client: Client, tables: list[str], partition: str) -> None:
+    for t in tables:
+        client.command(f"ALTER TABLE {DB}.{t}_staging DROP PARTITION {partition}")
 
 
 def _part_col(table: str) -> str:
@@ -95,11 +106,22 @@ def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
         raise ValueError(deal_ym)
     client = ch()
     counts: dict[str, int] = {}
+    tables = ["region_month", "rollup_month", "trade_current", "trade_version"]
+    try:
+        _stage_month(client, deal_ym, dataset_ver, counts)
+    except Exception:
+        _drop_staged(client, tables, deal_ym)  # 대조 실패·적재 오류 → 네 표 모두 서빙은 이전 그대로
+        raise
+    for t in tables:  # 넷 다 대조를 통과했을 때만 교체
+        _swap(client, t, deal_ym, counts[t])
+    return counts
 
+
+def _stage_month(client: Client, deal_ym: str, dataset_ver: str, counts: dict[str, int]) -> None:
     rm = _rows(f"""SELECT sgg_cd, deal_ym, reported, trades, cancelled, priced, outliers,
                           p25_ppm2, median_ppm2, p75_ppm2, low_sample
                    FROM lake.gold.region_month WHERE deal_ym = '{deal_ym}'""")
-    counts["region_month"] = _replace_partition(
+    counts["region_month"] = _stage(
         client,
         "region_month",
         deal_ym,
@@ -130,7 +152,7 @@ def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
                    p25_ppm2, median_ppm2, p75_ppm2, low_sample
             FROM lake.gold.region_rollup_month WHERE deal_ym = '{deal_ym}'"""
     )
-    counts["rollup_month"] = _replace_partition(
+    counts["rollup_month"] = _stage(
         client,
         "rollup_month",
         deal_ym,
@@ -162,7 +184,7 @@ def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
                           coalesce(apt_dong, ''), coalesce(deal_kind, ''), coalesce(seller_type, ''),
                           coalesce(buyer_type, ''), build_year, is_outlier, version, valid_from, missing_since
                    FROM lake.gold.trade_serving WHERE deal_ym = '{deal_ym}'""")
-    counts["trade_current"] = _replace_partition(
+    counts["trade_current"] = _stage(
         client,
         "trade_current",
         deal_ym,
@@ -227,7 +249,7 @@ def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
                           cancel_date, registered_date, coalesce(apt_dong, ''), coalesce(deal_kind, ''),
                           coalesce(seller_type, ''), coalesce(buyer_type, '')
                    FROM lake.gold.trade_version WHERE deal_ym = '{deal_ym}'""")
-    counts["trade_version"] = _replace_partition(
+    counts["trade_version"] = _stage(
         client,
         "trade_version",
         deal_ym,
@@ -250,7 +272,6 @@ def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
         {"n": "count()", "current": "sum(is_current)"},
         {"n": len(tv), "current": sum(int(r[5]) for r in tv)},
     )
-    return counts
 
 
 def _exchange(client: Client, table: str, columns: list[str], rows: list[list[Any]]) -> int:

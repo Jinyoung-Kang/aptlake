@@ -85,7 +85,7 @@ services:
     depends_on:
       lakekeeper-migrate: { condition: service_completed_successfully }
       minio-init: { condition: service_completed_successfully }
-    ports: ["127.0.0.1:8620:8181"]
+    # 호스트 포트 없음: 카탈로그 관리 API 는 인증이 없어(로컬 구성) 컨테이너 네트워크 안에서만 연다
     healthcheck:
       test: ["CMD", "/home/nonroot/lakekeeper", "healthcheck"]
       interval: 3s
@@ -117,7 +117,7 @@ services:
       - ./infra/trino/etc/rules.json:/etc/trino/rules.json:ro
       - ./infra/trino/etc/catalog:/etc/trino/catalog:ro
     depends_on: { lakekeeper-init: { condition: service_completed_successfully } }
-    ports: ["127.0.0.1:8630:8080"]
+    # 호스트 포트 없음: 사용자 이름만으로 접속하는 구성이라 밖에 열지 않는다. 직접 질의는 docker compose exec trino trino
     healthcheck:
       test: ["CMD-SHELL", "curl -sf http://localhost:8080/v1/info | grep -q '\"starting\":false'"]
       interval: 5s
@@ -159,7 +159,14 @@ services:
   ch-migrate:
     # 서빙 스키마를 기동 때마다 멱등 적용 (IF NOT EXISTS) — initdb 스크립트는 첫 기동에만 돌기 때문
     image: clickhouse/clickhouse-server:25.8
-    entrypoint: ["sh", "-c", "clickhouse-client --host clickhouse --user admin --password \"$$CLICKHOUSE_ADMIN_PASSWORD\" --multiquery < /init/01-schema.sql && echo ch schema up to date"]
+    # 접속 가능해질 때까지 최대 60초 기다린 뒤 스키마는 한 번만 적용 (스키마 오류는 재시도하지 않고 바로 실패)
+    entrypoint:
+      - sh
+      - -c
+      - >-
+        ch() { clickhouse-client --host clickhouse --user admin --password "$$CLICKHOUSE_ADMIN_PASSWORD" "$$@"; };
+        i=0; until ch -q 'SELECT 1' >/dev/null 2>&1; do i=$$((i + 1)); [ $$i -ge 30 ] && exit 1; sleep 2; done;
+        ch --multiquery < /init/01-schema.sql && echo ch schema up to date
     environment:
       CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
     volumes: ["./infra/clickhouse/init:/init:ro"]
@@ -316,6 +323,8 @@ services:
       redis: { condition: service_healthy }
       clickhouse: { condition: service_healthy }
     ports: ["127.0.0.1:3600:3000"]
+    # dagster dev 는 웹서버·데몬·코드 서버를 거느린다 — 기본 10초면 정리 전에 SIGKILL(137) 되므로 넉넉히
+    stop_grace_period: 60s
     # 상주(웹서버·데몬) ≈ 0.7GB + 실행 1개(지수 산출 최대 RSS 0.98GB 측정) → 여유 포함 2.5GB
     mem_limit: 2560m
     pids_limit: 1024  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
@@ -350,7 +359,8 @@ services:
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana:/var/lib/grafana
     ports: ["127.0.0.1:3620:3000"]
-    mem_limit: 256m
+    # 실사용(anon)은 약 70MB지만 실행 파일·플러그인 페이지 캐시가 약 190MB — 256MB 에선 캐시를 계속 비우느라 느려진다
+    mem_limit: 384m
     security_opt: ["no-new-privileges:true"]
     pids_limit: 128  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped

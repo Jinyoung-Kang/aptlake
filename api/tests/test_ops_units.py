@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import datetime as dt
 import json
 from types import SimpleNamespace
 
@@ -146,10 +145,10 @@ async def test_graphql_errors_become_unavailable():
 
 
 def test_index_point_confirmed_month(monkeypatch):
-    from aptlake_api import routes_market
+    from aptlake_api import deps
 
-    monkeypatch.setattr(routes_market, "settings", lambda: SimpleNamespace(provisional_days=60))
-    this = dt.date.today().replace(day=1)
+    monkeypatch.setattr(deps, "settings", lambda: SimpleNamespace(provisional_days=60))
+    this = deps.kst_today().replace(day=1)
     old = _add(this, -12)
     assert provisional(this) and not provisional(old)
     by = {_add(old, -12): 100.0, _add(old, -1): 110.0, old: 121.0}

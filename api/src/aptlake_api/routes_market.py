@@ -17,9 +17,8 @@ from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import Response
 
 from .auth import Principal
-from .deps import DISCLAIMER, require_scope, respond
+from .deps import DISCLAIMER, provisional, require_scope, respond
 from .errors import ApiError
-from .settings import settings
 
 router = APIRouter(prefix="/v1")
 YM_Q = r"^\d{4}-(0[1-9]|1[0-2])$"
@@ -36,11 +35,6 @@ def _d(ym: str) -> dt.date:
 def _add(d: dt.date, months: int) -> dt.date:
     m = d.month - 1 + months
     return dt.date(d.year + m // 12, m % 12 + 1, 1)
-
-
-def provisional(month: dt.date) -> bool:
-    nxt = _add(month, 1)
-    return dt.date.today() < (nxt - dt.timedelta(days=1)) + dt.timedelta(days=settings().provisional_days)
 
 
 def _pct(a: float | None, b: float | None) -> float | None:

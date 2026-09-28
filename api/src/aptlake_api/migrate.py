@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import os
 import sys
+import time
 from pathlib import Path
 
 import psycopg
@@ -18,10 +19,22 @@ MIGRATIONS = Path(os.environ.get("MIGRATIONS_DIR", Path(__file__).resolve().pare
 LOCK_ID = 7_261_404
 
 
+def _connect(dsn: str, attempts: int = 30) -> psycopg.Connection:
+    """DB 가 막 뜬 직후(데몬 재시작으로 모두 동시에 기동 등)에도 실패하지 않도록 최대 약 60초 재시도."""
+    for i in range(attempts):
+        try:
+            return psycopg.connect(dsn, autocommit=True, connect_timeout=5)
+        except psycopg.OperationalError:
+            if i == attempts - 1:
+                raise
+            time.sleep(2)
+    raise AssertionError("unreachable")
+
+
 def main() -> int:
     dsn = os.environ["MIGRATOR_DSN"]
     files = sorted(MIGRATIONS.glob("V*__*.sql"))
-    with psycopg.connect(dsn, autocommit=True) as conn:
+    with _connect(dsn) as conn:
         conn.execute("SELECT pg_advisory_lock(%s)", (LOCK_ID,))
         try:
             conn.execute("""CREATE TABLE IF NOT EXISTS public.schema_migrations (
