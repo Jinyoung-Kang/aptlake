@@ -144,9 +144,12 @@ CREATE TABLE IF NOT EXISTS aptlake.usage_event
     status      UInt16,
     rows        UInt32,
     latency_ms  UInt32,
-    trace_id    String
+    trace_id    String,
+    error       LowCardinality(String) DEFAULT ''  -- 5xx 의 원인 분류(예외 클래스·일시 장애 사유). 컨테이너를 다시 만들면 서버 로그가 사라져도 남도록
 ) ENGINE = MergeTree PARTITION BY toYYYYMM(at) ORDER BY (client_id, at)
   TTL toDateTime(at) + INTERVAL 180 DAY DELETE;
+-- 이미 만들어진 표에도 (ch-migrate 는 기동마다 이 파일을 멱등 적용)
+ALTER TABLE aptlake.usage_event ADD COLUMN IF NOT EXISTS error LowCardinality(String) DEFAULT '' AFTER trace_id;
 
 -- 발행 스테이징 (같은 구조)
 CREATE TABLE IF NOT EXISTS aptlake.region_month_staging  AS aptlake.region_month;

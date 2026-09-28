@@ -17,7 +17,7 @@ from prometheus_client import Counter
 
 log = logging.getLogger(__name__)
 DROPPED = Counter("aptlake_usage_events_dropped_total", "usage events dropped (buffer full or insert failure)")
-COLUMNS = ["at", "key_id", "client_id", "plan_id", "route", "status", "rows", "latency_ms", "trace_id"]
+COLUMNS = ["at", "key_id", "client_id", "plan_id", "route", "status", "rows", "latency_ms", "trace_id", "error"]
 
 
 class UsageRecorder:
@@ -37,10 +37,22 @@ class UsageRecorder:
         rows: int,
         latency_ms: int,
         trace_id: str,
+        error: str = "",
     ) -> None:
         try:
             self.q.put_nowait(
-                [dt.datetime.now(tz=dt.UTC), key_id, client_id, plan_id, route, status, rows, latency_ms, trace_id]
+                [
+                    dt.datetime.now(tz=dt.UTC),
+                    key_id,
+                    client_id,
+                    plan_id,
+                    route,
+                    status,
+                    rows,
+                    latency_ms,
+                    trace_id,
+                    error,
+                ]
             )
         except asyncio.QueueFull:
             DROPPED.inc()

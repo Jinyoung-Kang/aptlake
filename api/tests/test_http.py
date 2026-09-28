@@ -420,7 +420,7 @@ async def test_quality_grid_range_depends_on_scope(apps, stack):
         assert r.status_code == 200 and r.json()["cells"]["11110"]["202402"][0] == "MERGED"
 
 
-async def test_transient_db_errors_are_503_not_500(apps, monkeypatch):
+async def test_transient_db_errors_are_503_not_500(apps, stack, monkeypatch):
     from clickhouse_connect.driver.exceptions import DatabaseError
 
     res = apps[0].state.res
@@ -443,6 +443,16 @@ async def test_transient_db_errors_are_503_not_500(apps, monkeypatch):
         monkeypatch.setattr(res.ch, "query", broken)
         r = await c.get("/v1/search", params={"q": "문법오류"})
         assert r.status_code == 500 and r.json()["code"] == "INTERNAL"  # 버그는 여전히 500
+    # 원인 분류가 사용량 이벤트에 남는다 — 컨테이너를 다시 만들어 서버 로그가 사라져도 오류 로그에서 보이도록
+    await asyncio.sleep(1.0)
+    got = dict(
+        stack["ch"]
+        .query(
+            "SELECT status, any(error) FROM usage_event WHERE route = '/v1/search' AND status >= 500 GROUP BY status"
+        )
+        .result_rows
+    )
+    assert got == {503: "서빙 DB(ClickHouse): MEMORY_LIMIT_EXCEEDED", 500: "ClickHouse code 62"}
 
 
 async def test_connectivity_check(apps, adm, admin_key):
@@ -569,3 +579,32 @@ async def test_stalled_export_job_is_failed_so_client_can_export_again(apps, sta
     with psycopg.connect(stack["su"], autocommit=True) as c:
         st = dict(c.execute("SELECT job_id, status FROM api.export_job WHERE job_id IN (%s, %s)", (old, fresh)))
     assert st == {old: "failed", fresh: "running"}  # 진행 중인 정상 작업은 건드리지 않는다
+
+
+async def test_ops_errors_survive_clickhouse_timeout(apps, adm, admin_key):
+    """서빙 DB 시간 초과(도커 VM 메모리 부족 때 실제로 발생)는 API 오류 부분만 빼고 200 — 화면 전체가 503 이 되지 않게."""
+    import time
+
+    from clickhouse_connect.driver import exceptions as ch_exc
+
+    class SlowClickHouse:
+        async def query(self, *args, **kwargs):
+            raise ch_exc.DatabaseError("Code: 159. DB::Exception: Timeout exceeded. (TIMEOUT_EXCEEDED)")
+
+    public = apps[0]
+    real_ch, real_dag = public.state.res.ch, public.state.dagster
+    public.state.dagster = fake_dagster(time.time())
+    ops_key, _ = await new_key(adm, admin_key, scopes=("read", "ops"))
+    public.state.res.ch = SlowClickHouse()
+    try:
+        async with client_at(public, "10.41.0.1", ops_key) as c:
+            r = await c.get("/v1/ops/errors", params={"hours": 24})
+        assert r.status_code == 200
+        body = r.json()
+        assert any("TIMEOUT_EXCEEDED" in n for n in body["notes"])
+        assert any(e["source"] == "pipeline" for e in body["entries"])  # 나머지 출처는 그대로
+        assert not any(e["source"] == "api" for e in body["entries"])
+    finally:
+        public.state.res.ch = real_ch
+        await public.state.dagster.aclose()
+        public.state.dagster = real_dag

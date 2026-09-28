@@ -83,6 +83,7 @@ async def http_handler(request: Request, exc: StarletteHTTPException) -> OrjsonR
 
 
 def _unavailable(request: Request, component: str, reason: str) -> OrjsonResponse:
+    request.state.error = f"{component}: {reason}"  # 사용량 이벤트에 원인 분류로 남는다 (오류 로그 화면)
     log.warning(
         "upstream unavailable trace=%s component=%s reason=%s",
         getattr(request.state, "trace_id", "-"),
@@ -100,13 +101,24 @@ def _unavailable(request: Request, component: str, reason: str) -> OrjsonRespons
     )
 
 
-async def clickhouse_handler(request: Request, exc: ch_exc.Error) -> OrjsonResponse:
-    """ClickHouse 오류: 연결 실패·메모리/동시성/시간 한도는 일시 장애(503), 그 밖(문법·권한 등)은 버그(500)."""
+def ch_transient(exc: ch_exc.Error) -> str | None:
+    """일시 장애면 사유(예: TIMEOUT_EXCEEDED), 버그(문법·권한 등)면 None."""
     m = _CH_CODE.search(str(exc))
     code = int(m.group(1)) if m else None
     if (isinstance(exc, ch_exc.OperationalError) and code is None) or code in TRANSIENT_CH_CODES:
-        return _unavailable(request, "서빙 DB(ClickHouse)", TRANSIENT_CH_CODES.get(code or 0, type(exc).__name__))
+        return TRANSIENT_CH_CODES.get(code or 0, type(exc).__name__)
+    return None
+
+
+async def clickhouse_handler(request: Request, exc: ch_exc.Error) -> OrjsonResponse:
+    """ClickHouse 오류: 연결 실패·메모리/동시성/시간 한도는 일시 장애(503), 그 밖(문법·권한 등)은 버그(500)."""
+    reason = ch_transient(exc)
+    if reason:
+        return _unavailable(request, "서빙 DB(ClickHouse)", reason)
+    m = _CH_CODE.search(str(exc))
+    code = int(m.group(1)) if m else None
     log.error("clickhouse error trace=%s code=%s", getattr(request.state, "trace_id", "-"), code, exc_info=exc)
+    request.state.error = f"ClickHouse code {code}" if code else type(exc).__name__
     return problem(request, 500, "INTERNAL", "Internal Server Error")
 
 
@@ -128,5 +140,7 @@ TRANSIENT_HANDLERS: list[tuple[type[Exception], Any]] = [
 
 
 async def unhandled_handler(request: Request, exc: Exception) -> OrjsonResponse:
-    # 내부 오류 내용은 응답에 싣지 않는다 (traceId 로 로그와 연결)
+    # 내부 오류 내용은 응답에 싣지 않는다 (traceId 로 로그와 연결). 예외 클래스 이름만 사용량 이벤트에 남긴다 —
+    # 메시지는 비밀값이 섞일 수 있어 남기지 않는다
+    request.state.error = type(exc).__name__
     return problem(request, 500, "INTERNAL", "Internal Server Error")

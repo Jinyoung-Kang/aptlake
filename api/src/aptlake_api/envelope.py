@@ -109,6 +109,7 @@ class Envelope:
                 rows=state.get("rows", 0),
                 latency_ms=int(elapsed * 1000),
                 trace_id=state["trace_id"],
+                error=str(state.get("error", ""))[:120] if status >= 500 else "",
             )
         key_id = state.get("touch_key")
         if key_id and status < 400:

@@ -38,6 +38,7 @@ from dagster import (
     MaterializeResult,
     MonthlyPartitionsDefinition,
     Output,
+    RetryPolicy,
     RunRequest,
     RunsFilter,
     ScheduleDefinition,
@@ -65,6 +66,10 @@ monthly = MonthlyPartitionsDefinition(
 )
 _YM = re.compile(r"\d{6}")
 PRIORITY_TAG = {"incremental": "10", "retry": "8", "recheck": "5", "backfill": "0"}
+# Trino·ClickHouse 를 쓰는 단계는 한 번 자동 재시도한다. 도커 VM 메모리가 모자라 커널이 가장 큰 프로세스(Trino)를
+# 죽인 일이 있었다 — 재시작(약 1분) 뒤 다시 하면 되는 실패였는데 실행 전체가 실패로 끝나 다음 날 스케줄까지 비었다.
+# 모두 멱등(같은 입력으로 다시 해도 결과 동일)이라 재시도가 안전하다. 원천 API 를 부르는 단계는 호출 예산을 쓰므로 제외
+TRANSIENT_RETRY = RetryPolicy(max_retries=1, delay=90)
 
 DBT_DIR = Path(os.environ.get("DBT_PROJECT_DIR", Path(__file__).resolve().parents[2] / "dbt"))
 dbt_project = DbtProject(project_dir=DBT_DIR, profiles_dir=DBT_DIR)
@@ -294,6 +299,7 @@ SILVER_CHECKS = [
     pool="trino_write",
     deps=[AssetKey(["bronze", "rtms_raw"])],
     check_specs=SILVER_CHECKS,
+    retry_policy=TRANSIENT_RETRY,
     output_required=False,
     description="지문 키 + dup_seq, 한 문장 MERGE 로 SCD2 반영, 사라진 거래 missing_since (FR-201~205)",
 )
@@ -362,6 +368,7 @@ class Translator(DagsterDbtTranslator):
     dagster_dbt_translator=Translator(),
     name="gold_monthly",
     pool="trino_write",
+    retry_policy=TRANSIENT_RETRY,
 )
 def gold_monthly(context: AssetExecutionContext, dbt: DbtCliResource):
     ym = context.partition_key
@@ -376,6 +383,7 @@ def gold_monthly(context: AssetExecutionContext, dbt: DbtCliResource):
     dagster_dbt_translator=Translator(),
     name="gold_dimensions",
     pool="trino_write",
+    retry_policy=TRANSIENT_RETRY,
 )
 def gold_dimensions(context: AssetExecutionContext, dbt: DbtCliResource):
     yield from dbt.cli(["build"], context=context).stream()
@@ -389,6 +397,7 @@ def gold_dimensions(context: AssetExecutionContext, dbt: DbtCliResource):
     group_name="serving",
     partitions_def=monthly,
     pool="publish",
+    retry_policy=TRANSIENT_RETRY,
     deps=[
         AssetKey(["gold", "region_month"]),
         AssetKey(["gold", "region_rollup_month"]),
@@ -410,11 +419,16 @@ def clickhouse_month(context: AssetExecutionContext) -> MaterializeResult:
     key=AssetKey(["serving", "clickhouse_dimensions"]),
     group_name="serving",
     pool="publish",
+    retry_policy=TRANSIENT_RETRY,
     deps=[AssetKey(["gold", "complex_summary"]), AssetKey(["silver", "region"])],
 )
 def clickhouse_dimensions(context: AssetExecutionContext) -> MaterializeResult:
     counts = publish.publish_dimensions()
-    return MaterializeResult(metadata=counts)
+    # 서빙 내용이 바뀌었으니 버전을 올린다 — API 결과 캐시·ETag 가 버전을 키로 써서, 올리지 않으면
+    # 다음 월 발행 전까지 이전 단지·지역 응답(304 포함)이 계속 나갔다
+    version = publish.next_dataset_version()
+    publish.commit_version(version, [], counts, context.run_id)
+    return MaterializeResult(metadata={"dataset_version": version, **counts})
 
 
 # ───────────────────────── 지수 ─────────────────────────
@@ -434,6 +448,7 @@ def index_reference(context: AssetExecutionContext) -> MaterializeResult:
     key=AssetKey(["gold", "price_index"]),
     group_name="index",
     pool="publish",
+    retry_policy=TRANSIENT_RETRY,
     deps=[AssetKey(["gold", "trade_serving"]), AssetKey(["gold", "index_reference"])],
     description="HEDONIC_TD_v1 (전국·시도) + R-ONE 대비 월간 변화율 상관·방향 일치율 → Iceberg + ClickHouse",
 )
@@ -441,6 +456,10 @@ def price_index(context: AssetExecutionContext) -> MaterializeResult:
     from .index_job import build_index
 
     result = build_index(context.log)
+    if result.get("points"):  # 발행했을 때만 (완결된 달이 없으면 발행 없이 끝남) — 버전을 올리는 이유는 위와 같음
+        version = publish.next_dataset_version()
+        publish.commit_version(version, [], {"price_index": int(str(result["points"]))}, context.run_id)
+        result["dataset_version"] = version
     return MaterializeResult(metadata={k: v if isinstance(v, int | float) else str(v) for k, v in result.items()})
 
 

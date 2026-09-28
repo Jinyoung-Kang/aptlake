@@ -5,8 +5,8 @@
 하나라도 틀리면 예외 → 네 표 모두 이전 데이터 그대로 (표 사이 부분 발행 없음).
 예전에는 표마다 적재·대조·교체를 차례로 해서, 세 번째 표 대조가 실패하면 앞의 두 표만 새 데이터가 되는 창이 있었다.
 차원·지수(소형): 새 테이블에 적재 → 대조 → EXCHANGE TABLES (원자적 교체).
-발행이 끝나면 데이터셋 버전을 올리고(ops.dataset_version + Redis), API 캐시 키가 버전을 포함하므로
-이전 결과 캐시는 자연히 무효가 된다.
+월·차원·지수 어느 발행이든 끝나면 데이터셋 버전을 올리고(ops.dataset_version + Redis), API 캐시 키·ETag 가
+버전을 포함하므로 이전 결과 캐시는 자연히 무효가 된다.
 """
 
 from __future__ import annotations
@@ -385,6 +385,8 @@ def commit_version(version: str, partitions: list[str], row_counts: dict[str, in
             "gold.region_month",
             "gold.trade_serving",
             "gold.trade_version",
+            "gold.complex_summary",
+            "gold.price_index",
         )
     }
     ops_db.record_dataset_version(version, as_of, partitions, snapshots, row_counts, run_id)

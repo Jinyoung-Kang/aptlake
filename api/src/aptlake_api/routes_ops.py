@@ -13,12 +13,14 @@ import time
 import zlib
 from typing import Annotated, Any, Literal
 
+from clickhouse_connect.driver import exceptions as ch_exc
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
 
 from . import ops
 from .auth import Principal
 from .deps import require_scope, respond
+from .errors import ch_transient
 from .responses import OrjsonResponse
 from .settings import settings
 
@@ -330,42 +332,54 @@ async def errors(
 
         api_summary: list[dict] = []
         if want("api"):
-            ch = request.app.state.res.ch
-            rows = list(
-                (
-                    await ch.query(
-                        """SELECT at, route, status, latency_ms, trace_id FROM usage_event
-                   WHERE status >= 500 AND at >= {since:DateTime64(3, 'UTC')} ORDER BY at DESC LIMIT 100""",
-                        parameters={"since": since},
-                    )
-                ).named_results()
-            )
-            for r in rows:
-                at = r["at"] if r["at"].tzinfo else r["at"].replace(tzinfo=dt.UTC)
-                entries.append(
-                    {
-                        "id": f"api:{r['trace_id']}",
-                        "at": at.isoformat(),
-                        "level": "ERROR",
-                        "source": "api",
-                        "where": f"API {r['route']}",
-                        "message": f"HTTP {r['status']} · {r['latency_ms']} ms",
-                        "detail": f"traceId={r['trace_id']} (서버 로그와 대조: docker compose logs api | grep {r['trace_id']})",
-                        "ref": r["trace_id"],
-                        "resolved": False,
-                    }
+            # 서빙 DB 가 잠깐 느리면(예: 도커 VM 메모리 부족) 이 부분만 빼고 나머지 로그는 보여 준다 — Dagster 와 같은 규칙.
+            # 예전에는 이 질의 하나의 시간 초과로 오류 로그 화면 전체가 503 이었다
+            try:
+                ch = request.app.state.res.ch
+                rows = list(
+                    (
+                        await ch.query(
+                            """SELECT at, route, status, latency_ms, trace_id, error FROM usage_event
+                       WHERE status >= 500 AND at >= {since:DateTime64(3, 'UTC')} ORDER BY at DESC LIMIT 100""",
+                            parameters={"since": since},
+                        )
+                    ).named_results()
                 )
-            api_summary = [
-                {"route": r["route"], "status": r["status"], "count": r["n"]}
-                for r in (
-                    await ch.query(
-                        """SELECT route, status, count() AS n FROM usage_event
-                       WHERE status >= 400 AND at >= {since:DateTime64(3, 'UTC')}
-                       GROUP BY route, status ORDER BY n DESC LIMIT 20""",
-                        parameters={"since": api_since},
+                for r in rows:
+                    at = r["at"] if r["at"].tzinfo else r["at"].replace(tzinfo=dt.UTC)
+                    entries.append(
+                        {
+                            "id": f"api:{r['trace_id']}",
+                            "at": at.isoformat(),
+                            "level": "ERROR",
+                            "source": "api",
+                            "where": f"API {r['route']}",
+                            "message": f"HTTP {r['status']} · {r['latency_ms']} ms"
+                            + (f" · {r['error']}" if r["error"] else ""),
+                            "detail": f"traceId={r['trace_id']} (서버 로그와 대조: docker compose logs api | grep {r['trace_id']})",
+                            "ref": r["trace_id"],
+                            "resolved": False,
+                        }
                     )
-                ).named_results()
-            ]
+                api_summary = [
+                    {"route": r["route"], "status": r["status"], "count": r["n"]}
+                    for r in (
+                        await ch.query(
+                            """SELECT route, status, count() AS n FROM usage_event
+                           WHERE status >= 400 AND at >= {since:DateTime64(3, 'UTC')}
+                           GROUP BY route, status ORDER BY n DESC LIMIT 20""",
+                            parameters={"since": api_since},
+                        )
+                    ).named_results()
+                ]
+            except ch_exc.Error as ch_err:
+                reason = ch_transient(ch_err)
+                if not reason:
+                    raise
+                api_summary = []
+                notes.append(
+                    f"서빙 DB(ClickHouse)가 응답하지 않아({reason}) API 오류 항목은 빠졌습니다. 잠시 후 새로고침하세요."
+                )
 
         # 비우기 기준 시각 이전 항목: 기본은 숨김, includeCleared 면 cleared=true 로 표시
         if cleared_at:
