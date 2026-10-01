@@ -25,3 +25,7 @@ web/dist/
 loadtest/results/
 
 .DS_Store
+
+# Claude Code 개인 설정 (이 기기 전용)
+.claude/settings.local.json
+CLAUDE.local.md
