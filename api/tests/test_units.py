@@ -1,5 +1,7 @@
 """컨테이너 없이 도는 단위 테스트: 키 형식·HMAC, 커서 서명, 신뢰 프록시 IP 판별, 라우트 스코프 강제."""
 
+import asyncio
+
 import pytest
 from fastapi import FastAPI
 from hypothesis import given
@@ -10,6 +12,7 @@ from aptlake_api.core import cursor, keys
 from aptlake_api.core.auth import client_ip
 from aptlake_api.core.http import assert_all_routes_scoped, require_scope
 from aptlake_api.core.settings import Settings
+from aptlake_api.core.singleflight import SingleFlight
 
 PEPPER = "pepper-for-tests"
 
@@ -117,3 +120,36 @@ def test_unscoped_route_inside_included_router_fails_startup():
     app.include_router(router)
     with pytest.raises(RuntimeError, match="/v1/x/hidden"):
         assert_all_routes_scoped(app)
+
+
+async def test_singleflight_first_caller_cancelled_others_still_get_result():
+    sf, calls = SingleFlight(), 0
+
+    async def work():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.05)
+        return "v"
+
+    first = asyncio.create_task(sf.do("k", work))
+    await asyncio.sleep(0)
+    second = asyncio.create_task(sf.do("k", work))
+    first.cancel()  # 처음 요청한 쪽의 연결이 끊겨도
+    assert await second == ("v", False)  # 기다리던 쪽은 결과를 받는다
+    assert calls == 1 and len(sf) == 0
+
+
+async def test_singleflight_error_reaches_all_waiters_and_key_is_released():
+    sf, calls = SingleFlight(), 0
+
+    async def boom():
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)
+        raise ValueError("x")
+
+    rs = await asyncio.gather(*(sf.do("k", boom) for _ in range(5)), return_exceptions=True)
+    assert calls == 1 and all(isinstance(r, ValueError) for r in rs)
+    assert len(sf) == 0  # 다음 요청은 다시 계산한다
+    await asyncio.gather(sf.do("k", boom), return_exceptions=True)
+    assert calls == 2
