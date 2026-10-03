@@ -1,4 +1,4 @@
-"""라우트 공통: 스코프 의존성(기본 거부 검증 포함), 데이터셋 버전·ETag, 결과 캐시, 응답 헤더."""
+"""HTTP 계층 공통: 스코프 의존성(기본 거부 검증 포함), 데이터셋 버전·ETag, 결과 캐시, 응답 헤더."""
 
 from __future__ import annotations
 
@@ -14,22 +14,11 @@ from fastapi.responses import Response
 from fastapi.routing import APIRoute
 
 from .auth import Principal, enforce_rate_limit, resolve_principal
-from .errors import ApiError
+from .clock import KST
+from .problems import ApiError
 from .settings import settings
 
 SCOPE_ATTR = "__aptlake_scope__"
-KST = dt.timezone(dt.timedelta(hours=9))
-
-
-def kst_today() -> dt.date:
-    """서비스의 '오늘' — 컨테이너 시계(UTC)가 아니라 한국 날짜. 캐시 키의 날짜와 같은 기준이어야 한다."""
-    return dt.datetime.now(tz=KST).date()
-
-
-def provisional(month: dt.date) -> bool:
-    """계약월 말일 + provisional_days 전이면 잠정 (신고가 더 들어올 수 있음). 날짜는 KST 기준."""
-    nxt = dt.date(month.year + (month.month == 12), month.month % 12 + 1, 1)
-    return kst_today() < (nxt - dt.timedelta(days=1)) + dt.timedelta(days=settings().provisional_days)
 
 
 PUBLIC_UNSCOPED = {"/healthz", "/readyz", "/docs", "/openapi.json", "/docs/oauth2-redirect", "/redoc"}

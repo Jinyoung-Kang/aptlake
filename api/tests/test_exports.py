@@ -5,7 +5,7 @@ from __future__ import annotations
 import psycopg
 from helpers import client_at, new_key
 
-from aptlake_api import keys
+from aptlake_api.core import keys
 
 BODY = {"sggCd": "41135", "from": "2024-07-01", "to": "2024-07-31"}
 

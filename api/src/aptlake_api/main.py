@@ -19,14 +19,15 @@ from prometheus_client import REGISTRY, CollectorRegistry, multiprocess, start_h
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import exports, ops, routes_admin, routes_market, routes_ops, routes_public
-from .auth import _SLIDING, load_plans
-from .deps import DatasetVersion, assert_all_routes_scoped
-from .envelope import Envelope
-from .errors import TRANSIENT_HANDLERS, ApiError, api_error_handler, http_handler, unhandled_handler, validation_handler
-from .resources import close_resources, open_resources
-from .responses import OrjsonResponse
-from .settings import settings
-from .usage import UsageRecorder
+from .core.auth import _SLIDING, load_plans
+from .core.envelope import Envelope
+from .core.errors import TRANSIENT_HANDLERS, api_error_handler, http_handler, unhandled_handler, validation_handler
+from .core.http import DatasetVersion, assert_all_routes_scoped
+from .core.problems import ApiError
+from .core.resources import close_resources, open_resources
+from .core.responses import OrjsonResponse
+from .core.settings import settings
+from .core.usage import UsageRecorder
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("aptlake.api")

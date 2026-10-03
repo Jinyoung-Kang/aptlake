@@ -145,10 +145,10 @@ async def test_graphql_errors_become_unavailable():
 
 
 def test_index_point_confirmed_month(monkeypatch):
-    from aptlake_api import deps
+    from aptlake_api.core import clock
 
-    monkeypatch.setattr(deps, "settings", lambda: SimpleNamespace(provisional_days=60))
-    this = deps.kst_today().replace(day=1)
+    monkeypatch.setattr(clock, "settings", lambda: SimpleNamespace(provisional_days=60))
+    this = clock.kst_today().replace(day=1)
     old = _add(this, -12)
     assert provisional(this) and not provisional(old)
     by = {_add(old, -12): 100.0, _add(old, -1): 110.0, old: 121.0}

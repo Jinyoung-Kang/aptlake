@@ -16,8 +16,8 @@ from testcontainers.community.clickhouse import ClickHouseContainer
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
-from aptlake_api import keys
-from aptlake_api.settings import settings
+from aptlake_api.core import keys
+from aptlake_api.core.settings import settings
 
 ROOT = Path(__file__).resolve().parents[2]
 PW = "test-pw"

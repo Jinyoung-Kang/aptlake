@@ -20,8 +20,8 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from botocore.config import Config
 
-from .resources import Resources
-from .settings import settings
+from .core.resources import Resources
+from .core.settings import settings
 
 log = logging.getLogger(__name__)
 BUCKET = "exports"

@@ -18,11 +18,11 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import Response
 
 from . import ops
-from .auth import Principal
-from .deps import require_scope, respond
-from .errors import ch_transient
-from .responses import OrjsonResponse
-from .settings import settings
+from .core.auth import Principal
+from .core.errors import ch_transient
+from .core.http import require_scope, respond
+from .core.responses import OrjsonResponse
+from .core.settings import settings
 
 router = APIRouter(prefix="/v1/ops")
 

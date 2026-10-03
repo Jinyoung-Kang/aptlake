@@ -10,12 +10,12 @@ from fastapi import APIRouter, Path, Request
 from psycopg import AsyncConnection
 from pydantic import BaseModel, Field
 
-from . import keys
-from .auth import Principal, client_ip, forget_key
-from .deps import require_scope
-from .errors import ApiError
-from .responses import OrjsonResponse
-from .settings import settings
+from .core import keys
+from .core.auth import Principal, client_ip, forget_key
+from .core.http import require_scope
+from .core.problems import ApiError
+from .core.responses import OrjsonResponse
+from .core.settings import settings
 
 router = APIRouter(prefix="/v1/admin")
 

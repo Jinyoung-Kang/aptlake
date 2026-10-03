@@ -8,7 +8,7 @@ import httpx
 import pytest
 from helpers import client_at, fake_dagster, new_key
 
-from aptlake_api import keys
+from aptlake_api.core import keys
 
 
 async def test_anonymous_months_contract(pub):
@@ -63,7 +63,7 @@ async def test_bad_keys_and_scopes(pub, adm, admin_key):
 
 
 async def test_admin_routes_absent_on_public_app(apps):
-    from aptlake_api.deps import iter_api_routes
+    from aptlake_api.core.http import iter_api_routes
 
     public, internal = apps
     pub_paths = {r.path for r in iter_api_routes(public.routes)}

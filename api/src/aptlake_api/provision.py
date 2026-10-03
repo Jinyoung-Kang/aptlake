@@ -12,7 +12,7 @@ import sys
 
 import psycopg
 
-from . import keys
+from .core import keys
 
 CLIENT = "web-ui"
 PLAN = "web"

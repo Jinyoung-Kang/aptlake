@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from psycopg_pool import PoolTimeout
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .problems import ApiError
 from .responses import OrjsonResponse
 
 PROBLEM = "application/problem+json"
@@ -29,21 +30,6 @@ TRANSIENT_CH_CODES = {
 }
 _CH_CODE = re.compile(r"Code: (\d+)")
 RETRY_AFTER_S = 2
-
-
-class ApiError(Exception):
-    def __init__(
-        self,
-        status: int,
-        code: str,
-        title: str,
-        detail: str | None = None,
-        headers: dict[str, str] | None = None,
-        extra: dict[str, Any] | None = None,
-    ):
-        self.status, self.code, self.title, self.detail = status, code, title, detail
-        self.headers = headers or {}
-        self.extra = extra or {}
 
 
 def problem(

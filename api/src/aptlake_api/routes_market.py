@@ -16,9 +16,10 @@ import orjson
 from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import Response
 
-from .auth import Principal
-from .deps import DISCLAIMER, provisional, require_scope, respond
-from .errors import ApiError
+from .core.auth import Principal
+from .core.clock import provisional
+from .core.http import DISCLAIMER, require_scope, respond
+from .core.problems import ApiError
 
 router = APIRouter(prefix="/v1")
 YM_Q = r"^\d{4}-(0[1-9]|1[0-2])$"

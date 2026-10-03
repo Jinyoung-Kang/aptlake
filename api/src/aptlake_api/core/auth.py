@@ -22,7 +22,7 @@ import orjson
 from fastapi import Request
 
 from . import keys
-from .errors import ApiError
+from .problems import ApiError
 from .resources import Resources
 from .settings import Settings, settings
 
