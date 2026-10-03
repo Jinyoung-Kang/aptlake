@@ -188,9 +188,14 @@ def test_granularity_migration_keeps_rows_index_and_staging(ch):
     test_schema_sets_trade_current_granularity(ch)
     assert ch.query(CHECKSUM).first_row == before
     assert ch.query("EXISTS TABLE trade_current_g1024_new").first_row[0] == 0
-    skip = ch.query("SELECT table, name FROM system.data_skipping_indices WHERE database = 'aptlake' "
-                    "AND table LIKE 'trade_current%'").result_rows  # fmt: skip
-    assert sorted(skip) == [("trade_current", "idx_complex"), ("trade_current_staging", "idx_complex")]
+    skip = ch.query("SELECT table, name, type, granularity FROM system.data_skipping_indices "
+                    "WHERE database = 'aptlake' AND table LIKE 'trade_current%'").result_rows  # fmt: skip
+    assert sorted(skip) == [("trade_current", "idx_complex", "bloom_filter", 4),
+                            ("trade_current_staging", "idx_complex", "bloom_filter", 4)]  # fmt: skip
+    # 파트도 새 입도로 쓰였는가: 2만 행이 1024행 그래뉼이면 마크 약 20개 (8192 면 3~4개)
+    marks = ch.query("SELECT sum(marks) FROM system.parts WHERE database = 'aptlake' "
+                     "AND table = 'trade_current' AND active").first_row[0]  # fmt: skip
+    assert marks >= 20000 // 1024
 
 
 def _columns(table: str) -> str:
