@@ -1,0 +1,210 @@
+[
+ {
+  "path": "#/market",
+  "width": 1280,
+  "clicked": 20,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/region/11110",
+  "width": 1280,
+  "clicked": 16,
+  "errors": [
+   "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
+   "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)"
+  ],
+  "failed": [
+   "GET /v1/regions/11110/months?from=2021-01&to=2026-09 422"
+  ],
+  "duplicates": [
+   "GET /v1/regions/11110/months?from=2021-01&to=2026-09"
+  ],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/region/11110?tab=distribution",
+  "width": 1280,
+  "clicked": 7,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/region/11110?tab=complexes",
+  "width": 1280,
+  "clicked": 15,
+  "errors": [
+   "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
+   "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)"
+  ],
+  "failed": [
+   "GET /v1/regions/11110/months?from=2021-01&to=2026-09 422"
+  ],
+  "duplicates": [
+   "GET /v1/regions/11110/months?from=2021-01&to=2026-09"
+  ],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/trades?sgg=11110",
+  "width": 1280,
+  "clicked": 15,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/index",
+  "width": 1280,
+  "clicked": 28,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/quality",
+  "width": 1280,
+  "clicked": 2,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/dev",
+  "width": 1280,
+  "clicked": 0,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/ops",
+  "width": 1280,
+  "clicked": 122,
+  "errors": [
+   "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "failed": [
+   "GET /v1/regions/11110/months?from=2026-07&to=2000-13 400",
+   "GET /v1/regions 401"
+  ],
+  "duplicates": [
+   "GET /v1/regions",
+   "GET /v1/regions/11110/months?from=2025-08&to=2026-07"
+  ],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/market",
+  "width": 375,
+  "clicked": 20,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/region/11110",
+  "width": 375,
+  "clicked": 16,
+  "errors": [
+   "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
+   "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)"
+  ],
+  "failed": [
+   "GET /v1/regions/11110/months?from=2021-01&to=2026-09 422"
+  ],
+  "duplicates": [
+   "GET /v1/regions/11110/months?from=2021-01&to=2026-09"
+  ],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/region/11110?tab=distribution",
+  "width": 375,
+  "clicked": 7,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/region/11110?tab=complexes",
+  "width": 375,
+  "clicked": 15,
+  "errors": [
+   "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)",
+   "Failed to load resource: the server responded with a status of 422 (Unprocessable Entity)"
+  ],
+  "failed": [
+   "GET /v1/regions/11110/months?from=2021-01&to=2026-09 422"
+  ],
+  "duplicates": [
+   "GET /v1/regions/11110/months?from=2021-01&to=2026-09"
+  ],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/trades?sgg=11110",
+  "width": 375,
+  "clicked": 15,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/index",
+  "width": 375,
+  "clicked": 28,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/quality",
+  "width": 375,
+  "clicked": 2,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/dev",
+  "width": 375,
+  "clicked": 0,
+  "errors": [],
+  "failed": [],
+  "duplicates": [],
+  "noFocusRing": []
+ },
+ {
+  "path": "#/ops",
+  "width": 375,
+  "clicked": 122,
+  "errors": [
+   "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+   "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "failed": [
+   "GET /v1/regions/11110/months?from=2026-07&to=2000-13 400",
+   "GET /v1/regions 401"
+  ],
+  "duplicates": [
+   "GET /v1/regions",
+   "GET /v1/regions/11110/months?from=2025-08&to=2026-07"
+  ],
+  "noFocusRing": []
+ }
+]

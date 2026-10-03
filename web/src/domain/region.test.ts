@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MonthRow } from "../api/types";
-import { fillMonths, latestQuote, medianYoY, recentStats, regionPeriod, splitPoints } from "./region";
+import { monthRange } from "../lib/format";
+import { fillMonths, latestQuote, medianYoY, recentStats, regionPeriod, splitPoints, WEB_MAX_MONTHS } from "./region";
 
 const row = (dealYm: string, o: Partial<MonthRow> = {}): MonthRow => ({
   dealYm, reported: 10, trades: 9, cancelled: 1, sampleSize: 9, outliers: 0,
@@ -46,5 +47,21 @@ describe("월별 지표", () => {
   it("산점도 점: 해제가 이상치보다 먼저 (해제된 이상치는 해제로)", () => {
     const pts: [number, number, number | null, number, number][] = [[84, 1e5, 5, 0, 0], [59, 9e4, null, 1, 1], [120, 3e5, 20, 0, 1]];
     expect(splitPoints(pts)).toEqual({ normal: [[84, 1e5, 5]], cancelled: [[59, 9e4, null]], outlier: [[120, 3e5, 20]] });
+  });
+});
+
+describe("QA-015 실제로 받는 기간이 웹 플랜 상한(60개월)을 넘지 않는다", () => {
+  // 전년 대비 계산용으로 12개월을 더 당겨 받는데, 고른 기간이 60개월이면 받는 기간이 72개월이 되어 422 였다 ('전체' 버튼)
+  const avail = { from: "2021-01", to: "2026-09", default: "2026-07" } as Parameters<typeof regionPeriod>[1];
+  it.each([
+    ["전체(60개월로 잘린 범위)", "from=2021-10&to=2026-09"],
+    ["4년 11개월", "from=2021-11&to=2026-09"],
+    ["4년 6개월", "from=2022-04&to=2026-09"],
+  ])("%s", (_name, q) => {
+    const { fetchFrom, to } = regionPeriod(new URLSearchParams(q), avail);
+    expect(monthRange(fetchFrom, to).length).toBeLessThanOrEqual(WEB_MAX_MONTHS);
+  });
+  it("여유가 있으면 전년 대비용 12개월을 그대로 당겨 받는다", () => {
+    expect(regionPeriod(new URLSearchParams("from=2024-01&to=2024-12"), avail).fetchFrom).toBe("2023-01");
   });
 });
