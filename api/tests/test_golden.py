@@ -186,6 +186,7 @@ async def _snapshot(c, path: str, params: dict) -> dict:
     return {
         "status": r.status_code,
         "headers": {h: r.headers.get(h) for h in HEADERS if h in r.headers},
+        "etag": "etag" in r.headers,  # 값은 날짜(KST)마다 바뀌므로 있는지만 — 캐시·304 계약
         "body": body,
     }
 
@@ -209,4 +210,5 @@ async def test_public_responses_match_golden(apps, seeded, name, path, params):
         file.write_text(text)
         if not UPDATE:
             pytest.fail(f"골든 파일을 새로 만들었습니다: {file.name} — 내용을 검토하고 다시 실행하세요")
-    assert json.loads(file.read_text()) == json.loads(text), f"{name}: 응답이 골든 파일과 다릅니다"
+    # 글자 그대로 비교 — 값으로 비교하면 1234 와 1234.0(정수·실수 바뀜)이 같다고 통과했다
+    assert file.read_text() == text, f"{name}: 응답이 골든 파일과 다릅니다"

@@ -86,6 +86,11 @@ async def restore_errors(request: Request, p: Principal = require_scope("ops")) 
     "/connectivity", summary="API 연결 점검: API 서버가 의존하는 구성요소의 응답 여부·지연, 원천 수집 최근 상태"
 )
 async def connectivity(request: Request, p: Principal = require_scope("ops")) -> Response:
+    """구성요소마다 가장 가벼운 질의 한 번 (동시 실행, 각 2초 제한).
+
+    외부 원천(국토부·V-World)은 **직접 호출하지 않는다** — 일일 호출 한도가 있는 키를 공개 화면의 버튼으로
+    소모하게 만들 수 없으므로, 파이프라인이 기록한 마지막 성공 수집 시각·오늘 예산 상태를 보여 준다.
+    """
     return await respond(
         request,
         "ops_connectivity",

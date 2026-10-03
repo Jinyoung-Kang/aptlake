@@ -21,6 +21,7 @@
   ],
   "to": "2024-08"
  },
+ "etag": true,
  "headers": {
   "cache-control": "private, no-cache",
   "content-type": "application/json",

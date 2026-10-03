@@ -6,6 +6,7 @@
   "traceId": "<trace>",
   "type": "about:blank"
  },
+ "etag": false,
  "headers": {
   "content-type": "application/problem+json"
  },

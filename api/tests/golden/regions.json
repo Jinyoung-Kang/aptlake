@@ -20,6 +20,7 @@
   ],
   "source": "행정안전부 법정동코드 (StanReginCd)"
  },
+ "etag": true,
  "headers": {
   "cache-control": "private, max-age=60",
   "content-type": "application/json",

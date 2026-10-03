@@ -285,6 +285,7 @@
    "window": "2023-02~2024-11"
   }
  },
+ "etag": true,
  "headers": {
   "cache-control": "private, max-age=60",
   "content-type": "application/json",

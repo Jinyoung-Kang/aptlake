@@ -19,6 +19,7 @@
   ],
   "to": "2024-07"
  },
+ "etag": true,
  "headers": {
   "cache-control": "private, max-age=60",
   "content-type": "application/json",

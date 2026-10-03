@@ -1016,6 +1016,7 @@
    "medianPrice": 100125
   }
  },
+ "etag": true,
  "headers": {
   "cache-control": "private, max-age=60",
   "content-type": "application/json",
@@ -2034,6 +2035,7 @@
    },
    "summary": null
   },
+  "etag": true,
   "headers": {
    "cache-control": "private, max-age=60",
    "content-type": "application/json",

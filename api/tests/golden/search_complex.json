@@ -13,6 +13,7 @@
   "dataAsOf": null,
   "datasetVersion": "gold@test.1"
  },
+ "etag": true,
  "headers": {
   "cache-control": "private, max-age=60",
   "content-type": "application/json",

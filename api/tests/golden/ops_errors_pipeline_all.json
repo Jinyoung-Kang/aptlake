@@ -64,6 +64,7 @@
    "since": "<recent>"
   }
  },
+ "etag": true,
  "headers": {
   "cache-control": "private, no-cache",
   "content-type": "application/json",

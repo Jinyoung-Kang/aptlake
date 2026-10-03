@@ -129,6 +129,7 @@
    "totalPartitions": 3
   }
  },
+ "etag": true,
  "headers": {
   "cache-control": "private, no-cache",
   "content-type": "application/json",
