@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import gzip
 from typing import Annotated
 
@@ -45,6 +46,11 @@ async def ticker(request: Request, p: Principal = require_scope("read")) -> Resp
     )
 
 
+def _encode(meta: dict, shapes: list[dict]) -> tuple[bytes, bytes]:
+    body = orjson.dumps(service.feature_collection(meta, shapes))
+    return body, gzip.compress(body, compresslevel=9, mtime=0)
+
+
 @router.get("/geo/sgg", summary="시군구 경계 GeoJSON (시각화용 단순화본, V-World)")
 async def geo_sgg(request: Request, p: Principal = require_scope("read")) -> Response:
     cache = request.app.state.geo_cache
@@ -57,9 +63,13 @@ async def geo_sgg(request: Request, p: Principal = require_scope("read")) -> Res
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=headers)
     if cache.get("etag") != etag:
-        body = orjson.dumps(service.feature_collection(meta, await repo.shapes()))
-        # 1.1MB 를 요청마다 압축하면 약 200ms(측정) → 데이터 버전당 한 번만 압축해 둔다
-        cache.update(etag=etag, body=body, gz=gzip.compress(body, compresslevel=9, mtime=0))
+        async with request.app.state.geo_lock:  # 같은 워커의 동시 첫 요청은 한 번만 만든다
+            if cache.get("etag") != etag:
+                shapes = await repo.shapes()
+                # 직렬화·압축(1.1MB, 수백 ms)은 스레드에서 — 그동안 이 워커의 다른 요청이 멈추지 않게.
+                # 데이터 버전당 한 번만 만들어 둔다
+                body, gz = await asyncio.to_thread(_encode, meta, shapes)
+                cache.update(etag=etag, body=body, gz=gz)
     headers["Vary"] = "Accept-Encoding"
     if "gzip" in request.headers.get("accept-encoding", ""):
         # Content-Encoding 이 이미 있으면 GZip 미들웨어는 다시 압축하지 않고 그대로 보낸다

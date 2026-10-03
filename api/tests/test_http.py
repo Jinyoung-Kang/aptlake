@@ -371,6 +371,29 @@ async def test_geo_is_served_precompressed(apps, stack):
         assert "content-encoding" not in plain.headers and plain.json() == r.json()
         assert (await c.get("/v1/geo/sgg", headers={"If-None-Match": r.headers["etag"]})).status_code == 304
 
+    # 캐시가 빈 워커에 동시에 들어온 첫 요청들은 본문을 한 번만 만든다 (직렬화·압축은 스레드에서)
+    import asyncio
+    import time
+
+    from aptlake_api.features.market import router as market_router
+
+    real, builds = market_router._encode, []
+
+    def counting(meta, shapes):
+        builds.append(1)
+        time.sleep(0.2)  # 스레드에서 도는 동안 다른 요청이 들어올 틈을 넓힌다
+        return real(meta, shapes)
+
+    apps[0].state.geo_cache.clear()
+    market_router._encode = counting
+    try:
+        async with client_at(apps[0], "10.60.0.4") as c:
+            rs = await asyncio.gather(*(c.get("/v1/geo/sgg") for _ in range(4)))
+    finally:
+        market_router._encode = real
+    assert [x.status_code for x in rs] == [200] * 4 and len(builds) == 1
+    assert rs[0].json() == r.json()
+
 
 async def test_ops_endpoints_need_ops_scope(apps, adm, admin_key):
     """운영 정보(오류 로그의 내부 호스트·스택)는 익명·일반 데이터 키에 주지 않는다."""

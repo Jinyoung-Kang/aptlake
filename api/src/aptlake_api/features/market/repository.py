@@ -80,5 +80,10 @@ class BoundaryRepository:
         async with self.pg.connection() as c:
             return cast(
                 list[Row],
-                await (await c.execute("SELECT sgg_cd, geometry FROM ops.region_boundary ORDER BY sgg_cd")).fetchall(),
+                await (
+                    # 글자 그대로 받아 해석은 스레드에서 (jsonb 를 바로 받으면 이벤트 루프에서 1.1MB 를 해석한다)
+                    await c.execute(
+                        "SELECT sgg_cd, geometry::text AS geometry FROM ops.region_boundary ORDER BY sgg_cd"
+                    )
+                ).fetchall(),
             )

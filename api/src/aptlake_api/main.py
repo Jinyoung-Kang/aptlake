@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import os
@@ -55,6 +56,7 @@ def _build(name: str, internal: bool) -> FastAPI:
         app.state.dsv = DatasetVersion()
         app.state.dagster = DagsterClient(s.dagster_graphql_url)
         app.state.geo_cache = {}
+        app.state.geo_lock = asyncio.Lock()
         app.state.usage = UsageRecorder(res.ch_usage, s.usage_flush_interval_s, s.usage_flush_max)
         app.state.usage.start()
         worker = export_worker.start(res) if internal else None
