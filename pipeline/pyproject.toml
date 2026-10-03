@@ -27,7 +27,7 @@ dependencies = [
     "numpy>=2.1",
     "scipy>=1.14",
     # SQLAlchemy 2.1 + psycopg3 조합에서 dagster-postgres 의 NOTIFY 가 서버측 바인딩으로 실패 (2026-09 확인) → 2.0 고정
-    "sqlalchemy>=2.0,<2.1",
+    "sqlalchemy>=2.0,<2.2",
     "shapely>=2.0",
 ]
 
