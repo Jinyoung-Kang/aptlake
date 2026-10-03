@@ -267,12 +267,25 @@ async def status(
 # ───────────────────────── 오류 로그 ─────────────────────────
 
 
+async def _all(*aws: Awaitable[Any]) -> list[Any]:
+    """모두 끝까지 기다린 뒤 첫 실패(인자 순서)를 올린다 — 남은 작업이 버려진 채 돌거나 실패가 묻히지 않게."""
+    results = await asyncio.gather(*aws, return_exceptions=True)
+    for r in results:
+        if isinstance(r, BaseException):
+            raise r
+    return results
+
+
 async def _pipeline_entries(dag: Orchestrator, since: dt.datetime, include_resolved: bool) -> list[dict]:
     entries: list[dict] = []
-    failed = await dag.runs(["FAILURE"], created_after=since.timestamp(), limit=40)
+    failed, succeeded, inst = await _all(
+        dag.runs(["FAILURE"], created_after=since.timestamp(), limit=40),
+        dag.runs(["SUCCESS"], created_after=since.timestamp(), limit=500),
+        dag.instigators(),
+    )
     # 같은 작업·파티션이 나중에 성공했으면 '해결됨' (재시도·재실행으로 복구된 실패)
     last_ok: dict[tuple[str, str | None], float] = {}
-    for r in await dag.runs(["SUCCESS"], created_after=since.timestamp(), limit=500):
+    for r in succeeded:
         k = (r["jobName"], job_row(r)["partition"])
         last_ok[k] = max(last_ok.get(k, 0.0), r.get("creationTime") or 0.0)
     sem = asyncio.Semaphore(5)
@@ -297,7 +310,7 @@ async def _pipeline_entries(dag: Orchestrator, since: dt.datetime, include_resol
 
     for part in await asyncio.gather(*(one(r) for r in failed)):
         entries += part
-    for s in (await dag.instigators())["sensors"]:
+    for s in inst["sensors"]:
         ticks = s["sensorState"].get("ticks") or []
         # 실행 실패와 같은 규칙: 그 뒤에 오류 없이 끝난 틱(요청·건너뜀)이 있으면 '해결됨'
         tick_ok = max((float(t["timestamp"]) for t in ticks if not t.get("error")), default=0.0)
@@ -408,36 +421,51 @@ async def errors(
     def want(s: str) -> bool:
         return source in ("all", s)
 
-    if want("pipeline"):
+    async def pipeline() -> tuple[list[dict], str | None]:
         try:
-            entries += await _pipeline_entries(dag, since, include_resolved)
+            return await _pipeline_entries(dag, since, include_resolved), None
         except DagsterUnavailable:
-            notes.append("오케스트레이터(Dagster)에 연결할 수 없어 파이프라인 실행 오류는 빠졌습니다.")
+            return [], "오케스트레이터(Dagster)에 연결할 수 없어 파이프라인 실행 오류는 빠졌습니다."
 
-    if want("ingest"):
-        entries += [_ingest_entry(r) for r in await store.ingest_errors(since)]
-        entries += [_budget_entry(r) for r in await store.budget_exhaustions(since)]
+    async def ingest() -> tuple[list[dict], str | None]:
+        errs, spent = await _all(store.ingest_errors(since), store.budget_exhaustions(since))
+        return [_ingest_entry(r) for r in errs] + [_budget_entry(r) for r in spent], None
 
-    if want("quality"):
-        entries += [
-            _quality_entry(r) for r in await store.quality_failures(since) if include_resolved or not r["resolved"]
-        ]
+    async def quality() -> tuple[list[dict], str | None]:
+        rows = await store.quality_failures(since)
+        return [_quality_entry(r) for r in rows if include_resolved or not r["resolved"]], None
 
     api_summary: list[dict] = []
-    if want("api"):
+
+    async def api() -> tuple[list[dict], str | None]:
         # 서빙 DB 가 잠깐 느리면(예: 도커 VM 메모리 부족) 이 부분만 빼고 나머지 로그는 보여 준다 — Dagster 와 같은 규칙.
         # 예전에는 이 질의 하나의 시간 초과로 오류 로그 화면 전체가 503 이었다
+        nonlocal api_summary
+        out: list[dict] = []
         try:
-            entries += [_api_entry(r) for r in await store.api_5xx(since)]
+            out = [_api_entry(r) for r in await store.api_5xx(since)]
             api_summary = [
                 {"route": r["route"], "status": r["status"], "count": r["n"]}
                 for r in await store.api_error_summary(api_since)
             ]
         except SourceUnavailable as down:
             api_summary = []
-            notes.append(
-                f"서빙 DB(ClickHouse)가 응답하지 않아({down.reason}) API 오류 항목은 빠졌습니다. 잠시 후 새로고침하세요."
+            return (
+                out,
+                f"서빙 DB(ClickHouse)가 응답하지 않아({down.reason}) API 오류 항목은 빠졌습니다. 잠시 후 새로고침하세요.",
             )
+        return out, None
+
+    # 출처끼리는 서로 기다릴 이유가 없다 — 동시에 읽고(가장 느린 출처만큼 걸림), 합치는 순서는 출처 순서 그대로
+    sections = [
+        fn
+        for name, fn in (("pipeline", pipeline), ("ingest", ingest), ("quality", quality), ("api", api))
+        if want(name)
+    ]
+    for part, note in await _all(*(fn() for fn in sections)):
+        entries += part
+        if note:
+            notes.append(note)
 
     # 비우기 기준 시각 이전 항목: 기본은 숨김, includeCleared 면 cleared=true 로 표시
     if cleared_at:

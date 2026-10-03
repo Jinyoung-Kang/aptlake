@@ -188,3 +188,96 @@ async def test_export_rules():
     with pytest.raises(ApiError) as e:
         await exports.status(FakeExports(job=None), "j", "c", presign=str, url_ttl_s=900)
     assert e.value.status == 404
+
+
+# ───── 운영: 오류 로그 ─────
+class SlowOps:
+    """출처마다 0.3초 걸리는 가짜 저장소·오케스트레이터 (장애로 느려진 상황)."""
+
+    delay = 0.3
+
+    async def _slow(self, value):
+        import asyncio
+
+        await asyncio.sleep(self.delay)
+        return value
+
+    async def log_view(self):
+        return None
+
+    async def runs(self, statuses=None, created_after=None, limit=50):
+        return await self._slow([])
+
+    async def instigators(self):
+        return {"schedules": [], "sensors": []}
+
+    async def ingest_errors(self, since):
+        return await self._slow([])
+
+    async def budget_exhaustions(self, since):
+        return []
+
+    async def quality_failures(self, since):
+        return await self._slow([])
+
+    async def api_5xx(self, since):
+        return await self._slow([])
+
+    async def api_error_summary(self, since):
+        return []
+
+
+async def test_error_log_sources_are_read_concurrently():
+    """한 출처가 느려도(장애) 전체 시간은 출처 시간의 합이 아니라 가장 느린 것 정도 — 예전엔 34~70초 기록."""
+    import time
+
+    from aptlake_api.features.ops import service as ops
+
+    fake = SlowOps()
+    t = time.perf_counter()
+    body, _ = await ops.errors(
+        fake,
+        fake,
+        hours=24,
+        source="all",
+        include_resolved=False,
+        include_cleared=False,
+        now=dt.datetime(2026, 10, 3, tzinfo=dt.UTC),
+    )
+    elapsed = time.perf_counter() - t
+    assert body["entries"] == [] and body["notes"] == []
+    assert elapsed < 0.3 * 4 * 0.6, f"{elapsed:.2f}s — 출처를 차례로 읽는다"
+
+
+async def test_error_log_keeps_section_order_and_notes():
+    """병렬로 읽어도 같은 시각 항목의 순서·안내 문구 순서는 출처 순서(파이프라인 → 수집 → 품질 → API) 그대로."""
+    from aptlake_api.features.ops import service as ops
+
+    at = dt.datetime(2026, 10, 2, 12, tzinfo=dt.UTC)
+
+    class Down(SlowOps):
+        delay = 0.0
+
+        async def runs(self, statuses=None, created_after=None, limit=50):
+            raise ops.DagsterUnavailable("ConnectError")
+
+        async def ingest_errors(self, since):
+            return [
+                {"deal_ym": "202407", "status": "RETRY", "last_error": "boom", "n": 1, "at": at, "sample": ["11110"]}
+            ]
+
+        async def quality_failures(self, since):
+            return [
+                {"check_id": 1, "asset": "a", "partition": None, "check_name": "c", "blocking": False,
+                 "metric": {}, "at": at, "resolved": False}
+            ]  # fmt: skip
+
+        async def api_5xx(self, since):
+            raise ops.SourceUnavailable("TIMEOUT_EXCEEDED")
+
+    fake = Down()
+    body, _ = await ops.errors(
+        fake, fake, hours=24, source="all", include_resolved=False, include_cleared=False, now=at
+    )
+    assert [e["source"] for e in body["entries"]] == ["ingest", "quality"]
+    assert ["Dagster" in body["notes"][0], "TIMEOUT_EXCEEDED" in body["notes"][1]] == [True, True]
