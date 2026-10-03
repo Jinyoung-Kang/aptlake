@@ -45,9 +45,24 @@ export async function fetchRetry(path: string, init: RequestInit): Promise<Respo
   }
 }
 
+// 응답이 오기 전에 같은 조회가 또 오면 진행 중인 요청을 함께 쓴다 (예: 시세 띠를 App·Shell 이 동시에 부름 — QA-012)
+const inflight = new Map<string, Promise<unknown>>();
+
 export async function api<T>(path: string, opts: { key?: string; signal?: AbortSignal; fresh?: boolean } = {}): Promise<T> {
-  const hit = !opts.key && !opts.fresh ? cache.get(path) : undefined;
+  const shared = !opts.key && !opts.fresh;
+  const hit = shared ? cache.get(path) : undefined;
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data as T;
+  if (!shared) return load<T>(path, opts);
+  let p = inflight.get(path);
+  if (!p) {
+    // 함께 쓰는 요청은 한 호출자의 취소로 끊지 않는다 — 각 호출자는 자기 signal 로만 기다림을 그만둔다
+    p = load(path, {}).finally(() => inflight.delete(path));
+    inflight.set(path, p);
+  }
+  return (await untilAborted(p, opts.signal)) as T;
+}
+
+async function load<T>(path: string, opts: { key?: string; signal?: AbortSignal }): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (opts.key) headers["X-API-Key"] = opts.key;
   const res = await fetchRetry(path, { headers, signal: opts.signal });
@@ -55,6 +70,19 @@ export async function api<T>(path: string, opts: { key?: string; signal?: AbortS
   if (!res.ok) throw new ApiError(body?.code ? body : { status: res.status, code: `HTTP_${res.status}`, title: res.statusText || "HTTP 오류" });
   if (!opts.key) remember(path, body);
   return body as T;
+}
+
+function untilAborted<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return p;
+  if (signal.aborted) return Promise.reject(new DOMException("Aborted", "AbortError"));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(new DOMException("Aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then(
+      (v) => { signal.removeEventListener("abort", onAbort); resolve(v); },
+      (e) => { signal.removeEventListener("abort", onAbort); reject(e); },
+    );
+  });
 }
 
 export function errorText(e: unknown): string {
@@ -77,5 +105,6 @@ export async function apiSend<T>(method: "POST" | "DELETE", path: string): Promi
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(body?.code ? body : { status: res.status, code: `HTTP_${res.status}`, title: res.statusText || "HTTP 오류" });
   cache.clear();
+  inflight.clear();
   return body as T;
 }
