@@ -88,15 +88,23 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
 
 ## 백업과 복원
 - `make backup` — PostgreSQL 3개 DB(aptlake: 키·클라이언트·감사·수집 상태 / lakekeeper: Iceberg 카탈로그 / dagster: 실행 이력) 덤프,
-  MinIO `raw`(원천 원본)·`lake`(Iceberg 파일) 증분 복사, `.env` 사본을 `backups/` 에 둔다 (git 제외, 권한 700, **비밀값 포함**).
-  파이프라인 실행 중이면 거부한다(카탈로그와 파일이 어긋날 수 있음). 서빙 DB(ClickHouse)는 레이크에서 다시 발행하면 되므로 백업하지 않는다.
-- `make backup-verify` — 가장 최근 덤프를 임시 PostgreSQL 컨테이너에 실제로 복원해 핵심 표 행 수를 운영과 비교, MinIO 사본 객체 수 확인.
+  ClickHouse `usage_event`(API 사용량·5xx 기록 — 레이크에 없어 다시 만들 수 없음), MinIO `raw`(원천 원본)·`lake`(Iceberg 파일) 증분 복사,
+  `.env` 사본을 `backups/` 에 둔다 (git 제외, 권한 700, **비밀값 포함**). `BACKUP_DIR` 로 다른 곳(절대 경로 가능)에.
+  - 파이프라인 실행·대기 중이면 거부한다(카탈로그와 파일이 어긋날 수 있음). 확인 질의가 실패해도 거부한다. 주간 레이크 정리(일 04:00) 시간은 피한다.
+  - 모든 단계가 끝나야 `pg/<시각>.partial` → `pg/<시각>` 이 된다. `.partial` 이 남아 있으면 실패한 백업이다(지워도 됨).
+  - 백업 시점의 핵심 행 수·사용량 파일 행 수·버킷 객체 목록을 `manifest.txt`·`minio-{raw,lake}.txt` 에 적는다.
+  - 서빙 표(거래·통계·지수)는 레이크에서 다시 발행하면 되므로 백업하지 않는다.
+- `make backup-verify` — 가장 최근의 완료된 백업을 임시 PostgreSQL 컨테이너에 실제로 복원해 **백업 시점 값**과 비교하고(운영 값과 비교하면 백업 뒤 정상 변화에도 실패한다),
+  사용량 파일을 다시 읽어 행 수를, MinIO 는 백업 시점에 있던 객체가 사본에 모두 있는지를 이름으로 확인한다.
 - 권장: 큰 변경(엔진 업그레이드·스키마 변경) 전, 그리고 주 1회. 오래된 `backups/pg/<시각>` 폴더는 직접 정리한다 (도구는 지우지 않음).
 - 복원 (볼륨이 손상됐을 때):
   1. `.env` 를 백업의 `env` 로 되돌린다 (Lakekeeper 암호화 키·DB 비밀번호가 같아야 함).
-  2. `docker compose up -d postgres minio` → 각 DB 를 지우고 다시 만든 뒤 `docker compose exec -T postgres pg_restore -U postgres -d <db> --clean --if-exists < backups/pg/<시각>/<db>.dump`
+  2. `docker compose up -d postgres minio` — 새 볼륨이면 `infra/postgres/01-init.sh` 가 역할과 DB(소유자·권한 포함)를 만든다.
+     **DB 를 지우고 다시 만들지 말고** 그 DB 에 복원한다 (다시 만들면 소유자·권한이 사라진다):
+     `docker compose exec -T postgres pg_restore -U postgres -d <db> --clean --if-exists < backups/pg/<시각>/<db>.dump` (aptlake·lakekeeper·dagster)
   3. MinIO: `docker compose run --rm --no-deps -v "$PWD/backups/minio:/backup" --entrypoint sh minio-init -c 'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" && mc mirror /backup/raw local/raw && mc mirror /backup/lake local/lake'`
   4. `make up` → 서빙 DB 재발행: `docker compose exec -T postgres psql -U postgres -d aptlake -c "UPDATE ops.month_state SET needs_publish = true"` (센서가 원천 호출 없이 발행만 다시 함) + `make index`
+  5. 사용량 기록: `docker compose exec -T clickhouse sh -c 'clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" -q "INSERT INTO aptlake.usage_event FORMAT Native"' < backups/pg/<시각>/usage_event.native`
 
 ## 초기화
 `make clean` — 모든 볼륨 삭제 (raw 버킷 Object Lock 도 볼륨과 함께 사라짐).
