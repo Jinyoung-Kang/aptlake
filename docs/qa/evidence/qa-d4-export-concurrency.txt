@@ -1,0 +1,8 @@
+--- PRO_B 키로 내보내기 동시 12건 (클라이언트당 상한 2)
+   2 202
+  10 429
+ERROR:  column reference "status" is ambiguous
+LINE 1: SELECT status, count(*) FROM api.export_job j JOIN api.clien...
+               ^
+failed||2.2|DatabaseError
+failed||1.4|DatabaseError

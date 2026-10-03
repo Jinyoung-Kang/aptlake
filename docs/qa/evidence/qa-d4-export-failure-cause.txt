@@ -1,0 +1,57 @@
+Row 1:
+──────
+event_time:        2026-10-03 15:31:12
+type:              ExceptionWhileProcessing
+exception_code:    241
+exc:               Code: 241. DB::Exception: Query memory limit exceeded: would use 385.28 MiB (attempt to allocate chunk of 4.43 MiB), maximum: 381.47 MiB: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version 26.8.15.10 (official build))
+mem_mb:            399
+read_rows:         2705106 -- 2.71 million
+query_duration_ms: 1338
+
+Row 2:
+──────
+event_time:        2026-10-03 15:31:10
+type:              ExceptionWhileProcessing
+exception_code:    241
+exc:               Code: 241. DB::Exception: Query memory limit exceeded: would use 385.46 MiB (attempt to allocate chunk of 4.43 MiB), maximum: 381.47 MiB: While executing MergeSortingTransform. (MEMORY_LIMIT_EXCEEDED) (version 26.8.15.10 (official build))
+mem_mb:            400
+read_rows:         2705106 -- 2.71 million
+query_duration_ms: 1935
+
+Row 3:
+──────
+event_time:        2026-10-03 15:31:10
+type:              QueryFinish
+exception_code:    0
+exc:               
+mem_mb:            5
+read_rows:         1816
+query_duration_ms: 5
+
+Row 4:
+──────
+event_time:        2026-10-03 15:31:10
+type:              QueryFinish
+exception_code:    0
+exc:               
+mem_mb:            3
+read_rows:         1
+query_duration_ms: 0
+전국 1년 (2025-10 ~ 2026-09): 0.357
+전국 2년 (2024-10 ~ 2026-09): 0.550
+전국 3년 (2023-10 ~ 2026-09): 0.746
+전국 4년 (2022-10 ~ 2026-09): 1.434
+전국 5년 (2021-10 ~ 2026-09): 1.842
+전국 전체 69개월 FORMAT Null: 1.671
+전국 전체 69개월 FORMAT ArrowStream: 1.688
+--- (정정) 종료 코드로 판정, exporter 계정, FORMAT ArrowStream
+2025-10 ~ 2026-09: exit=0 
+2023-10 ~ 2026-09: exit=0 
+2021-10 ~ 2026-09: exit=0 
+2021-01 ~ 2026-09: exit=241 would use 384.23 MiB MEMORY_LIMIT_EXCEEDED 
+   ┌─t─────────┬─type────────┬──mb─┬───ms─┬─spilled─┬─read_rows─┐
+1. │ 100000000 │ QueryFinish │ 139 │ 6015 │       4 │   2705106 │ -- 2.71 million
+2. │ 150000000 │ QueryFinish │ 216 │ 3936 │       2 │   2705106 │ -- 2.71 million
+   └───────────┴─────────────┴─────┴──────┴─────────┴───────────┘
+전국 전체 기간 내보내기 (수정 후, API 경유): done 2555395 None
+해제 포함 전체 내보내기: done · api-internal 최대 메모리 약 367MiB / 512MiB
