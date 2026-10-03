@@ -69,6 +69,15 @@ curl -X DELETE -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/keys/<keyId
 - 파이프라인: `make pipeline-redeploy` (진행 중인 달을 끝낸 뒤 교체 — 중간에 죽이면 그 달은 FETCHING 으로 남았다가 1시간 뒤 다시 수집됨)
 - API·웹: `docker compose up -d --build api api-internal web` (웹 nginx 는 API 컨테이너 IP 변경을 10초 안에 따라감)
 
+## 의도한 응답·화면 변경 반영 (골든·스냅숏)
+리팩터링은 이 둘이 그대로여야 한다. 응답·화면을 **일부러** 바꿨을 때만 다시 만들고, 차이를 읽은 뒤 같은 커밋에 넣는다.
+```bash
+cd api && UPDATE_GOLDEN=1 uv run pytest -q tests/test_golden.py   # api/tests/golden/*.json
+cd web && npx vitest run -u                                        # src/pages/__snapshots__ (화면은 API 골든 응답으로 그림)
+```
+- 계층 규칙(`api/tests/test_architecture.py`)이 실패하면 service 가 FastAPI·DB 드라이버를 직접 쓰거나 같은 기능의 repository 를 가져온 것이다 — 저장소는 service 의 Protocol 로 넘긴다.
+- 색을 바꾸면 `cd web && npm run check:contrast` 로 테마별 대비표를 본다 (글자 4.5:1, 테두리·초점 3:1 미만이면 `npm run lint` 가 실패).
+
 ## Dagster 가 멈춘 것처럼 보일 때
 - 컨테이너가 재시작되면 시작 스크립트가 남은 STARTED 실행을 실패 처리하고 풀 슬롯을 반납한다 (로그 `startup:`).
 - 수동: `docker compose exec dagster python -m aptlake_pipeline.startup`
@@ -105,6 +114,10 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
   3. MinIO: `docker compose run --rm --no-deps -v "$PWD/backups/minio:/backup" --entrypoint sh minio-init -c 'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" && mc mirror /backup/raw local/raw && mc mirror /backup/lake local/lake'`
   4. `make up` → 서빙 DB 재발행: `docker compose exec -T postgres psql -U postgres -d aptlake -c "UPDATE ops.month_state SET needs_publish = true"` (센서가 원천 호출 없이 발행만 다시 함) + `make index`
   5. 사용량 기록: `docker compose exec -T clickhouse sh -c 'clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" -q "INSERT INTO aptlake.usage_event FORMAT Native"' < backups/pg/<시각>/usage_event.native`
+
+## 지원 종료(EOL) 점검
+- `.github/workflows/eol.yml` 이 매주 endoflife.date 로 이미지의 지원 종료일을 본다 (`uv run --project api python tools/check_eol.py` 로 직접). 조회 실패도 실패로 표시한다.
+- GitHub 는 60일 동안 커밋이 없는 공개 저장소의 예약 워크플로를 자동으로 끈다 — 오래 손대지 않았다면 Actions 탭에서 다시 켠다.
 
 ## 초기화
 `make clean` — 모든 볼륨 삭제 (raw 버킷 Object Lock 도 볼륨과 함께 사라짐).
