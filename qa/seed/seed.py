@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import time
 from pathlib import Path
 
 import clickhouse_connect
@@ -22,7 +23,8 @@ import psycopg
 import redis
 
 ROOT = Path(__file__).resolve().parents[2]
-VERSION = "gold@2026-10-02.1"
+# 시드마다 버전 번호를 올린다 — 같은 버전이면 버전을 키에 넣는 API 결과 캐시에 이전 데이터 응답이 남는다 (발행과 같게)
+VERSION = f"gold@2026-10-02.{int(time.time()) % 1_000_000}"
 AS_OF = dt.datetime(2026, 10, 2, 0, 0, tzinfo=dt.UTC)  # 실제 시각보다 과거 (미래 시각이면 비우기·신선도 판단이 어긋남)
 SIDO = [("11", "서울특별시"), ("26", "부산광역시"), ("27", "대구광역시"), ("28", "인천광역시"), ("29", "광주광역시"),
         ("30", "대전광역시"), ("31", "울산광역시"), ("36", "세종특별자치시"), ("41", "경기도"), ("43", "충청북도"),
