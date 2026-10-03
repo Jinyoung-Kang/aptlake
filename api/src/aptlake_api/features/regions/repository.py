@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import time
 from typing import Any
 
 from clickhouse_connect.driver.asyncclient import AsyncClient
@@ -26,7 +27,9 @@ MONTH_COLS = (
 )  # fmt: skip
 MONTHS_SQL = f"SELECT {', '.join(MONTH_COLS)} FROM region_month WHERE sgg_cd = {{sgg:String}} ORDER BY month"
 ALL_MONTHS_SQL = f"SELECT sgg_cd, {', '.join(MONTH_COLS)} FROM region_month ORDER BY sgg_cd, month"
-_series: dict[str, Any] = {"ver": None, "rows": {}}
+# 버전이 같아도 결과 캐시 TTL(10분)마다 다시 읽는다 — 발행이 표를 바꾼 뒤 버전 기록이 실패해도 옛 값이 그보다 오래 남지 않게
+SERIES_TTL_S = 600
+_series: dict[str, Any] = {"ver": None, "rows": {}, "at": 0.0}
 _series_flight = SingleFlight()  # 버전이 바뀐 직후 몰린 요청도 표 읽기는 한 번
 
 
@@ -70,7 +73,7 @@ class RegionRepository:
         ver = self.ver
         if ver is None:  # 버전을 모르면 캐시 없이 그 시군구만
             return [tuple(r) for r in (await self.ch.query(MONTHS_SQL, parameters={"sgg": sgg})).result_rows]
-        if _series["ver"] != ver:
+        if _series["ver"] != ver or time.monotonic() - _series["at"] > SERIES_TTL_S:
             by_sgg, _ = await _series_flight.do(ver, lambda: self._all_series(ver))
             return by_sgg.get(sgg, [])
         return _series["rows"].get(sgg, [])
@@ -80,7 +83,7 @@ class RegionRepository:
         for r in (await self.ch.query(ALL_MONTHS_SQL)).result_rows:
             by_sgg.setdefault(r[0], []).append(tuple(r[1:]))
         # 읽는 태스크 안에서 넣는다 — 태스크가 끝난 직후 들어온 요청이 같은 버전을 다시 읽지 않게
-        _series.update(ver=ver, rows=by_sgg)
+        _series.update(ver=ver, rows=by_sgg, at=time.monotonic())
         return by_sgg
 
     async def price_stats(self, sgg: str, a: dt.date, b: dt.date) -> Row:

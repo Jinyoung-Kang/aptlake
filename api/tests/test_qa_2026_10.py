@@ -163,7 +163,7 @@ async def test_qa_009_concurrent_identical_requests_compute_once(pub, adm, admin
 
     monkeypatch.setattr(service, "distribution", counting)
     key, _ = await new_key(adm, admin_key, "pro")  # 분당 600회 — 30건 동시가 한도(429)에 가려지지 않게
-    await _drop_cached(apps, "region_distribution")
+    await _drop_cached(apps, "distribution")  # respond() 에 넘기는 경로 이름
     rs = await asyncio.gather(
         *[
             pub.get("/v1/regions/41135/distribution", params={"ym": "2024-07"}, headers={"X-API-Key": key})
@@ -229,3 +229,18 @@ async def test_qa_009_months_series_cache_follows_dataset_version(pub, adm, admi
     finally:
         await r.set("al:ds:ver", "gold@test.1")
         await asyncio.sleep(1.1)
+
+
+# QA-009 회귀 방지: 버전이 그대로여도 TTL 이 지나면 다시 읽는다 — 발행이 표를 바꾼 뒤 버전 기록이 실패해도
+#         옛 값이 결과 캐시 TTL 보다 오래 남지 않게 (계열 캐시를 두기 전의 상한과 같게)
+async def test_qa_009_months_series_cache_expires(pub, adm, admin_key, apps, monkeypatch):
+    from aptlake_api.features.regions import repository
+
+    seen = _spy_region_month_queries(apps, monkeypatch)
+    key, _ = await new_key(adm, admin_key, "pro")
+    await _drop_cached(apps, "region_months")
+    monkeypatch.setattr(repository, "SERIES_TTL_S", -1)  # 늘 지난 것으로
+    for a, b in (("2024-01", "2024-02"), ("2024-03", "2024-04")):
+        r = await pub.get("/v1/regions/41135/months", params={"from": a, "to": b}, headers={"X-API-Key": key})
+        assert r.status_code == 200
+    assert len(seen) == 2, f"TTL 이 지났는데 다시 읽지 않음 ({len(seen)}회)"
