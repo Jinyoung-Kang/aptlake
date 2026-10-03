@@ -1,0 +1,14 @@
+{
+ "body": {
+  "code": "INVALID_REGION",
+  "detail": "알 수 없는 시군구 코드 99999",
+  "status": 400,
+  "title": "Invalid Region",
+  "traceId": "<trace>",
+  "type": "about:blank"
+ },
+ "headers": {
+  "content-type": "application/problem+json"
+ },
+ "status": 400
+}

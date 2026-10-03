@@ -1,0 +1,46 @@
+{
+ "body": {
+  "features": [
+   {
+    "geometry": {
+     "coordinates": [
+      [
+       [
+        [
+         127.1,
+         37.3
+        ],
+        [
+         127.2,
+         37.3
+        ],
+        [
+         127.2,
+         37.4
+        ],
+        [
+         127.1,
+         37.3
+        ]
+       ]
+      ]
+     ],
+     "type": "MultiPolygon"
+    },
+    "id": "41135",
+    "properties": {
+     "sggCd": "41135"
+    },
+    "type": "Feature"
+   }
+  ],
+  "fetchedAt": "2024-08-05T03:00:00+00:00",
+  "source": "V-World LT_C_ADSIGG_INFO (국토정보플랫폼), 시각화용 단순화 — 면적 오차 중앙값 0.20%, 최대 0.20%",
+  "type": "FeatureCollection"
+ },
+ "headers": {
+  "cache-control": "public, max-age=86400",
+  "content-type": "application/geo+json"
+ },
+ "status": 200
+}

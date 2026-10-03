@@ -1,0 +1,14 @@
+{
+ "body": {
+  "code": "INDEX_NOT_FOUND",
+  "detail": "11 지역 지수가 아직 없습니다.",
+  "status": 404,
+  "title": "Not Found",
+  "traceId": "<trace>",
+  "type": "about:blank"
+ },
+ "headers": {
+  "content-type": "application/problem+json"
+ },
+ "status": 404
+}

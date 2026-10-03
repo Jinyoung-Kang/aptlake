@@ -1,0 +1,39 @@
+{
+ "body": {
+  "checks": [
+   {
+    "asset": "bronze/rtms_raw",
+    "at": "<recent>",
+    "blocking": true,
+    "metric": {
+     "bad_rows": 3
+    },
+    "name": "schema_v1",
+    "passed": false,
+    "severity": "ERROR"
+   }
+  ],
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "lineage": [],
+  "partition": {
+   "attempts": 3,
+   "dealYm": "2024-08",
+   "lastChangedAt": null,
+   "lastError": "HTTP 500 for https://apis.data.go.kr/x?serviceKey=***&LAWD_CD=41135",
+   "lastFetchedAt": "2024-08-05T03:00:00+00:00",
+   "nextDueAt": "2024-08-05T03:00:00+00:00",
+   "observations": 0,
+   "rows": null,
+   "rowsPrev": null,
+   "sggCd": "41135",
+   "status": "QUARANTINED"
+  }
+ },
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

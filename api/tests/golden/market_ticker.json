@@ -1,0 +1,53 @@
+{
+ "body": {
+  "available": {
+   "default": "2024-12",
+   "from": "2024-01",
+   "to": "2024-12"
+  },
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "items": [
+   {
+    "change": 0.94,
+    "changeBasis": "전월 대비",
+    "key": "trades",
+    "label": "전국 거래 2024-12",
+    "unit": "건",
+    "value": 1070
+   },
+   {
+    "change": null,
+    "changeBasis": "전년 동월 대비",
+    "key": "median",
+    "label": "전국 ㎡당 중위가",
+    "unit": "만원/㎡",
+    "value": 1512.0
+   },
+   {
+    "change": null,
+    "changeBasis": null,
+    "key": "cancel",
+    "label": "해제율",
+    "unit": "%",
+    "value": 4.5
+   },
+   {
+    "change": 0.82,
+    "changeBasis": "전월 대비 (확정 월)",
+    "key": "index_00",
+    "label": "전국 지수 2024-12",
+    "provisional": false,
+    "unit": "",
+    "value": 123.0
+   }
+  ],
+  "month": "2024-12"
+ },
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

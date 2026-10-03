@@ -1,0 +1,54 @@
+{
+ "body": {
+  "checks": [
+   {
+    "asset": "silver/apt_trade",
+    "at": "<recent>",
+    "blocking": false,
+    "metric": {
+     "delta_pp": 11.2
+    },
+    "name": "cancel_ratio_shift",
+    "passed": false,
+    "severity": "WARN"
+   },
+   {
+    "asset": "silver/apt_trade",
+    "at": "2024-08-05T03:00:00+00:00",
+    "blocking": true,
+    "metric": {
+     "dups": 0
+    },
+    "name": "dup_free",
+    "passed": true,
+    "severity": "ERROR"
+   }
+  ],
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "lineage": [
+   "s3://raw/rtms/deal_ym=202407/sgg_cd=41135/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/",
+   "silver.apt_trade@snap 42",
+   "clickhouse (gold@test.1, 2024-08-05T03:00:00+00:00)"
+  ],
+  "partition": {
+   "attempts": 0,
+   "dealYm": "2024-07",
+   "lastChangedAt": "2024-08-05T03:00:00+00:00",
+   "lastError": null,
+   "lastFetchedAt": "2024-08-05T03:00:00+00:00",
+   "nextDueAt": "2024-08-05T03:00:00+00:00",
+   "observations": 3,
+   "rows": 250,
+   "rowsPrev": 248,
+   "sggCd": "41135",
+   "status": "MERGED"
+  }
+ },
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

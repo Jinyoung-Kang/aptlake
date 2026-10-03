@@ -1,0 +1,13 @@
+{
+ "body": {
+  "code": "TRADE_NOT_FOUND",
+  "status": 404,
+  "title": "Not Found",
+  "traceId": "<trace>",
+  "type": "about:blank"
+ },
+ "headers": {
+  "content-type": "application/problem+json"
+ },
+ "status": 404
+}

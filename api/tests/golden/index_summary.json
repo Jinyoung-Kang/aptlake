@@ -1,0 +1,58 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "items": [
+   {
+    "confirmed": {
+     "mom": 0.82,
+     "period": "2024-12",
+     "provisional": false,
+     "value": 123.0,
+     "yoy": 10.81
+    },
+    "corrMoM": 0.91,
+    "directionMatch": 0.83,
+    "mom": 0.82,
+    "months": 22,
+    "period": "2024-12",
+    "provisional": false,
+    "regionId": "00",
+    "spark": [
+     100.0,
+     101.0,
+     102.0,
+     103.0,
+     104.0,
+     105.0,
+     106.0,
+     107.0,
+     108.0,
+     109.0,
+     110.0,
+     111.0,
+     112.0,
+     113.0,
+     114.0,
+     115.0,
+     116.0,
+     117.0,
+     118.0,
+     119.0,
+     120.0,
+     121.0,
+     122.0,
+     123.0
+    ],
+    "value": 123.0,
+    "yoy": 10.81
+   }
+  ]
+ },
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

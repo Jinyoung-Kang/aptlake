@@ -1,0 +1,53 @@
+{
+ "body": {
+  "apiBudget": [],
+  "dataAsOf": null,
+  "dataset": {
+   "dataAsOf": "2024-08-05T03:00:00+00:00",
+   "publishedAt": "2024-08-05T03:00:00+00:00",
+   "version": "gold@test.1"
+  },
+  "datasetVersion": "gold@test.1",
+  "failedChecks7d": [
+   {
+    "asset": "bronze/rtms_raw",
+    "at": "<recent>",
+    "blocking": true,
+    "check": "schema_v1",
+    "metric": {
+     "bad_rows": 3
+    },
+    "partition": "41135/202408",
+    "resolved": false,
+    "severity": "ERROR"
+   },
+   {
+    "asset": "silver/apt_trade",
+    "at": "<recent>",
+    "blocking": false,
+    "check": "cancel_ratio_shift",
+    "metric": {
+     "delta_pp": 11.2
+    },
+    "partition": "202407",
+    "resolved": false,
+    "severity": "WARN"
+   }
+  ],
+  "freshness": {
+   "lastChangedAt": "2024-08-05T03:00:00+00:00",
+   "lastFetchedAt": "2024-08-05T03:00:00+00:00"
+  },
+  "partitions": {
+   "MERGED": 1,
+   "PENDING": 1,
+   "QUARANTINED": 1
+  }
+ },
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

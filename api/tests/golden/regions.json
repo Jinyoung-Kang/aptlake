@@ -1,0 +1,29 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "items": [
+   {
+    "fullName": "서울특별시 종로구",
+    "name": "종로구",
+    "sggCd": "11110",
+    "sidoCd": "11",
+    "sidoName": "서울특별시"
+   },
+   {
+    "fullName": "경기도 성남시 분당구",
+    "name": "성남시 분당구",
+    "sggCd": "41135",
+    "sidoCd": "41",
+    "sidoName": "경기도"
+   }
+  ],
+  "source": "행정안전부 법정동코드 (StanReginCd)"
+ },
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

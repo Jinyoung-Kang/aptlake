@@ -1,0 +1,29 @@
+{
+ "body": {
+  "cells": {
+   "11": {
+    "202407": {
+     "PENDING": 1
+    }
+   },
+   "41": {
+    "202407": {
+     "MERGED": 1
+    },
+    "202408": {
+     "QUARANTINED": 1
+    }
+   }
+  },
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "from": "2024-07",
+  "to": "2024-08"
+ },
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

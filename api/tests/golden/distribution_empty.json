@@ -1,0 +1,18 @@
+{
+ "body": {
+  "byArea": [],
+  "byFloor": [],
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "histogram": [],
+  "month": "2024-01",
+  "points": [],
+  "stats": null
+ },
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

@@ -1,0 +1,294 @@
+{
+ "body": {
+  "base": "2023-01=100",
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "disclaimer": "자체 산출 실험 지수이며 공식 통계가 아닙니다. 공개 신고 자료를 가공한 학습·포트폴리오용 데이터입니다. 공식 통계가 아니며 투자 판단 근거로 쓰지 마세요.",
+  "method": "HEDONIC_TD_v1",
+  "reference": {
+   "series": [
+    {
+     "period": "2023-01",
+     "value": 95.0
+    },
+    {
+     "period": "2023-02",
+     "value": 95.5
+    },
+    {
+     "period": "2023-03",
+     "value": 96.0
+    },
+    {
+     "period": "2023-04",
+     "value": 96.5
+    },
+    {
+     "period": "2023-05",
+     "value": 97.0
+    },
+    {
+     "period": "2023-06",
+     "value": 97.5
+    },
+    {
+     "period": "2023-07",
+     "value": 98.0
+    },
+    {
+     "period": "2023-08",
+     "value": 98.5
+    },
+    {
+     "period": "2023-09",
+     "value": 99.0
+    },
+    {
+     "period": "2023-10",
+     "value": 99.5
+    },
+    {
+     "period": "2023-11",
+     "value": 100.0
+    },
+    {
+     "period": "2023-12",
+     "value": 100.5
+    },
+    {
+     "period": "2024-01",
+     "value": 101.0
+    },
+    {
+     "period": "2024-02",
+     "value": 101.5
+    },
+    {
+     "period": "2024-03",
+     "value": 102.0
+    },
+    {
+     "period": "2024-04",
+     "value": 102.5
+    },
+    {
+     "period": "2024-05",
+     "value": 103.0
+    },
+    {
+     "period": "2024-06",
+     "value": 103.5
+    },
+    {
+     "period": "2024-07",
+     "value": 104.0
+    },
+    {
+     "period": "2024-08",
+     "value": 104.5
+    },
+    {
+     "period": "2024-09",
+     "value": 105.0
+    },
+    {
+     "period": "2024-10",
+     "value": 105.5
+    },
+    {
+     "period": "2024-11",
+     "value": 106.0
+    },
+    {
+     "period": "2024-12",
+     "value": 106.5
+    }
+   ],
+   "source": "R-ONE test"
+  },
+  "regionId": "00",
+  "series": [
+   {
+    "ciHigh": 101.0,
+    "ciLow": 99.0,
+    "nObs": 1000,
+    "period": "2023-01",
+    "value": 100.0
+   },
+   {
+    "ciHigh": 102.0,
+    "ciLow": 100.0,
+    "nObs": 1000,
+    "period": "2023-02",
+    "value": 101.0
+   },
+   {
+    "ciHigh": 103.0,
+    "ciLow": 101.0,
+    "nObs": 1000,
+    "period": "2023-03",
+    "value": 102.0
+   },
+   {
+    "ciHigh": 104.0,
+    "ciLow": 102.0,
+    "nObs": 1000,
+    "period": "2023-04",
+    "value": 103.0
+   },
+   {
+    "ciHigh": 105.0,
+    "ciLow": 103.0,
+    "nObs": 1000,
+    "period": "2023-05",
+    "value": 104.0
+   },
+   {
+    "ciHigh": 106.0,
+    "ciLow": 104.0,
+    "nObs": 1000,
+    "period": "2023-06",
+    "value": 105.0
+   },
+   {
+    "ciHigh": 107.0,
+    "ciLow": 105.0,
+    "nObs": 1000,
+    "period": "2023-07",
+    "value": 106.0
+   },
+   {
+    "ciHigh": 108.0,
+    "ciLow": 106.0,
+    "nObs": 1000,
+    "period": "2023-08",
+    "value": 107.0
+   },
+   {
+    "ciHigh": 109.0,
+    "ciLow": 107.0,
+    "nObs": 1000,
+    "period": "2023-09",
+    "value": 108.0
+   },
+   {
+    "ciHigh": 110.0,
+    "ciLow": 108.0,
+    "nObs": 1000,
+    "period": "2023-10",
+    "value": 109.0
+   },
+   {
+    "ciHigh": 111.0,
+    "ciLow": 109.0,
+    "nObs": 1000,
+    "period": "2023-11",
+    "value": 110.0
+   },
+   {
+    "ciHigh": 112.0,
+    "ciLow": 110.0,
+    "nObs": 1000,
+    "period": "2023-12",
+    "value": 111.0
+   },
+   {
+    "ciHigh": 113.0,
+    "ciLow": 111.0,
+    "nObs": 1000,
+    "period": "2024-01",
+    "value": 112.0
+   },
+   {
+    "ciHigh": 114.0,
+    "ciLow": 112.0,
+    "nObs": 1000,
+    "period": "2024-02",
+    "value": 113.0
+   },
+   {
+    "ciHigh": 115.0,
+    "ciLow": 113.0,
+    "nObs": 1000,
+    "period": "2024-03",
+    "value": 114.0
+   },
+   {
+    "ciHigh": 116.0,
+    "ciLow": 114.0,
+    "nObs": 1000,
+    "period": "2024-04",
+    "value": 115.0
+   },
+   {
+    "ciHigh": 117.0,
+    "ciLow": 115.0,
+    "nObs": 1000,
+    "period": "2024-05",
+    "value": 116.0
+   },
+   {
+    "ciHigh": 118.0,
+    "ciLow": 116.0,
+    "nObs": 1000,
+    "period": "2024-06",
+    "value": 117.0
+   },
+   {
+    "ciHigh": 119.0,
+    "ciLow": 117.0,
+    "nObs": 1000,
+    "period": "2024-07",
+    "value": 118.0
+   },
+   {
+    "ciHigh": 120.0,
+    "ciLow": 118.0,
+    "nObs": 1000,
+    "period": "2024-08",
+    "value": 119.0
+   },
+   {
+    "ciHigh": 121.0,
+    "ciLow": 119.0,
+    "nObs": 1000,
+    "period": "2024-09",
+    "value": 120.0
+   },
+   {
+    "ciHigh": 122.0,
+    "ciLow": 120.0,
+    "nObs": 1000,
+    "period": "2024-10",
+    "value": 121.0
+   },
+   {
+    "ciHigh": 123.0,
+    "ciLow": 121.0,
+    "nObs": 1000,
+    "period": "2024-11",
+    "value": 122.0
+   },
+   {
+    "ciHigh": 124.0,
+    "ciLow": 122.0,
+    "nObs": 1000,
+    "period": "2024-12",
+    "value": 123.0
+   }
+  ],
+  "validation": {
+   "corrMoM": 0.91,
+   "directionMatch": 0.83,
+   "months": 22,
+   "reference": "R-ONE test",
+   "window": "2023-02~2024-11"
+  }
+ },
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

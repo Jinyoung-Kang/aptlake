@@ -1,0 +1,30 @@
+{
+ "body": {
+  "cells": {
+   "41135": {
+    "202407": [
+     "MERGED",
+     250
+    ],
+    "202408": [
+     "QUARANTINED",
+     null
+    ]
+   }
+  },
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "from": "2024-07",
+  "legend": [
+   "status",
+   "rows"
+  ],
+  "to": "2024-08"
+ },
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}
