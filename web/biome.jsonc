@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "files": { "includes": ["src/**"] },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      // 도입 시점(2026-10)에 이미 있던 위반은 경고로 두고, 구조 정리(E)·UI(F) 단계에서 고친 뒤 error 로 되돌린다
+      "correctness": { "useExhaustiveDependencies": "warn", "useHookAtTopLevel": "error" },
+      "suspicious": { "useIterableCallbackReturn": "warn", "noArrayIndexKey": "warn" },
+      "a11y": {
+        "useSemanticElements": "warn",
+        "noStaticElementInteractions": "warn",
+        "useKeyWithClickEvents": "warn",
+        "useAriaPropsSupportedByRole": "warn",
+        "useAriaPropsForRole": "warn"
+      },
+      "style": { "noNonNullAssertion": "warn", "noDescendingSpecificity": "warn", "useTemplate": "warn" },
+      "complexity": { "noImportantStyles": "warn" }
+    }
+  }
+}
