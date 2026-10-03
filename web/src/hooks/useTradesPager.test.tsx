@@ -58,3 +58,21 @@ describe("거래 목록 페이지 넘김", () => {
     expect(h.get().rows.map((r) => r.tradeId)).toEqual(["x"]);
   });
 });
+
+describe("조건을 빨리 바꿀 때 (취소된 요청)", () => {
+  it("새 조건을 읽는 동안에는 이전 조건의 커서로 '더 보기'를 할 수 없다", async () => {
+    // 취소 신호를 따르는 가짜 fetch — 취소되면 AbortError 로 끝난다 (실제 브라우저와 같게)
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => new Promise((res, rej) => {
+      init?.signal?.addEventListener("abort", () => rej(new DOMException("Aborted", "AbortError")));
+      pending.push({ url, resolve: (body) => res(new Response(JSON.stringify(body), { status: 200 })) });
+    })));
+    const h = await mount(Q);
+    await flush(0, page(["a", "b"], "c1"));
+    expect(h.get().cursor).toBe("c1");
+    await h.setQuery({ ...Q, sgg: "11110" });  // pending[1] — 곧 취소됨
+    await h.setQuery({ ...Q, sgg: "26110" });  // pending[2]
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(h.get().loading).toBe(true);  // 취소된 요청의 마무리가 '불러오는 중'을 끄면 안 된다
+    expect(h.get().cursor).toBeNull();   // 이전 조건의 커서가 남으면 '더 보기'가 다른 조건의 다음 페이지를 부른다
+  });
+});

@@ -21,11 +21,12 @@ export function useTradesPager(query: TradeQuery | null) {
   useEffect(() => {
     if (!q) return;
     const ctrl = new AbortController();
-    setLoading(true); setError(null); setSelected(null);
+    // 이전 조건의 커서는 바로 버린다 — 남아 있으면 새 조건을 읽는 동안 '더 보기'가 다른 조건의 다음 페이지를 부른다
+    setLoading(true); setError(null); setSelected(null); setCursor(null);
     api<TradePage>(q, { signal: ctrl.signal })
       .then((p) => { setRows(p.items); setSummary(p.summary); setCursor(p.page.nextCursor); })
-      .catch((e) => { if (!ctrl.signal.aborted) { setRows([]); setCursor(null); setError(errorText(e)); } })
-      .finally(() => setLoading(false));
+      .catch((e) => { if (!ctrl.signal.aborted) { setRows([]); setError(errorText(e)); } })
+      .finally(() => { if (!ctrl.signal.aborted) setLoading(false); });  // 취소된 요청은 새 요청의 '불러오는 중'을 끄지 않는다
     return () => ctrl.abort();
   }, [q]);
 
