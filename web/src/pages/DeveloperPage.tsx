@@ -1,12 +1,11 @@
 import { useState } from "react";
-import { api, errorText } from "../lib/api";
+import { api, errorText } from "../api/client";
 import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { CopyButton, ErrorBox, Kpi, sqm } from "../components/ui";
 import { esc, num } from "../lib/format";
-
-type Usage = { clientId: string; plan: string; limits: { rpm: number; dailyRows: number };
-  items: { day: string; requests: number; rows: number; errors: number; p95Ms: number }[] };
+import { paths } from "../api/endpoints";
+import type { MyUsage } from "../api/types";
 
 const BASE = "http://127.0.0.1:8610";
 const EXAMPLES: { title: string; desc: string; path: string }[] = [
@@ -21,11 +20,11 @@ const EXAMPLES: { title: string; desc: string; path: string }[] = [
 export default function DeveloperPage() {
   // 키는 이 화면 state 에만 (저장소·URL 에 쓰지 않음, 탭을 닫으면 사라짐)
   const [key, setKey] = useState("");
-  const [usage, setUsage] = useState<Usage | null>(null);
+  const [usage, setUsage] = useState<MyUsage | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = () => {
     setErr(null);
-    api<Usage>("/v1/me/usage?days=30", { key: key.trim() }).then(setUsage).catch((e) => { setUsage(null); setErr(errorText(e)); });
+    api<MyUsage>(paths.myUsage(30), { key: key.trim() }).then(setUsage).catch((e) => { setUsage(null); setErr(errorText(e)); });
   };
   const build = (p: Palette) => {
     const b = base(p);

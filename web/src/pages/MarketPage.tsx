@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
-import { useApi, type IndexSummaryItem, type Overview, type SggSummary } from "../lib/api";
+import type { GeoSgg, IndexSummaryItem, Overview, SggSummary } from "../api/types";
+import { useApi } from "../hooks/useApi";
 import { Chart, echarts, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { MonthPicker } from "../components/MonthPicker";
@@ -7,6 +8,7 @@ import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm, sqm,
 import { DASH, esc, num, ymLabel } from "../lib/format";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
+import { paths } from "../api/endpoints";
 
 type Metric = "median" | "medianYoY" | "trades" | "cancelRate";
 const METRICS: { value: Metric; label: string; unit: string; title: string }[] = [
@@ -16,7 +18,6 @@ const METRICS: { value: Metric; label: string; unit: string; title: string }[] =
   { value: "cancelRate", label: "해제율", unit: "%", title: "해제 건수 ÷ 신고 건수" },
 ];
 
-type Geo = { type: "FeatureCollection"; source: string; features: { id: string; properties: { sggCd: string; name?: string }; geometry: unknown }[] };
 let registered = "";
 
 function quantileBins(values: number[], n: number): number[] {
@@ -34,7 +35,7 @@ function niceLabel(x: number, metric: Metric): string {
 const MAP_HOME = { zoom: 1.12, center: [127.8, 36.1] as [number, number] };
 const MAP_ZOOM = { min: 0.9, max: 12 };
 
-function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: Geo }) {
+function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: GeoSgg }) {
   const { byCode } = useRegions();
   // 지도 시점은 지표를 바꿔도 유지 (드래그 이동은 차트가, 확대는 버튼이 바꾼다)
   const view = useRef({ ...MAP_HOME });
@@ -162,9 +163,9 @@ function RankList({ rows, kind }: { rows: SggSummary[]; kind: "volume" | "gainer
 export default function MarketPage({ route }: { route: Route }) {
   const ym = route.params.get("ym");
   const metric = (route.params.get("metric") as Metric) || "median";
-  const { data, error, loading, stale, reload } = useApi<Overview>(`/v1/market/overview${ym ? `?ym=${ym}` : ""}`);
-  const geo = useApi<Geo>("/v1/geo/sgg");
-  const idx = useApi<{ items: IndexSummaryItem[] }>("/v1/index/summary");
+  const { data, error, loading, stale, reload } = useApi<Overview>(paths.marketOverview(ym));
+  const geo = useApi<GeoSgg>(paths.geoSgg());
+  const idx = useApi<{ items: IndexSummaryItem[] }>(paths.indexSummary());
   const { sidoName } = useRegions();
   const [rankTab, setRankTab] = useState<"volume" | "gainers" | "losers">("volume");
   const nation = data?.nation;

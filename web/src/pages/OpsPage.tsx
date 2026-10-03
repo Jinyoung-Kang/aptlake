@@ -1,30 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { apiSend, errorText, useApi } from "../lib/api";
+import { apiSend, errorText } from "../api/client";
+import { useApi } from "../hooks/useApi";
 import ApiTest from "../components/ApiTest";
 import { DataTable } from "../components/DataTable";
 import { Badge, CopyButton, ErrorBox, Kpi, Segmented, Skeleton, Switch, Tabs } from "../components/ui";
 import { DASH, duration, kst, kstShort, num, relative, ymLabel } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
-
-type Job = {
-  runId: string; job: string; jobLabel: string; partition: string | null; priority: string | null; priorityLabel: string;
-  trigger: string; status: string; requestedAt: string | null; startedAt: string | null; endedAt: string | null; durationS: number | null;
-};
-type Sched = { name: string; label: string; type: "schedule" | "sensor"; status: string; rule: string; nextAt: string | null;
-  lastTick: { status: string; at: string | null; skipReason: string; error: string | null; runs: number } | null };
-type Status = {
-  pipeline: { available: boolean; reason?: string };
-  summary: {
-    partitions: Record<string, number>; totalPartitions: number; publishedMonths: number; publishPending: number;
-    budget: { day: string; limit: number; cap: number; used: number; byPriority: Record<string, number>; exhaustedReason: string | null; exhaustedAt: string | null; stopLabel?: string | null };
-    backfillEstimate: { remainingCalls: number; days: number | null; basis: string };
-    lastPublish: { version: string; at: string } | null;
-  };
-  jobs: { active: Job[]; recent: Job[] }; schedules: Sched[]; serverTime: string;
-};
-type Entry = { id: string; at: string | null; level: "ERROR" | "WARN"; source: string; where: string; message: string; detail: string; ref: string | null; resolved: boolean; cleared?: boolean };
-type Errors = { window: { hours: number; since: string }; counts: Record<string, number>; entries: Entry[]; truncated: boolean;
-  apiErrorSummary: { route: string; status: number; count: number }[]; notes: string[]; cleared: { at: string; by: string | null } | null };
+import { paths } from "../api/endpoints";
+import type { LogEntry as Entry, OpsErrors, OpsJob as Job, OpsStatus } from "../api/types";
 
 /** 항목 상태 — 색만이 아니라 글자로도 구분 (미해결 / 이후 해결됨 / 비우기 이전) */
 function entryState(e: Entry): { label: string; tone: "bad" | "good" | undefined } {
@@ -95,18 +78,18 @@ function JobsTable({ jobs, now, empty }: { jobs: Job[]; now: number; empty: stri
 
 export default function OpsPage({ route }: { route: Route }) {
   const [auto, setAuto] = useState(true);
-  const status = useApi<Status>("/v1/ops/status", { refreshMs: auto ? 30_000 : undefined });
+  const status = useApi<OpsStatus>(paths.opsStatus(), { refreshMs: auto ? 30_000 : undefined });
   const hours = route.params.get("hours") ?? "24";
   const source = route.params.get("source") ?? "all";
   const resolved = route.params.get("resolved") === "1";
   const showCleared = route.params.get("old") === "1";
-  const errs = useApi<Errors>(`/v1/ops/errors?hours=${hours}&includeResolved=${resolved}&includeCleared=${showCleared}`, { refreshMs: auto ? 30_000 : undefined });
+  const errs = useApi<OpsErrors>(paths.opsErrors(hours, resolved, showCleared), { refreshMs: auto ? 30_000 : undefined });
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearErr, setClearErr] = useState<string | null>(null);
   const setCleared = async (clear: boolean) => {
     setClearErr(null);
     try {
-      await apiSend(clear ? "POST" : "DELETE", "/v1/ops/errors/clear");
+      await apiSend(clear ? "POST" : "DELETE", paths.opsErrorsClear());
       setConfirmClear(false);
       errs.reload();
     } catch (e) {

@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, useApi, type TickerItem } from "../lib/api";
+import { api } from "../api/client";
+import type { ComplexHit, TickerItem } from "../api/types";
+import { useApi } from "../hooks/useApi";
 import { kst, num } from "../lib/format";
 import { href, navigate } from "../lib/router";
 import { pushRecent, searchRegions, useRegions } from "../lib/regions";
 import { Change, sqm } from "./ui";
+import { paths } from "../api/endpoints";
 
 export const NAV = [
   { path: "/market", label: "시장 개요" },
@@ -15,14 +18,12 @@ export const NAV = [
   { path: "/ops", label: "수집 상태" },
 ];
 
-type Complex = { complexKey: string; sggCd: string; umdName: string; aptName: string; buildYear: number | null; validTrades: number };
-
 function SearchBox() {
   const { regions, byCode } = useRegions();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [complexes, setComplexes] = useState<Complex[]>([]);
+  const [complexes, setComplexes] = useState<ComplexHit[]>([]);
   const box = useRef<HTMLDivElement>(null);
 
   const regionHits = useMemo(() => searchRegions(regions, q, 6), [q, regions]);
@@ -31,7 +32,7 @@ function SearchBox() {
     if (term.length < 2 || /^[ㄱ-ㅎ\s]+$/.test(term)) { setComplexes([]); return; }
     const ctrl = new AbortController();
     const t = setTimeout(() => {
-      api<{ complexes: Complex[] }>(`/v1/search?q=${encodeURIComponent(term)}`, { signal: ctrl.signal })
+      api<{ complexes: ComplexHit[] }>(paths.search(term), { signal: ctrl.signal })
         .then((r) => setComplexes(r.complexes.slice(0, 8))).catch(() => undefined);
     }, 220);
     return () => { clearTimeout(t); ctrl.abort(); };
@@ -80,7 +81,7 @@ function SearchBox() {
 }
 
 function Ticker() {
-  const { data } = useApi<{ month: string; items: TickerItem[] }>("/v1/market/ticker");
+  const { data } = useApi<{ month: string; items: TickerItem[] }>(paths.ticker());
   if (!data?.items.length) return null;
   return (
     <div className="ticker" aria-label="주요 지표">

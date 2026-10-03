@@ -1,17 +1,14 @@
 import { useMemo, useState } from "react";
-import { useApi, type Trade } from "../lib/api";
+import type { ComplexDetail } from "../api/types";
+import { useApi } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { Badge, ErrorBox, Kpi, Skeleton, sqm } from "../components/ui";
 import { DASH, manwon, num, quantile } from "../lib/format";
 import { href, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
+import { paths } from "../api/endpoints";
 
-type Resp = {
-  complex: { complexKey: string; sggCd: string; umdName: string; jibun: string | null; aptName: string; buildYear: number | null; landLeasehold: boolean; firstSeen: string; validTrades: number };
-  recentTrades: Trade[];
-  history: [string, number, number | null, number, number, number, number][];
-};
 const BANDS = [
   { key: "all", label: "전체", lo: 0, hi: Infinity }, { key: "s", label: "60m² 미만", lo: 0, hi: 60 },
   { key: "m", label: "60~85m²", lo: 60, hi: 85 }, { key: "l", label: "85~135m²", lo: 85, hi: 135 }, { key: "xl", label: "135m² 이상", lo: 135, hi: Infinity },
@@ -20,7 +17,7 @@ const BANDS = [
 export default function ComplexPage({ route }: { route: Route }) {
   const key = route.parts[1] ?? "";
   const { byCode } = useRegions();
-  const { data, error, loading, stale, reload } = useApi<Resp>(/^c_[0-9a-f]{20}$/.test(key) ? `/v1/complexes/${key}` : null);
+  const { data, error, loading, stale, reload } = useApi<ComplexDetail>(/^c_[0-9a-f]{20}$/.test(key) ? paths.complex(key) : null);
   const [band, setBand] = useState("all");
   const b = BANDS.find((x) => x.key === band)!;
   const hist = useMemo(() => (data?.history ?? []).filter((h) => h[1] >= b.lo && h[1] < b.hi), [data, b]);

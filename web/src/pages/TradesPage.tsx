@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { api, errorText, useApi, useAvailable, type Trade } from "../lib/api";
+import { api, errorText } from "../api/client";
+import type { Trade, TradePage, TradeVersion } from "../api/types";
+import { useApi, useAvailable } from "../hooks/useApi";
 import DateRangePicker from "../components/DateRangePicker";
 import RegionPicker from "../components/RegionPicker";
 import { DataTable } from "../components/DataTable";
@@ -7,9 +9,7 @@ import { Badge, ErrorBox, Kpi, Skeleton, Sqm, sqm, Switch } from "../components/
 import { DASH, isoDate, kst, lastDay, manwon, num } from "../lib/format";
 import { href, setParams, type Route } from "../lib/router";
 import { recentRegions, useRegions } from "../lib/regions";
-
-type Page = { items: Trade[]; summary: { count: number; cancelled: number; medianPpm2: number | null; medianPrice: number | null } | null; page: { nextCursor: string | null } };
-type Version = { version: number; validFrom: string; validTo: string | null; current: boolean; changes: { field: string; from: unknown; to: unknown }[] };
+import { paths, type TradeQuery } from "../api/endpoints";
 
 const AREA: { key: string; label: string; min?: number; max?: number }[] = [
   { key: "", label: "전체" }, { key: "40", label: "40m² 미만", max: 39.9999 }, { key: "60", label: "40~60m²", min: 40, max: 59.9999 },
@@ -22,7 +22,7 @@ const FIELD: Record<string, string> = {
 const show = (v: unknown) => (v === true ? "예" : v === false ? "아니오" : v == null || v === "" ? "없음" : String(v));
 
 function Detail({ t, onClose }: { t: Trade; onClose: () => void }) {
-  const { data, error, stale, loading, reload } = useApi<{ versions: Version[] }>(`/v1/trades/${t.tradeId}/history`);
+  const { data, error, stale, loading, reload } = useApi<{ versions: TradeVersion[] }>(paths.tradeHistory(t.tradeId));
   return (
     <div className="panel panel-pad drawer">
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -73,11 +73,12 @@ export default function TradesPage({ route }: { route: Route }) {
   const area = route.params.get("area") ?? "";
   const cancel = route.params.get("cancel") !== "0";
   const band = AREA.find((a) => a.key === area) ?? AREA[0];
-  const q = from && to ? `/v1/trades?sggCd=${sgg}&from=${from}&to=${to}&includeCancelled=${cancel}&limit=100` +
-    `${band.min != null ? `&minArea=${band.min}` : ""}${band.max != null ? `&maxArea=${band.max}` : ""}` : null;
+  const query: TradeQuery | null = from && to
+    ? { sgg, from, to, includeCancelled: cancel, limit: 100, minArea: band.min, maxArea: band.max } : null;
+  const q = query ? paths.trades(query) : null;
 
   const [rows, setRows] = useState<Trade[]>([]);
-  const [summary, setSummary] = useState<Page["summary"]>(null);
+  const [summary, setSummary] = useState<TradePage["summary"]>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -89,17 +90,17 @@ export default function TradesPage({ route }: { route: Route }) {
     if (!q) return;
     const ctrl = new AbortController();
     setLoading(true); setErr(null); setSel(null);
-    api<Page>(q, { signal: ctrl.signal })
+    api<TradePage>(q, { signal: ctrl.signal })
       .then((p) => { setRows(p.items); setSummary(p.summary); setCursor(p.page.nextCursor); })
       .catch((e) => { if (!ctrl.signal.aborted) { setRows([]); setCursor(null); setErr(errorText(e)); } })
       .finally(() => setLoading(false));
     return () => ctrl.abort();
   }, [q]);
   const more = () => {
-    if (!q || !cursor) return;
+    if (!q || !query || !cursor) return;
     const asked = q;
     setLoading(true);
-    api<Page>(`${q}&cursor=${encodeURIComponent(cursor)}`)
+    api<TradePage>(paths.trades({ ...query, cursor }))
       .then((p) => { if (current.current !== asked) return; setRows((r) => [...r, ...p.items]); setCursor(p.page.nextCursor); })
       .catch((e) => { if (current.current === asked) setErr(errorText(e)); })
       .finally(() => { if (current.current === asked) setLoading(false); });

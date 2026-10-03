@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from "react";
-import { useApi, useAvailable, type MonthRow } from "../lib/api";
+import type { MonthRow, PriceDistribution, RegionComplex, RegionMonths } from "../api/types";
+import { useApi, useAvailable } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { MonthPicker, MonthRangePicker, RangePills } from "../components/MonthPicker";
@@ -8,17 +9,8 @@ import { Badge, Change, Empty, ErrorBox, Kpi, RangeBar, Skeleton, Sqm, StatRow, 
 import { DASH, manwon, monthRange, num, ymAdd, ymLabel } from "../lib/format";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { recentRegions, useRegions } from "../lib/regions";
+import { paths } from "../api/endpoints";
 
-type MonthsResp = { region: { sggCd: string; name: string; fullName: string }; items: MonthRow[]; notes: string[]; disclaimer: string };
-type Dist = {
-  month: string; provisional: boolean;
-  stats: { reported: number; cancelled: number; sample: number; p05: number | null; p25: number | null; median: number | null; p75: number | null; p95: number | null } | null;
-  histogram: { lo: number; hi: number; n: number }[]; binWidth: number;
-  byArea: { band: string; n: number; medianPpm2: number | null; medianPrice: number | null }[];
-  byFloor: { band: string; n: number; medianPpm2: number | null }[];
-  points: [number, number, number | null, number, number][]; notes: string[];
-};
-type ComplexRow = { complexKey: string; aptName: string; umdName: string; buildYear: number | null; trades: number; cancelled: number; medianPpm2: number | null; lastDate: string; lastPrice: number; lastArea: number };
 type Tab = "overview" | "distribution" | "complexes";
 
 const WEB_MAX_MONTHS = 60;
@@ -126,7 +118,7 @@ function Overview({ rows, all, from }: { rows: MonthRow[]; all: MonthRow[]; from
 }
 
 function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string; min: string; max: string; onMonth: (v: string) => void }) {
-  const { data, error, loading, stale, reload } = useApi<Dist>(`/v1/regions/${sgg}/distribution?ym=${ym}`);
+  const { data, error, loading, stale, reload } = useApi<PriceDistribution>(paths.regionDistribution(sgg, ym));
   const s = data?.stats;
   const hist = (p: Palette) => {
     const b = base(p);
@@ -215,7 +207,7 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
 }
 
 function Complexes({ sgg, from, to }: { sgg: string; from: string; to: string }) {
-  const { data, error, loading, stale, reload } = useApi<{ items: ComplexRow[] }>(`/v1/regions/${sgg}/complexes?from=${from}&to=${to}&limit=50`);
+  const { data, error, loading, stale, reload } = useApi<{ items: RegionComplex[] }>(paths.regionComplexes(sgg, from, to));
   return (
     <div data-stale={stale} aria-busy={loading}>
       <ErrorBox error={error} onRetry={reload} />
@@ -254,7 +246,7 @@ export default function RegionPage({ route }: { route: Route }) {
   const ok = /^\d{5}$/.test(sgg) && !!from && !!to;
   // YoY 비교를 위해 표시 기간보다 12개월 앞까지 받는다 (표·지표 계산용)
   const fetchFrom = from && min ? (ymAdd(from, -12) < min ? min : ymAdd(from, -12)) : from;
-  const { data, error, loading, stale, reload } = useApi<MonthsResp>(ok ? `/v1/regions/${sgg}/months?from=${fetchFrom}&to=${to}` : null);
+  const { data, error, loading, stale, reload } = useApi<RegionMonths>(ok ? paths.regionMonths(sgg, fetchFrom, to) : null);
   const region = byCode.get(sgg);
 
   const rows = useMemo(() => {

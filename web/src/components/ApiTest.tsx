@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { useAvailable } from "../lib/api";
+import { useAvailable } from "../hooks/useApi";
 import { DASH, kst, lastDay, num, relative, ymAdd } from "../lib/format";
 import { recentRegions } from "../lib/regions";
 import { DataTable } from "./DataTable";
 import { Badge, CopyButton } from "./ui";
+import type { Connectivity } from "../api/types";
 
 /**
  * API 연결 테스트 (수집 상태 메뉴).
@@ -12,11 +13,6 @@ import { Badge, CopyButton } from "./ui";
  * 외부 원천 API 는 호출하지 않는다 (일일 한도 보호) — 서버가 기록한 마지막 성공 수집 시각만 보여 준다.
  */
 
-type Conn = {
-  checkedAt: string; ok: boolean; notes: string[];
-  items: { key: string; name: string; role: string; ok: boolean; latencyMs: number | null; note: string | null; error: string | null }[];
-  sources: { key: string; name: string; lastSuccessAt: string | null; state: string; detail: string | null }[];
-};
 type Probe = {
   id: string; name: string; path: string; expect: string; headers?: Record<string, string>;
   /** 통과면 null, 아니면 실패 이유 */
@@ -97,7 +93,7 @@ export default function ApiTest() {
   const avail = useAvailable();
   const [key, setKey] = useState("");  // 메모리에만 (저장·URL 에 쓰지 않음)
   const [running, setRunning] = useState(false);
-  const [conn, setConn] = useState<Conn | null>(null);
+  const [conn, setConn] = useState<Connectivity | null>(null);
   const [connErr, setConnErr] = useState<string | null>(null);
   const [results, setResults] = useState<Result[]>([]);
   const [at, setAt] = useState<string | null>(null);
@@ -109,7 +105,7 @@ export default function ApiTest() {
     const c = await runProbe({ id: "conn", name: "API 서버 도달 (구성요소 점검)", path: "/v1/ops/connectivity", expect: "200 · 구성요소 응답",
       check: (r, b) => (r.status === 200 ? (has(b, "items") ? null : "응답 형식 다름") : `HTTP ${r.status}`) }, "");
     // ↑ 구성요소 점검은 'ops' 스코프가 필요한 운영 정보 → 사용자 키가 아니라 웹 화면(BFF) 키로 요청한다
-    if (c.pass) setConn(c.body as Conn);
+    if (c.pass) setConn(c.body as Connectivity);
     else setConnErr(c.status == null ? "구성요소 점검 요청이 서버에 닿지 못했습니다 (웹 서버 또는 API 가 꺼져 있음)." : `구성요소 점검 실패: ${c.reason}`);
     // 2) 공개 API — 순서대로 (동시에 보내면 지연이 서로 섞인다)
     const sgg = recentRegions()[0] ?? "11110";

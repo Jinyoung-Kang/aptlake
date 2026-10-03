@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Region } from "../lib/api";
+import type { Region } from "../api/types";
 import { pushRecent, recentRegions, searchRegions, useRegions } from "../lib/regions";
 import { usePopover } from "./ui";
 

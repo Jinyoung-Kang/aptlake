@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Region } from "./api";
+import type { Region } from "../api/types";
 import { searchRegions } from "./regions";
 
 const R = (sggCd: string, sidoName: string, name: string): Region => ({

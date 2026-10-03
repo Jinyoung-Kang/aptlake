@@ -1,26 +1,13 @@
 import { useMemo, useState } from "react";
-import { useApi } from "../lib/api";
+import { useApi } from "../hooks/useApi";
 import { axisX, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { Badge, CopyButton, ErrorBox, Kpi, Skeleton, StatRow, Switch } from "../components/ui";
 import { DASH, esc, kst, num, relative, ymAdd, ymLabel, ymOf } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
-
-type Summary = {
-  partitions: Record<string, number>;
-  freshness: { lastFetchedAt: string | null; lastChangedAt: string | null };
-  dataset: { version: string; publishedAt: string; dataAsOf: string } | null;
-  failedChecks7d: { asset: string; partition: string | null; check: string; severity: string; blocking: boolean; metric: unknown; at: string; resolved: boolean }[];
-};
-type Rollup = { cells: Record<string, Record<string, Record<string, number>>> };
-type Grid = { cells: Record<string, Record<string, [string, number | null]>> };
-type Part = {
-  partition: { sggCd: string; dealYm: string; status: string; attempts: number; rows: number | null; rowsPrev: number | null; observations: number;
-               lastFetchedAt: string | null; lastChangedAt: string | null; nextDueAt: string | null; lastError: string | null };
-  checks: { asset: string; name: string; passed: boolean; blocking: boolean; severity: string; metric: unknown; at: string }[];
-  lineage: string[];
-};
+import { paths } from "../api/endpoints";
+import type { QualityGrid, QualityPartition, QualityRollup, QualitySummary } from "../api/types";
 
 export const STATUS_LABEL: Record<string, string> = {
   MERGED: "반영 완료", LOADED: "적재·반영 대기", PENDING: "미수집", FETCHING: "수집 중", RETRY: "재시도 대기", QUARANTINED: "격리",
@@ -32,7 +19,7 @@ function statusColor(p: Palette, s: string) {
 }
 
 function PartitionDetail({ sgg, ym }: { sgg: string; ym: string }) {
-  const { data, error, stale, reload } = useApi<Part>(`/v1/quality/partitions/${sgg}/${ym}`);
+  const { data, error, stale, reload } = useApi<QualityPartition>(paths.qualityPartition(sgg, ym));
   const { byCode } = useRegions();
   if (error) return <ErrorBox error={error} onRetry={reload} />;
   if (!data || stale) return <Skeleton h={200} />;  // 다른 파티션의 상세가 새 제목 아래 남지 않게
@@ -66,11 +53,11 @@ export default function QualityPage({ route }: { route: Route }) {
   const { sidos, byCode, sidoName } = useRegions();
   const now = ymOf(new Date());
   const from = ymAdd(now, -71);
-  const summary = useApi<Summary>("/v1/quality/summary", { refreshMs: 60_000 });
-  const rollup = useApi<Rollup>(`/v1/quality/rollup?from=${from}&to=${now}`);
+  const summary = useApi<QualitySummary>(paths.qualitySummary(), { refreshMs: 60_000 });
+  const rollup = useApi<QualityRollup>(paths.qualityRollup(from, now));
   const sido = route.params.get("sido");
   const cell = route.params.get("cell"); // 'sgg:YYYYMM'
-  const grid = useApi<Grid>(sido ? `/v1/quality/partitions?from=${from}&to=${now}&sido=${sido}` : null);
+  const grid = useApi<QualityGrid>(sido ? paths.qualityGrid(from, now, sido) : null);
   const [withResolved, setWithResolved] = useState(false);
 
   const months = useMemo(() => {

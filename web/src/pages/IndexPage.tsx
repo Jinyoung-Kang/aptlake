@@ -1,28 +1,22 @@
 import { useMemo } from "react";
-import { useApi, type IndexSummaryItem } from "../lib/api";
+import type { IndexSummaryItem, RegionIndex } from "../api/types";
+import { useApi } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm } from "../components/ui";
 import { DASH, num, ymLabel } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
+import { paths } from "../api/endpoints";
 
-type Point = { period: string; value: number; ciLow: number; ciHigh: number; nObs: number; provisional?: boolean };
-type IndexResp = {
-  regionId: string; method: string; base: string; series: Point[];
-  reference: { source: string | null; series: { period: string; value: number }[] };
-  validation: { reference: string; corrMoM: number | null; directionMatch: number | null; months: number; window: string } | null;
-  disclaimer: string;
-};
-type SummaryItem = IndexSummaryItem;
 type Span = "12" | "24" | "36" | "all";
 
 export default function IndexPage({ route }: { route: Route }) {
   const rid = route.params.get("region") ?? "00";
   const span = (route.params.get("span") as Span) || "all";
   const { sidoName } = useRegions();
-  const { data, error, loading, stale, reload } = useApi<IndexResp>(`/v1/index?regionId=${rid}`);
-  const summary = useApi<{ items: SummaryItem[] }>("/v1/index/summary");
+  const { data, error, loading, stale, reload } = useApi<RegionIndex>(paths.index(rid));
+  const summary = useApi<{ items: IndexSummaryItem[] }>(paths.indexSummary());
   const regions = summary.data?.items ?? [];
   const cur = regions.find((r) => r.regionId === rid);
   const head = cur ? (cur.confirmed ?? cur) : undefined;

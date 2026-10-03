@@ -1,6 +1,8 @@
 import { createContext, useContext, useMemo, type ReactNode } from "react";
-import { useApi, type Region } from "./api";
+import type { Region } from "../api/types";
+import { useApi } from "../hooks/useApi";
 import { initials } from "./format";
+import { paths } from "../api/endpoints";
 
 export type Sido = { sidoCd: string; name: string; regions: Region[] };
 type Ctx = { regions: Region[]; byCode: Map<string, Region>; sidos: Sido[]; sidoName: (cd: string) => string; error: string | null };
@@ -9,7 +11,7 @@ const RegionsContext = createContext<Ctx>({ regions: [], byCode: new Map(), sido
 
 /** 시군구 목록(행정안전부 법정동코드 기반)은 앱 전체에서 한 번만 불러 공유한다. */
 export function RegionsProvider({ children }: { children: ReactNode }) {
-  const { data, error } = useApi<{ items: Region[] }>("/v1/regions");
+  const { data, error } = useApi<{ items: Region[] }>(paths.regions());
   const value = useMemo<Ctx>(() => {
     const regions = data?.items ?? [];
     const byCode = new Map(regions.map((r) => [r.sggCd, r]));
