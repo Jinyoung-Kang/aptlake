@@ -19,6 +19,7 @@ import datetime as dt
 import json
 import re
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 import pyarrow as pa
@@ -129,6 +130,16 @@ def _stage_rows(deal_ym: str, parts: list[dict]) -> list[dict]:
                 }
             )
     return rows
+
+
+def sgg_in_list(codes: Iterable[str]) -> str:
+    """SQL IN 목록. 시군구 코드는 원천(행안부 API)에서 온 값이라 문장에 넣기 전에 경계에서 형식을 확인한다."""
+    out = []
+    for code in codes:
+        if not _SGG.fullmatch(code):
+            raise ValueError(f"unexpected sgg code {code!r}")
+        out.append(f"'{code}'")
+    return ", ".join(out)
 
 
 def _parts_values(parts: list[dict], ingested: dict[str, dt.datetime]) -> str:
@@ -282,7 +293,7 @@ def merge_month(deal_ym: str, run_id: str | None = None) -> MergeSummary:
 def post_merge_checks(
     deal_ym: str, parts: list[dict], rows: list[dict], cancel_before: float | None, cancel_after: float | None
 ) -> list[dict]:
-    sgg_list = ", ".join(f"'{p['sgg_cd']}'" for p in parts)
+    sgg_list = sgg_in_list(p["sgg_cd"] for p in parts)
     dup = execute(f"""SELECT count(*) FROM (
                         SELECT trade_key, dup_seq FROM lake.silver.apt_trade
                         WHERE is_current AND deal_ym = '{deal_ym}'
