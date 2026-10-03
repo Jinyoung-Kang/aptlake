@@ -135,7 +135,7 @@ async def page(
 def parse_trade_id(trade_id: str) -> int:
     """거래 ID 의 계약월(YYYYMM) — 이력 조회를 그 달 파티션으로 좁힌다."""
     m = TRADE_ID.fullmatch(trade_id)
-    if not m:
+    if not m or not 1 <= int(m.group(2)[4:]) <= 12:  # 형식은 맞아도 없는 달(13월·0월)이면 잘못된 ID
         raise ApiError(400, "INVALID_TRADE_ID", "Invalid Trade Id")
     return int(m.group(2))
 

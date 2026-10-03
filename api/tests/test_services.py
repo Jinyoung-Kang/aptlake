@@ -141,6 +141,10 @@ def test_trade_id_and_page_size_rules():
     assert trades.parse_trade_id("41135-202407-00000000000000ff-0") == 202407
     with pytest.raises(ApiError):
         trades.parse_trade_id("41135-2024-07-x")
+    for bad_month in ("202413", "202400"):  # 형식은 맞지만 없는 달 → 잘못된 ID (main 은 500, 구조 정리 뒤 404 였다)
+        with pytest.raises(ApiError) as e:
+            trades.parse_trade_id(f"41135-{bad_month}-00000000000000ff-0")
+        assert (e.value.status, e.value.code) == (400, "INVALID_TRADE_ID")
     trades.check_page_size("free", 200, 200)
     with pytest.raises(ApiError) as e:
         trades.check_page_size("free", 200, 201)
