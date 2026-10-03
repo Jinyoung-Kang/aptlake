@@ -12,7 +12,8 @@ RUN node -e 'const fs=require("fs"),z=require("zlib"),p=require("path");(functio
 FROM nginxinc/nginx-unprivileged:1.31-alpine
 # 기본 사이트 설정 제거, 메인 설정 교체, 사이트 설정은 템플릿(envsubst: WEB_API_KEY 만 치환)
 USER root
-RUN rm -f /etc/nginx/conf.d/default.conf
+# OS 보안 업데이트를 빌드 때 적용 — 공식 이미지가 다시 빌드되기 전에도 (QA-005)
+RUN apk upgrade --no-cache && rm -f /etc/nginx/conf.d/default.conf
 USER 101
 COPY nginx.main.conf /etc/nginx/nginx.conf
 COPY templates /etc/nginx/templates
