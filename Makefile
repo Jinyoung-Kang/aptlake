@@ -88,7 +88,7 @@ maintenance: ## Iceberg 압축·스냅샷 만료·고아 파일 정리 요청
 test: test-pipeline test-api test-web ## 단위 + API + 웹 테스트 (Testcontainers 사용: Docker 필요)
 
 test-pipeline: ## 파이프라인 단위 테스트 (파서·지문·지수·예산·센서 계획)
-	cd pipeline/dbt && test -f target/manifest.json || uv run dbt parse --profiles-dir . --quiet
+	cd pipeline/dbt && uv run dbt parse --profiles-dir . --quiet  # 매번 (약 2초) — 남아 있던 옛 manifest 로 시험하지 않게
 	cd pipeline && uv run pytest -q
 
 test-api: ## API 테스트 (Testcontainers 로 PostgreSQL·Redis·ClickHouse 임시 기동)
