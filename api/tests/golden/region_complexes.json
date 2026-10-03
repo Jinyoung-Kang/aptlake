@@ -1,0 +1,29 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "from": "2024-07",
+  "items": [
+   {
+    "aptName": "테스트단지",
+    "buildYear": 2009,
+    "cancelled": 25,
+    "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+    "lastArea": 84.9,
+    "lastDate": "2024-07-31",
+    "lastPrice": 100247,
+    "medianPpm2": 1177.0,
+    "trades": 225,
+    "umdName": "백현동"
+   }
+  ],
+  "to": "2024-07"
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

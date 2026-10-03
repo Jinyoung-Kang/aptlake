@@ -1,0 +1,15 @@
+{
+ "body": {
+  "code": "MONTH_OUT_OF_RANGE",
+  "detail": "2024-01 ~ 2024-12 사이만 가능",
+  "status": 422,
+  "title": "Month Out Of Range",
+  "traceId": "<trace>",
+  "type": "about:blank"
+ },
+ "etag": false,
+ "headers": {
+  "content-type": "application/problem+json"
+ },
+ "status": 422
+}

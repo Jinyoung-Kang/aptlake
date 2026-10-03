@@ -6,60 +6,9 @@ import asyncio
 
 import httpx
 import pytest
-import pytest_asyncio
+from helpers import client_at, fake_dagster, new_key
 
-from aptlake_api import keys
-from aptlake_api.settings import settings
-
-
-@pytest_asyncio.fixture(scope="session")
-async def apps(stack):
-    settings.cache_clear()
-    from aptlake_api.main import create_internal_app, create_public_app
-
-    public, internal = create_public_app(), create_internal_app()
-    async with public.router.lifespan_context(public), internal.router.lifespan_context(internal):
-        await public.state.res.redis.set("al:ds:ver", "gold@test.1")
-        yield public, internal
-
-
-@pytest_asyncio.fixture(scope="session")
-async def pub(apps):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=apps[0], client=("10.9.0.1", 1)), base_url="http://t"
-    ) as c:
-        yield c
-
-
-@pytest_asyncio.fixture(scope="session")
-async def adm(apps):
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=apps[1]), base_url="http://t") as c:
-        yield c
-
-
-@pytest_asyncio.fixture(scope="session")
-async def admin_key(stack):
-    import psycopg
-
-    issued = keys.issue("test-pepper")
-    with psycopg.connect(stack["su"], autocommit=True) as c:
-        cid = c.execute("INSERT INTO api.client (name, plan_id) VALUES ('op','pro') RETURNING client_id").fetchone()[0]
-        c.execute(
-            "INSERT INTO api.api_key VALUES (%s,%s,%s,%s, now(), now() + interval '1 day', NULL, NULL)",
-            (issued.key_id, cid, issued.secret_hmac, ["admin", "read"]),
-        )
-    return issued.api_key
-
-
-async def new_key(adm, admin_key, plan="free", scopes=("read",)) -> tuple[str, str]:
-    r = await adm.post(
-        "/v1/admin/clients", json={"name": f"c-{plan}", "planId": plan}, headers={"X-API-Key": admin_key}
-    )
-    assert r.status_code == 201
-    cid = r.json()["clientId"]
-    r = await adm.post(f"/v1/admin/clients/{cid}/keys", json={"scopes": list(scopes)}, headers={"X-API-Key": admin_key})
-    assert r.status_code == 201 and r.headers["cache-control"] == "no-store"
-    return r.json()["apiKey"], cid
+from aptlake_api.core import keys
 
 
 async def test_anonymous_months_contract(pub):
@@ -114,7 +63,7 @@ async def test_bad_keys_and_scopes(pub, adm, admin_key):
 
 
 async def test_admin_routes_absent_on_public_app(apps):
-    from aptlake_api.deps import iter_api_routes
+    from aptlake_api.core.http import iter_api_routes
 
     public, internal = apps
     pub_paths = {r.path for r in iter_api_routes(public.routes)}
@@ -192,14 +141,6 @@ async def test_rate_limit_returns_429_with_retry_after(apps):
 # ───────────── 웹 BFF 플랜 · 상태 응답 ETag · 시장 요약 · 수집 상태 ─────────────
 
 
-def client_at(app, ip: str, key: str | None = None) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app, client=(ip, 1)),
-        base_url="http://t",
-        headers={"X-API-Key": key} if key else None,
-    )
-
-
 async def test_web_plan_limits_per_browser_ip(apps, stack):
     import psycopg
 
@@ -262,89 +203,6 @@ async def test_ticker_and_index_use_confirmed_months(apps):
         assert r.status_code == 422 and r.json()["code"] == "MONTH_OUT_OF_RANGE"
 
 
-def fake_dagster(now: float):
-    """Dagster GraphQL 가짜 응답: 이후 성공으로 복구된 실패 1건, 아직 실패 중 1건, 대기·실행 중 작업, 오류 난 센서 틱."""
-    import json
-
-    from aptlake_api import ops
-
-    def run(rid, status, created, partition="202407", ended=True):
-        return {
-            "runId": rid,
-            "jobName": "month_pipeline",
-            "status": status,
-            "creationTime": created,
-            "startTime": created + 5 if status != "QUEUED" else None,
-            "endTime": created + 60 if ended else None,
-            "tags": [{"key": "dagster/partition", "value": partition}, {"key": "aptlake/priority", "value": "retry"}],
-        }
-
-    failed = [run("fail-old", "FAILURE", now - 7200), run("fail-new", "FAILURE", now - 600, "202408")]
-    succeeded = [run("ok-1", "SUCCESS", now - 3600)]
-    active = [run("q-1", "QUEUED", now - 30, "202409", False), run("r-1", "STARTED", now - 90, "202410", False)]
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        q, v = body["query"], body.get("variables") or {}
-        if q.strip() == "{ version }":
-            data = {"version": "test"}
-        elif "logsForRun" in q:
-            data = {
-                "logsForRun": {
-                    "__typename": "EventConnection",
-                    "events": [
-                        {
-                            "__typename": "ExecutionStepFailureEvent",
-                            "timestamp": str(int((now - 550) * 1000)),  # 이벤트 시각은 밀리초
-                            "stepKey": "bronze__rtms",
-                            "error": {
-                                "className": "HTTPError",
-                                "message": f"502 for https://apis.data.go.kr/x?serviceKey=LEAKME ({v['id']})",
-                                "stack": ["  File a.py\n"],
-                                "causes": [],
-                            },
-                        }
-                    ],
-                }
-            }
-        elif "repositoriesOrError" in q:
-            sensor = {
-                "name": "due_partitions_sensor",
-                "minIntervalSeconds": 300,
-                "nextTick": {"timestamp": now + 60},
-                "sensorState": {
-                    "status": "RUNNING",
-                    "ticks": [
-                        {
-                            "status": "FAILURE",
-                            "timestamp": now - 100,
-                            "skipReason": None,
-                            "runIds": [],
-                            "error": {"message": "boom postgresql://pipeline:hunter2@postgres/aptlake"},
-                        },
-                        {  # 앞선 실패는 이 뒤 정상 틱으로 해결됨 (최근 실패는 그대로 미해결)
-                            "status": "FAILURE",
-                            "timestamp": now - 900,
-                            "skipReason": None,
-                            "runIds": [],
-                            "error": {"message": "old boom"},
-                        },
-                        {"status": "SKIPPED", "timestamp": now - 600, "skipReason": "x", "runIds": [], "error": None},
-                    ],
-                },
-            }
-            data = {"repositoriesOrError": {"nodes": [{"schedules": [], "sensors": [sensor]}]}}
-        else:
-            st = (v.get("f") or {}).get("statuses")
-            rows = {"FAILURE": failed, "SUCCESS": succeeded}.get(st[0] if st and len(st) == 1 else "")
-            if rows is None:
-                rows = active if st else failed + succeeded
-            data = {"runsOrError": {"__typename": "Runs", "results": rows}}
-        return httpx.Response(200, json={"data": data})
-
-    return ops.DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
-
-
 async def test_ops_status_and_error_log(apps, adm, admin_key):
     import json
     import time
@@ -384,14 +242,14 @@ async def test_ops_status_and_error_log(apps, adm, admin_key):
 
 
 async def test_ops_status_survives_dagster_down(apps, adm, admin_key):
-    from aptlake_api import ops
+    from aptlake_api.features.ops.dagster import DagsterClient
 
     def down(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
     public = apps[0]
     real = public.state.dagster
-    public.state.dagster = ops.DagsterClient(
+    public.state.dagster = DagsterClient(
         "http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(down))
     )
     try:
@@ -513,6 +371,29 @@ async def test_geo_is_served_precompressed(apps, stack):
         assert "content-encoding" not in plain.headers and plain.json() == r.json()
         assert (await c.get("/v1/geo/sgg", headers={"If-None-Match": r.headers["etag"]})).status_code == 304
 
+    # 캐시가 빈 워커에 동시에 들어온 첫 요청들은 본문을 한 번만 만든다 (직렬화·압축은 스레드에서)
+    import asyncio
+    import time
+
+    from aptlake_api.features.market import router as market_router
+
+    real, builds = market_router._encode, []
+
+    def counting(meta, shapes):
+        builds.append(1)
+        time.sleep(0.2)  # 스레드에서 도는 동안 다른 요청이 들어올 틈을 넓힌다
+        return real(meta, shapes)
+
+    apps[0].state.geo_cache.clear()
+    market_router._encode = counting
+    try:
+        async with client_at(apps[0], "10.60.0.4") as c:
+            rs = await asyncio.gather(*(c.get("/v1/geo/sgg") for _ in range(4)))
+    finally:
+        market_router._encode = real
+    assert [x.status_code for x in rs] == [200] * 4 and len(builds) == 1
+    assert rs[0].json() == r.json()
+
 
 async def test_ops_endpoints_need_ops_scope(apps, adm, admin_key):
     """운영 정보(오류 로그의 내부 호스트·스택)는 익명·일반 데이터 키에 주지 않는다."""
@@ -562,7 +443,7 @@ async def test_stalled_export_job_is_failed_so_client_can_export_again(apps, sta
     """작업자가 도중에 재시작돼 running 으로 남은 작업은 실패로 정리한다 (동시 2개 한도에 영원히 잡히지 않게)."""
     import psycopg
 
-    from aptlake_api import exports
+    from aptlake_api.features.exports.repository import ExportRepository
 
     key, cid = await new_key(adm, admin_key, "pro", scopes=("read", "bulk"))
     kid = keys.parse(key)[0]
@@ -575,10 +456,54 @@ async def test_stalled_export_job_is_failed_so_client_can_export_again(apps, sta
             ).fetchone()[0]
             for ago in ("2 hours", "1 minute")
         )
-    assert await exports._fail_stalled(apps[1].state.res) >= 1
+    assert await ExportRepository(apps[1].state.res.pg).fail_stalled() >= 1
     with psycopg.connect(stack["su"], autocommit=True) as c:
         st = dict(c.execute("SELECT job_id, status FROM api.export_job WHERE job_id IN (%s, %s)", (old, fresh)))
     assert st == {old: "failed", fresh: "running"}  # 진행 중인 정상 작업은 건드리지 않는다
+
+
+async def test_quality_failure_is_resolved_only_by_a_later_pass_of_the_same_check(apps, adm, admin_key, stack):
+    """'해결됨' = 같은 자산·검사·파티션(없음끼리도 같다고 봄)이 실패 뒤에 통과. 오류 로그와 품질 요약이 같은 규칙."""
+    import psycopg
+
+    rows = [  # (partition, check, passed, 몇 분 전)
+        ("p1", "c1", False, 30), ("p1", "c1", True, 10),  # 뒤에 통과 → 해결
+        ("p2", "c1", False, 30), ("p3", "c1", True, 10),  # 다른 파티션의 통과 → 미해결
+        ("p4", "c1", True, 40), ("p4", "c1", False, 30),  # 앞선 통과 → 미해결
+        (None, "c2", False, 30), (None, "c2", True, 10),  # 파티션 없음끼리 → 해결
+        (None, "c3", False, 30), ("p5", "c3", True, 10),  # 파티션 없음 ≠ 있음 → 미해결
+    ]  # fmt: skip
+    with psycopg.connect(stack["su"], autocommit=True) as pg:
+        for part, check, passed, ago in rows:
+            pg.execute(
+                """INSERT INTO ops.dq_result (asset, partition, check_name, passed, severity, blocking, metric, at)
+                   VALUES ('test/resolve', %s, %s, %s, 'WARN', false, '{}', now() - make_interval(mins => %s))""",
+                (part, check, passed, ago),
+            )
+    expected = {("p1", "c1"): True, ("p2", "c1"): False, ("p4", "c1"): False, (None, "c2"): True, (None, "c3"): False}
+    public = apps[0]
+    async for k in public.state.res.redis.scan_iter("al:cache:*"):
+        await public.state.res.redis.delete(k)
+    ops_key, _ = await new_key(adm, admin_key, scopes=("read", "ops"))
+    try:
+        async with client_at(public, "10.42.0.1", ops_key) as c:
+            r = await c.get("/v1/ops/errors", params={"hours": 24, "source": "quality", "includeResolved": "true"})
+            got = {
+                (e["where"].split(" · ")[1].replace("-", "") or None, e["message"].split(": ")[1]): e["resolved"]
+                for e in r.json()["entries"]
+                if e["where"].startswith("test/resolve")
+            }
+            assert got == expected
+            r = await c.get("/v1/quality/summary")
+            got = {
+                (f["partition"], f["check"]): f["resolved"]
+                for f in r.json()["failedChecks7d"]
+                if f["asset"] == "test/resolve"
+            }
+            assert got == expected
+    finally:
+        with psycopg.connect(stack["su"], autocommit=True) as pg:
+            pg.execute("DELETE FROM ops.dq_result WHERE asset = 'test/resolve'")
 
 
 async def test_ops_errors_survive_clickhouse_timeout(apps, adm, admin_key):
@@ -608,3 +533,35 @@ async def test_ops_errors_survive_clickhouse_timeout(apps, adm, admin_key):
         public.state.res.ch = real_ch
         await public.state.dagster.aclose()
         public.state.dagster = real_dag
+
+
+async def test_region_complexes_last_trade_is_deterministic(pub):
+    """같은 날 거래가 여러 건이면 '최근 거래'는 거래 ID 가 가장 큰 건으로 정한다 (엔진 버전·병합 순서와 무관하게).
+
+    시드: 2024-07-31 거래는 i = 30, 61, …, 247 → 거래 ID 최대는 i=247, 가격 100000+247.
+    """
+    for _ in range(3):
+        r = await pub.get("/v1/regions/41135/complexes", params={"from": "2024-07", "to": "2024-07"})
+        [c] = r.json()["items"]
+        assert (c["lastDate"], c["lastPrice"]) == ("2024-07-31", 100247)
+
+
+async def test_trades_summary_when_every_trade_is_cancelled(pub, stack):
+    """조건의 거래가 모두 해제면 유효 거래 중위가는 '없음'이어야 한다 (500 이 아니라)."""
+    import datetime as dt
+    from decimal import Decimal
+
+    ts = dt.datetime(2023, 3, 20, tzinfo=dt.UTC)
+    row = ["11110-202303-00000000000000aa-0", "11110", dt.date(2023, 3, 15), "c_" + "b" * 20, "해제단지", "청운동"]
+    row += ["1", Decimal("59.9"), 3, 70000, 1168.6, 1, dt.date(2023, 3, 18), None, "", "중개거래", "개인", "개인"]
+    row += [2001, 0, 2, ts, None]
+    cols = ["trade_id", "sgg_cd", "deal_date", "complex_key", "apt_nm", "umd_nm", "jibun", "area_m2", "floor"]
+    cols += ["price_manwon", "ppm2", "is_cancelled", "cancel_date", "registered_date", "apt_dong", "deal_kind"]
+    cols += ["seller_type", "buyer_type", "build_year", "is_outlier", "version", "valid_from", "missing_since"]
+    stack["ch"].insert("trade_current", [row], column_names=cols)
+    r = await pub.get(
+        "/v1/trades", params={"sggCd": "11110", "from": "2023-03-01", "to": "2023-03-31", "includeCancelled": "true"}
+    )
+    assert r.status_code == 200, r.text
+    s = r.json()["summary"]
+    assert (s["count"], s["cancelled"], s["medianPpm2"], s["medianPrice"]) == (1, 1, None, None)

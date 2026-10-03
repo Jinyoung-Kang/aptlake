@@ -1,0 +1,59 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "tradeId": "41135-202407-0000000000000000-0",
+  "versions": [
+   {
+    "changes": [],
+    "current": false,
+    "state": {
+     "aptDong": null,
+     "buyerType": "개인",
+     "cancelDate": null,
+     "cancelled": false,
+     "dealKind": "중개거래",
+     "registeredDate": null,
+     "sellerType": "개인"
+    },
+    "validFrom": "2024-08-01T00:00:00+00:00",
+    "validTo": "2024-08-31T00:00:00+00:00",
+    "version": 1
+   },
+   {
+    "changes": [
+     {
+      "field": "cancelled",
+      "from": false,
+      "to": true
+     },
+     {
+      "field": "cancelDate",
+      "from": null,
+      "to": "2024-08-20"
+     }
+    ],
+    "current": true,
+    "state": {
+     "aptDong": null,
+     "buyerType": "개인",
+     "cancelDate": "2024-08-20",
+     "cancelled": true,
+     "dealKind": "중개거래",
+     "registeredDate": null,
+     "sellerType": "개인"
+    },
+    "validFrom": "2024-08-31T00:00:00+00:00",
+    "validTo": null,
+    "version": 2
+   }
+  ]
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

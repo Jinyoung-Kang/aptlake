@@ -13,8 +13,8 @@ import sys
 
 import psycopg
 
-from . import keys
-from .settings import settings
+from .core import keys
+from .core.settings import settings
 
 
 def _issue(c: psycopg.Connection, client_name: str, plan: str, scopes: list[str], days: int) -> str:

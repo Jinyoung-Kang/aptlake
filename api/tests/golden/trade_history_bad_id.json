@@ -1,0 +1,14 @@
+{
+ "body": {
+  "code": "INVALID_TRADE_ID",
+  "status": 400,
+  "title": "Invalid Trade Id",
+  "traceId": "<trace>",
+  "type": "about:blank"
+ },
+ "etag": false,
+ "headers": {
+  "content-type": "application/problem+json"
+ },
+ "status": 400
+}

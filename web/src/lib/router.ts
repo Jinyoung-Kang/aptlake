@@ -46,6 +46,6 @@ export function useRoute(): Route {
 /** 현재 경로의 쿼리 값 일부만 바꾼다 (기록을 쌓지 않음). */
 export function setParams(route: Route, patch: Record<string, string | number | boolean | null | undefined>) {
   const p: Record<string, string> = {};
-  route.params.forEach((v, k) => (p[k] = v));
+  route.params.forEach((v, k) => { p[k] = v; });
   navigate(route.path, { ...p, ...patch }, true);
 }

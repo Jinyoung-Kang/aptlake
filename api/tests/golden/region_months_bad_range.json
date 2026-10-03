@@ -1,0 +1,15 @@
+{
+ "body": {
+  "code": "INVALID_RANGE",
+  "detail": "to 는 from 이후여야 합니다.",
+  "status": 400,
+  "title": "Invalid Range",
+  "traceId": "<trace>",
+  "type": "about:blank"
+ },
+ "etag": false,
+ "headers": {
+  "content-type": "application/problem+json"
+ },
+ "status": 400
+}

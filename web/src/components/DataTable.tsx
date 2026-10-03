@@ -39,14 +39,21 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, selectedKey, i
         <thead>
           <tr>
             {columns.map((c) => {
-              const active = sort?.key === c.key;
+              const dir = sort && sort.key === c.key ? sort.dir : null;  // 이 열로 정렬 중이면 방향
+              const arrow = dir ? <span className="arrow" aria-hidden="true">{dir === "asc" ? "▲" : "▼"}</span> : null;
+              // 정렬 전 표시(↕)도 화살표와 같은 쪽에 — 오른쪽 정렬 열에서 처음 정렬할 때 머리글 글자가 움직이지 않게
+              const idle = <span className="arrow idle" aria-hidden="true">↕</span>;
               return (
                 <th key={c.key} className={`${c.align === "right" ? "num" : ""} ${c.sort ? "sortable" : ""}`} style={{ width: c.width }}
-                    title={c.title} aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined}
-                    onClick={c.sort ? () => setSort(active ? { key: c.key, dir: sort!.dir === "asc" ? "desc" : "asc" } : { key: c.key, dir: "desc" }) : undefined}>
-                  {active && c.align === "right" ? <span className="arrow">{sort!.dir === "asc" ? "▲" : "▼"}</span> : null}
-                  {sqm(c.header)}
-                  {active && c.align !== "right" ? <span className="arrow">{sort!.dir === "asc" ? "▲" : "▼"}</span> : null}
+                    title={c.title} aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined} scope="col">
+                  {c.sort ? (
+                    // 정렬은 머리글 안의 버튼으로 — 키보드(Tab·Enter·Space)와 화면낭독기로도 쓸 수 있게
+                    <button type="button" className="th-sort" onClick={() => setSort(dir ? { key: c.key, dir: dir === "asc" ? "desc" : "asc" } : { key: c.key, dir: "desc" })}>
+                      {c.align === "right" ? (arrow ?? idle) : null}
+                      {sqm(c.header)}
+                      {c.align !== "right" ? (arrow ?? idle) : null}
+                    </button>
+                  ) : sqm(c.header)}
                 </th>
               );
             })}

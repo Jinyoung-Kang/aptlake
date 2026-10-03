@@ -1,0 +1,151 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "disclaimer": "공개 신고 자료를 가공한 학습·포트폴리오용 데이터입니다. 공식 통계가 아니며 투자 판단 근거로 쓰지 마세요.",
+  "items": [
+   {
+    "aptDong": null,
+    "areaM2": 84.9,
+    "buyerType": "개인",
+    "cancelDate": null,
+    "cancelled": false,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "dealDate": "2024-07-10",
+    "dealKind": "중개거래",
+    "floor": 5,
+    "missingSince": null,
+    "outlier": false,
+    "priceManwon": 100226,
+    "pricePerM2": 1177.0,
+    "registeredDate": null,
+    "sellerType": "개인",
+    "tradeId": "41135-202407-00000000000000e2-0",
+    "version": 1
+   },
+   {
+    "aptDong": null,
+    "areaM2": 84.9,
+    "buyerType": "개인",
+    "cancelDate": null,
+    "cancelled": false,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "dealDate": "2024-07-10",
+    "dealKind": "중개거래",
+    "floor": 5,
+    "missingSince": null,
+    "outlier": false,
+    "priceManwon": 100195,
+    "pricePerM2": 1177.0,
+    "registeredDate": null,
+    "sellerType": "개인",
+    "tradeId": "41135-202407-00000000000000c3-0",
+    "version": 1
+   },
+   {
+    "aptDong": null,
+    "areaM2": 84.9,
+    "buyerType": "개인",
+    "cancelDate": null,
+    "cancelled": false,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "dealDate": "2024-07-10",
+    "dealKind": "중개거래",
+    "floor": 5,
+    "missingSince": null,
+    "outlier": false,
+    "priceManwon": 100164,
+    "pricePerM2": 1177.0,
+    "registeredDate": null,
+    "sellerType": "개인",
+    "tradeId": "41135-202407-00000000000000a4-0",
+    "version": 1
+   },
+   {
+    "aptDong": null,
+    "areaM2": 84.9,
+    "buyerType": "개인",
+    "cancelDate": null,
+    "cancelled": false,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "dealDate": "2024-07-10",
+    "dealKind": "중개거래",
+    "floor": 5,
+    "missingSince": null,
+    "outlier": false,
+    "priceManwon": 100133,
+    "pricePerM2": 1177.0,
+    "registeredDate": null,
+    "sellerType": "개인",
+    "tradeId": "41135-202407-0000000000000085-0",
+    "version": 1
+   },
+   {
+    "aptDong": null,
+    "areaM2": 84.9,
+    "buyerType": "개인",
+    "cancelDate": null,
+    "cancelled": false,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "dealDate": "2024-07-10",
+    "dealKind": "중개거래",
+    "floor": 5,
+    "missingSince": null,
+    "outlier": false,
+    "priceManwon": 100102,
+    "pricePerM2": 1177.0,
+    "registeredDate": null,
+    "sellerType": "개인",
+    "tradeId": "41135-202407-0000000000000066-0",
+    "version": 1
+   }
+  ],
+  "page": {
+   "limit": 5,
+   "nextCursor": "eyJkIjoiMjAyNC0wNy0xMCIsImsiOiI0MTEzNS0yMDI0MDctMDAwMDAwMDAwMDAwMDA2Ni0wIiwicSI6IjIyMGI4YTI0YTQwNGZhNzQifQ.50GQBCOpX43ZfSAbM_RgQQ"
+  },
+  "summary": {
+   "cancelled": 0,
+   "count": 74,
+   "medianPpm2": 1177.0,
+   "medianPrice": 100124
+  }
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

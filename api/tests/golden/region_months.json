@@ -1,0 +1,170 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "disclaimer": "공개 신고 자료를 가공한 학습·포트폴리오용 데이터입니다. 공식 통계가 아니며 투자 판단 근거로 쓰지 마세요.",
+  "items": [
+   {
+    "cancelled": 5,
+    "dealYm": "2024-01",
+    "medianPricePerM2": 1501.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 101,
+    "sampleSize": 90,
+    "trades": 96,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-02",
+    "medianPricePerM2": 1502.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 102,
+    "sampleSize": 90,
+    "trades": 97,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-03",
+    "medianPricePerM2": 1503.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 103,
+    "sampleSize": 90,
+    "trades": 98,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-04",
+    "medianPricePerM2": 1504.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 104,
+    "sampleSize": 90,
+    "trades": 99,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-05",
+    "medianPricePerM2": 1505.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 105,
+    "sampleSize": 90,
+    "trades": 100,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-06",
+    "medianPricePerM2": 1506.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 106,
+    "sampleSize": 90,
+    "trades": 101,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-07",
+    "medianPricePerM2": 1507.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 107,
+    "sampleSize": 90,
+    "trades": 102,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-08",
+    "medianPricePerM2": 1508.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 108,
+    "sampleSize": 90,
+    "trades": 103,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-09",
+    "medianPricePerM2": 1509.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 109,
+    "sampleSize": 90,
+    "trades": 104,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-10",
+    "medianPricePerM2": 1510.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 110,
+    "sampleSize": 90,
+    "trades": 105,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-11",
+    "medianPricePerM2": 1511.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 111,
+    "sampleSize": 90,
+    "trades": 106,
+    "unit": "만원/㎡"
+   },
+   {
+    "cancelled": 5,
+    "dealYm": "2024-12",
+    "medianPricePerM2": 1512.0,
+    "outliers": 1,
+    "p25PricePerM2": 1200.0,
+    "p75PricePerM2": 1800.0,
+    "reported": 112,
+    "sampleSize": 90,
+    "trades": 107,
+    "unit": "만원/㎡"
+   }
+  ],
+  "notes": [
+   "거래 건수는 해제 거래를 제외한 현재 신고 건수, 분위수는 해제·면적 0·월 전국 상하위 0.1% 제외.",
+   "표본 5건 미만이면 분위수는 null, lowSample=true.",
+   "계약월 말일 + 60일 전까지는 신고가 추가될 수 있어 provisional=true."
+  ],
+  "region": {
+   "fullName": "경기도 성남시 분당구",
+   "name": "성남시 분당구",
+   "sggCd": "41135"
+  }
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

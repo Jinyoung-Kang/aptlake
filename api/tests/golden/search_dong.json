@@ -1,0 +1,23 @@
+{
+ "body": {
+  "complexes": [
+   {
+    "aptName": "테스트단지",
+    "buildYear": 2009,
+    "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+    "sggCd": "41135",
+    "umdName": "백현동",
+    "validTrades": 225
+   }
+  ],
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1"
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

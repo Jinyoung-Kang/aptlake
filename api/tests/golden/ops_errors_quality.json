@@ -1,0 +1,50 @@
+{
+ "body": {
+  "apiErrorSummary": [],
+  "cleared": null,
+  "counts": {
+   "quality": 2
+  },
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "entries": [
+   {
+    "at": "<recent>",
+    "cleared": false,
+    "detail": "{\n  \"bad_rows\": 3\n}",
+    "id": "dq:1",
+    "level": "ERROR",
+    "message": "품질 검사 실패: schema_v1 (차단 — 하위 반영 멈춤)",
+    "ref": null,
+    "resolved": false,
+    "source": "quality",
+    "where": "bronze/rtms_raw · 41135/202408"
+   },
+   {
+    "at": "<recent>",
+    "cleared": false,
+    "detail": "{\n  \"delta_pp\": 11.2\n}",
+    "id": "dq:3",
+    "level": "WARN",
+    "message": "품질 검사 실패: cancel_ratio_shift",
+    "ref": null,
+    "resolved": false,
+    "source": "quality",
+    "where": "silver/apt_trade · 202407"
+   }
+  ],
+  "notes": [],
+  "truncated": false,
+  "window": {
+   "hours": 168,
+   "since": "<recent>"
+  }
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

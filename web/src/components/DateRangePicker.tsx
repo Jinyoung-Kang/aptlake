@@ -64,6 +64,7 @@ export default function DateRangePicker({ from, to, min, max, maxDays, onChange 
                 <span>{vy}년 {vm}월</span>
                 <button type="button" aria-label="다음 달" disabled={!canNext} onClick={() => move(1)}>›</button>
               </div>
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: 마우스가 벗어나면 범위 미리보기 강조만 지운다 (각 날짜는 버튼이라 키보드로 고를 수 있음) */}
               <div className="cal-grid" onMouseLeave={() => setHover(null)}>
                 {DOW.map((d) => <div key={d} className="dow">{d}</div>)}
                 {days.map(({ date, other }) => {

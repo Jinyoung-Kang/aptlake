@@ -1,28 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import { api, errorText, useApi, useAvailable, type Trade } from "../lib/api";
+import type { Trade, TradeVersion } from "../api/types";
+import { AREA_BANDS, maxPickDate, tradeFilter, VERSION_FIELD, versionValue } from "../domain/trades";
+import { useTradesPager } from "../hooks/useTradesPager";
+import { useApi, useAvailable } from "../hooks/useApi";
 import DateRangePicker from "../components/DateRangePicker";
 import RegionPicker from "../components/RegionPicker";
 import { DataTable } from "../components/DataTable";
-import { Badge, ErrorBox, Kpi, Skeleton, Sqm, sqm, Switch } from "../components/ui";
-import { DASH, isoDate, kst, lastDay, manwon, num } from "../lib/format";
+import { Badge, ErrorBox, Group, Kpi, Skeleton, Sqm, sqm, Switch } from "../components/ui";
+import { DASH, isoDate, kst, manwon, num } from "../lib/format";
 import { href, setParams, type Route } from "../lib/router";
 import { recentRegions, useRegions } from "../lib/regions";
-
-type Page = { items: Trade[]; summary: { count: number; cancelled: number; medianPpm2: number | null; medianPrice: number | null } | null; page: { nextCursor: string | null } };
-type Version = { version: number; validFrom: string; validTo: string | null; current: boolean; changes: { field: string; from: unknown; to: unknown }[] };
-
-const AREA: { key: string; label: string; min?: number; max?: number }[] = [
-  { key: "", label: "전체" }, { key: "40", label: "40m² 미만", max: 39.9999 }, { key: "60", label: "40~60m²", min: 40, max: 59.9999 },
-  { key: "85", label: "60~85m²", min: 60, max: 84.9999 }, { key: "135", label: "85~135m²", min: 85, max: 134.9999 },
-  { key: "135p", label: "135m² 이상", min: 135 },
-];
-const FIELD: Record<string, string> = {
-  cancelled: "해제", cancelDate: "해제일", registeredDate: "등기일", aptDong: "동", dealKind: "거래유형", sellerType: "매도자", buyerType: "매수자",
-};
-const show = (v: unknown) => (v === true ? "예" : v === false ? "아니오" : v == null || v === "" ? "없음" : String(v));
+import { paths } from "../api/endpoints";
 
 function Detail({ t, onClose }: { t: Trade; onClose: () => void }) {
-  const { data, error, stale, loading, reload } = useApi<{ versions: Version[] }>(`/v1/trades/${t.tradeId}/history`);
+  const { data, error, stale, loading, reload } = useApi<{ versions: TradeVersion[] }>(paths.tradeHistory(t.tradeId));
   return (
     <div className="panel panel-pad drawer">
       <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
@@ -52,7 +42,7 @@ function Detail({ t, onClose }: { t: Trade; onClose: () => void }) {
               <strong>v{v.version}</strong> {v.current ? <Badge tone="info">현재</Badge> : null}
               <div className="muted small">{kst(v.validFrom, false)} 부터{v.validTo ? ` · ${kst(v.validTo, false)} 까지` : ""}</div>
               {v.version === 1 && v.changes.length === 0 ? <div className="ch">최초 관측</div> : null}
-              {v.changes.map((c) => <div key={c.field} className="ch">{FIELD[c.field] ?? c.field}: {show(c.from)} → <strong>{show(c.to)}</strong></div>)}
+              {v.changes.map((c) => <div key={c.field} className="ch">{VERSION_FIELD[c.field] ?? c.field}: {versionValue(c.from)} → <strong>{versionValue(c.to)}</strong></div>)}
             </li>
           ))}
         </ul>
@@ -65,45 +55,9 @@ function Detail({ t, onClose }: { t: Trade; onClose: () => void }) {
 export default function TradesPage({ route }: { route: Route }) {
   const avail = useAvailable();
   const { byCode } = useRegions();
-  const sgg = route.params.get("sgg") ?? recentRegions()[0] ?? "41135";
-  const base = avail?.default ?? "";
+  const { sgg, from, to, area, cancel, query } = tradeFilter(route.params, avail, recentRegions()[0] ?? "41135");
   const today = isoDate(new Date());
-  const from = route.params.get("from") ?? (base ? `${base}-01` : "");
-  const to = route.params.get("to") ?? (base ? lastDay(base) : "");
-  const area = route.params.get("area") ?? "";
-  const cancel = route.params.get("cancel") !== "0";
-  const band = AREA.find((a) => a.key === area) ?? AREA[0];
-  const q = from && to ? `/v1/trades?sggCd=${sgg}&from=${from}&to=${to}&includeCancelled=${cancel}&limit=100` +
-    `${band.min != null ? `&minArea=${band.min}` : ""}${band.max != null ? `&maxArea=${band.max}` : ""}` : null;
-
-  const [rows, setRows] = useState<Trade[]>([]);
-  const [summary, setSummary] = useState<Page["summary"]>(null);
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [sel, setSel] = useState<Trade | null>(null);
-  const current = useRef(q);  // '더 보기' 응답이 늦게 와도 조건이 바뀌었으면 버린다 (다른 조건의 행이 섞이지 않게)
-  current.current = q;
-
-  useEffect(() => {
-    if (!q) return;
-    const ctrl = new AbortController();
-    setLoading(true); setErr(null); setSel(null);
-    api<Page>(q, { signal: ctrl.signal })
-      .then((p) => { setRows(p.items); setSummary(p.summary); setCursor(p.page.nextCursor); })
-      .catch((e) => { if (!ctrl.signal.aborted) { setRows([]); setCursor(null); setErr(errorText(e)); } })
-      .finally(() => setLoading(false));
-    return () => ctrl.abort();
-  }, [q]);
-  const more = () => {
-    if (!q || !cursor) return;
-    const asked = q;
-    setLoading(true);
-    api<Page>(`${q}&cursor=${encodeURIComponent(cursor)}`)
-      .then((p) => { if (current.current !== asked) return; setRows((r) => [...r, ...p.items]); setCursor(p.page.nextCursor); })
-      .catch((e) => { if (current.current === asked) setErr(errorText(e)); })
-      .finally(() => { if (current.current === asked) setLoading(false); });
-  };
+  const { rows, summary, cursor, error: err, loading, more, selected: sel, setSelected: setSel } = useTradesPager(query);
   const region = byCode.get(sgg);
 
   return (
@@ -116,11 +70,11 @@ export default function TradesPage({ route }: { route: Route }) {
       </div>
       <div className="toolbar">
         <RegionPicker value={sgg} onChange={(c) => setParams(route, { sgg: c })} />
-        {avail && <DateRangePicker from={from} to={to} min={`${avail.from}-01`} max={today < lastDay(avail.to) ? today : lastDay(avail.to)}
+        {avail && <DateRangePicker from={from} to={to} min={`${avail.from}-01`} max={maxPickDate(avail, today)}
                                    maxDays={366 * 5} onChange={(a, b) => setParams(route, { from: a, to: b })} />}
-        <div className="chips" role="group" aria-label="전용면적">
-          {AREA.map((a) => <button key={a.key} type="button" className="chip" aria-pressed={a.key === area} onClick={() => setParams(route, { area: a.key })}>{sqm(a.label)}</button>)}
-        </div>
+        <Group label="전용면적" className="chips">
+          {AREA_BANDS.map((a) => <button key={a.key} type="button" className="chip" aria-pressed={a.key === area} onClick={() => setParams(route, { area: a.key })}>{sqm(a.label)}</button>)}
+        </Group>
         <Switch checked={cancel} onChange={(v) => setParams(route, { cancel: v ? "1" : "0" })} label="해제 거래 포함" />
       </div>
       {summary && (

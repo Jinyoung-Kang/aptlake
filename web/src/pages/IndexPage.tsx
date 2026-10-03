@@ -1,45 +1,27 @@
 import { useMemo } from "react";
-import { useApi, type IndexSummaryItem } from "../lib/api";
+import type { IndexSummaryItem, RegionIndex } from "../api/types";
+import { useApi } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
-import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm } from "../components/ui";
+import { Badge, Change, ErrorBox, Group, Kpi, Segmented, Skeleton, Sparkline, Sqm } from "../components/ui";
 import { DASH, num, ymLabel } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
+import { corrText, rebased, representative, type Span } from "../domain/priceIndex";
+import { paths } from "../api/endpoints";
 
-type Point = { period: string; value: number; ciLow: number; ciHigh: number; nObs: number; provisional?: boolean };
-type IndexResp = {
-  regionId: string; method: string; base: string; series: Point[];
-  reference: { source: string | null; series: { period: string; value: number }[] };
-  validation: { reference: string; corrMoM: number | null; directionMatch: number | null; months: number; window: string } | null;
-  disclaimer: string;
-};
-type SummaryItem = IndexSummaryItem;
-type Span = "12" | "24" | "36" | "all";
 
 export default function IndexPage({ route }: { route: Route }) {
   const rid = route.params.get("region") ?? "00";
   const span = (route.params.get("span") as Span) || "all";
   const { sidoName } = useRegions();
-  const { data, error, loading, stale, reload } = useApi<IndexResp>(`/v1/index?regionId=${rid}`);
-  const summary = useApi<{ items: SummaryItem[] }>("/v1/index/summary");
+  const { data, error, loading, stale, reload } = useApi<RegionIndex>(paths.index(rid));
+  const summary = useApi<{ items: IndexSummaryItem[] }>(paths.indexSummary());
   const regions = summary.data?.items ?? [];
   const cur = regions.find((r) => r.regionId === rid);
-  const head = cur ? (cur.confirmed ?? cur) : undefined;
+  const head = cur ? representative(cur) : undefined;
 
-  const view = useMemo(() => {
-    if (!data) return null;
-    const series = span === "all" ? data.series : data.series.slice(-Number(span));
-    const ref = new Map(data.reference.series.map((r) => [r.period, r.value]));
-    // 두 지수는 기준 시점이 달라(자체: 첫 달=100, R-ONE: 2026.06=100) 표시 구간에서 겹치는 첫 달을 100 으로 맞춘다 — 축 하나
-    const b = series.find((p) => ref.has(p.period));
-    const k = b ? 100 / b.value : 1;
-    const kr = b ? 100 / (ref.get(b.period) as number) : 1;
-    return {
-      base: b?.period ?? null,
-      rows: series.map((p) => ({ ...p, v: p.value * k, lo: p.ciLow * k, hi: p.ciHigh * k, ref: b && ref.has(p.period) ? (ref.get(p.period) as number) * kr : null })),
-    };
-  }, [data, span]);
+  const view = useMemo(() => (data ? rebased(data, span) : null), [data, span]);
 
   const build = (p: Palette) => {
     const b = base(p);
@@ -70,7 +52,6 @@ export default function IndexPage({ route }: { route: Route }) {
   };
 
   const v = data?.validation;
-  const corrText = (c: number | null | undefined) => c == null ? "비교 기간 부족" : c >= 0.8 ? "매우 비슷하게 움직임" : c >= 0.6 ? "대체로 비슷함" : c >= 0.3 ? "약하게 비슷함" : "차이가 큼";
 
   return (
     <>
@@ -80,11 +61,11 @@ export default function IndexPage({ route }: { route: Route }) {
           <h1>{sidoName(rid)} 아파트 가격지수</h1>
         </div>
       </div>
-      <div className="chips" role="group" aria-label="지역" style={{ marginBottom: 14 }}>
+      <Group label="지역" className="chips mb-14">
         {[{ id: "00" }, ...regions.filter((r) => r.regionId !== "00").map((r) => ({ id: r.regionId }))].map((r) => (
           <button key={r.id} type="button" className="chip" aria-pressed={r.id === rid} onClick={() => setParams(route, { region: r.id })}>{sidoName(r.id)}</button>
         ))}
-      </div>
+      </Group>
       {cur && head && (
         <div style={{ marginBottom: 14 }}>
           <div className="quote">
@@ -149,10 +130,10 @@ export default function IndexPage({ route }: { route: Route }) {
           initialSort={{ key: "id", dir: "asc" }}
           columns={[
             { key: "id", header: "지역", cell: (r) => <span className="name">{sidoName(r.regionId)}</span>, sort: (r) => r.regionId },
-            { key: "period", header: "기준월", cell: (r) => { const h = r.confirmed ?? r; return <>{ymLabel(h.period)} {h.provisional && <Badge tone="warn">잠정</Badge>}</>; } },
-            { key: "value", header: "지수", align: "right", cell: (r) => <strong>{num((r.confirmed ?? r).value, 2)}</strong>, sort: (r) => (r.confirmed ?? r).value },
-            { key: "mom", header: "전월비", align: "right", cell: (r) => <Change v={(r.confirmed ?? r).mom} digits={2} />, sort: (r) => (r.confirmed ?? r).mom },
-            { key: "yoy", header: "전년비", align: "right", cell: (r) => <Change v={(r.confirmed ?? r).yoy} digits={2} />, sort: (r) => (r.confirmed ?? r).yoy },
+            { key: "period", header: "기준월", cell: (r) => { const h = representative(r); return <>{ymLabel(h.period)} {h.provisional && <Badge tone="warn">잠정</Badge>}</>; } },
+            { key: "value", header: "지수", align: "right", cell: (r) => <strong>{num(representative(r).value, 2)}</strong>, sort: (r) => representative(r).value },
+            { key: "mom", header: "전월비", align: "right", cell: (r) => <Change v={representative(r).mom} digits={2} />, sort: (r) => representative(r).mom },
+            { key: "yoy", header: "전년비", align: "right", cell: (r) => <Change v={representative(r).yoy} digits={2} />, sort: (r) => representative(r).yoy },
             { key: "spark", header: "24개월", cell: (r) => <Sparkline values={r.spark} label={`${sidoName(r.regionId)} 지수 추이`} /> },
             { key: "corr", header: "R-ONE 상관", align: "right", sort: (r) => r.corrMoM,
               // 값이 없으면 이유를 적는다 (예: 통합 시도는 R-ONE 공표가 최근 1개월뿐 → 6개월 이상 겹쳐야 계산)

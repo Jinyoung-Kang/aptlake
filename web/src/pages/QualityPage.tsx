@@ -1,38 +1,21 @@
 import { useMemo, useState } from "react";
-import { useApi } from "../lib/api";
+import { useApi } from "../hooks/useApi";
 import { axisX, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { Badge, CopyButton, ErrorBox, Kpi, Skeleton, StatRow, Switch } from "../components/ui";
 import { DASH, esc, kst, num, relative, ymAdd, ymLabel, ymOf } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
-
-type Summary = {
-  partitions: Record<string, number>;
-  freshness: { lastFetchedAt: string | null; lastChangedAt: string | null };
-  dataset: { version: string; publishedAt: string; dataAsOf: string } | null;
-  failedChecks7d: { asset: string; partition: string | null; check: string; severity: string; blocking: boolean; metric: unknown; at: string; resolved: boolean }[];
-};
-type Rollup = { cells: Record<string, Record<string, Record<string, number>>> };
-type Grid = { cells: Record<string, Record<string, [string, number | null]>> };
-type Part = {
-  partition: { sggCd: string; dealYm: string; status: string; attempts: number; rows: number | null; rowsPrev: number | null; observations: number;
-               lastFetchedAt: string | null; lastChangedAt: string | null; nextDueAt: string | null; lastError: string | null };
-  checks: { asset: string; name: string; passed: boolean; blocking: boolean; severity: string; metric: unknown; at: string }[];
-  lineage: string[];
-};
-
-export const STATUS_LABEL: Record<string, string> = {
-  MERGED: "반영 완료", LOADED: "적재·반영 대기", PENDING: "미수집", FETCHING: "수집 중", RETRY: "재시도 대기", QUARANTINED: "격리",
-};
-const STATUS_ORDER = ["MERGED", "LOADED", "FETCHING", "PENDING", "RETRY", "QUARANTINED"];
+import { completion, failingChecks, gridCells, parseCell, rollupCells, rollupMonths, STATUS_LABEL, STATUS_ORDER, STATUS_TONE } from "../domain/quality";
+import { paths } from "../api/endpoints";
+import type { QualityGrid, QualityPartition, QualityRollup, QualitySummary } from "../api/types";
 
 function statusColor(p: Palette, s: string) {
-  return ({ MERGED: p.status.good, LOADED: p.status.info, FETCHING: p.status.info, PENDING: p.status.none, RETRY: p.status.warn, QUARANTINED: p.status.bad } as Record<string, string>)[s] ?? p.status.none;
+  return p.status[STATUS_TONE[s] ?? "none"];
 }
 
 function PartitionDetail({ sgg, ym }: { sgg: string; ym: string }) {
-  const { data, error, stale, reload } = useApi<Part>(`/v1/quality/partitions/${sgg}/${ym}`);
+  const { data, error, stale, reload } = useApi<QualityPartition>(paths.qualityPartition(sgg, ym));
   const { byCode } = useRegions();
   if (error) return <ErrorBox error={error} onRetry={reload} />;
   if (!data || stale) return <Skeleton h={200} />;  // 다른 파티션의 상세가 새 제목 아래 남지 않게
@@ -66,32 +49,22 @@ export default function QualityPage({ route }: { route: Route }) {
   const { sidos, byCode, sidoName } = useRegions();
   const now = ymOf(new Date());
   const from = ymAdd(now, -71);
-  const summary = useApi<Summary>("/v1/quality/summary", { refreshMs: 60_000 });
-  const rollup = useApi<Rollup>(`/v1/quality/rollup?from=${from}&to=${now}`);
+  const summary = useApi<QualitySummary>(paths.qualitySummary(), { refreshMs: 60_000 });
+  const rollup = useApi<QualityRollup>(paths.qualityRollup(from, now));
   const sido = route.params.get("sido");
   const cell = route.params.get("cell"); // 'sgg:YYYYMM'
-  const grid = useApi<Grid>(sido ? `/v1/quality/partitions?from=${from}&to=${now}&sido=${sido}` : null);
+  const grid = useApi<QualityGrid>(sido ? paths.qualityGrid(from, now, sido) : null);
   const [withResolved, setWithResolved] = useState(false);
+  const picked = parseCell(cell, (code) => byCode.has(code));
 
-  const months = useMemo(() => {
-    const set = new Set<string>();
-    Object.values(rollup.data?.cells ?? {}).forEach((m) => Object.keys(m).forEach((k) => set.add(k)));
-    return [...set].sort();
-  }, [rollup.data]);
+  const months = useMemo(() => rollupMonths(rollup.data), [rollup.data]);
   const s = summary.data;
-  const total = s ? Object.values(s.partitions).reduce((a, b) => a + b, 0) : 0;
-  const merged = s?.partitions.MERGED ?? 0;
-  const failing = (s?.failedChecks7d ?? []).filter((f) => withResolved || !f.resolved);
+  const { total, merged, pct } = completion(s?.partitions ?? {});
+  const failing = failingChecks(s?.failedChecks7d ?? [], withResolved);
 
   const buildRollup = (p: Palette) => {
     const rows = sidos.map((x) => x.sidoCd);
-    const data: [number, number, number, string][] = [];
-    rows.forEach((sd, y) => months.forEach((m, x) => {
-      const c = rollup.data?.cells[sd]?.[m];
-      if (!c) return;
-      const tot = Object.values(c).reduce((a, b) => a + b, 0);
-      data.push([x, y, Math.round(((c.MERGED ?? 0) / tot) * 100), Object.entries(c).map(([k, v]) => `${STATUS_LABEL[k] ?? k} ${v}`).join(" · ")]);
-    }));
+    const data = rollupCells(rollup.data, rows, months);
     const b = base(p);
     return {
       ...b,
@@ -108,11 +81,7 @@ export default function QualityPage({ route }: { route: Route }) {
 
   const sggRows = useMemo(() => (sido ? (sidos.find((x) => x.sidoCd === sido)?.regions ?? []) : []), [sido, sidos]);
   const buildGrid = (p: Palette) => {
-    const data: [number, number, number, number | null][] = [];
-    sggRows.forEach((r, y) => months.forEach((m, x) => {
-      const c = grid.data?.cells[r.sggCd]?.[m];
-      if (c) data.push([x, y, STATUS_ORDER.indexOf(c[0]), c[1]]);
-    }));
+    const data = gridCells(grid.data, sggRows.map((r) => r.sggCd), months);
     const b = base(p);
     return {
       ...b,
@@ -137,8 +106,8 @@ export default function QualityPage({ route }: { route: Route }) {
         <div className="kpis">
           <Kpi k="최근 원천 수집" v={relative(s.freshness.lastFetchedAt)} d={`${kst(s.freshness.lastFetchedAt, false)} · 내용 변경 ${relative(s.freshness.lastChangedAt)}`} />
           <Kpi k="데이터셋 버전" v={<span style={{ fontSize: 17 }}>{s.dataset?.version ?? DASH}</span>} d={`발행 ${kst(s.dataset?.publishedAt, false)}`} />
-          <Kpi k="반영 완료 파티션 (시군구×월)" v={`${num(total ? (merged / total) * 100 : 0, 1)}%`}
-               d={<>{num(merged)} / {num(total)} · 격리 {num(s.partitions.QUARANTINED ?? 0)} · 재시도 {num(s.partitions.RETRY ?? 0)}<div className="progress"><span style={{ width: `${total ? (merged / total) * 100 : 0}%` }} /></div></>} />
+          <Kpi k="반영 완료 파티션 (시군구×월)" v={`${num(pct, 1)}%`}
+               d={<>{num(merged)} / {num(total)} · 격리 {num(s.partitions.QUARANTINED ?? 0)} · 재시도 {num(s.partitions.RETRY ?? 0)}<div className="progress"><span style={{ width: `${pct}%` }} /></div></>} />
           <Kpi k="현재 실패 중인 검사" v={num((s.failedChecks7d ?? []).filter((f) => !f.resolved).length)} unit="건" d="최근 7일, 이후 통과한 검사는 제외" />
         </div>
       ) : summary.loading ? <Skeleton h={90} /> : null}
@@ -169,10 +138,7 @@ export default function QualityPage({ route }: { route: Route }) {
                        onClick={(e) => { const d = e.data as [number, number] | undefined; if (d) setParams(route, { cell: `${sggRows[d[1]].sggCd}:${months[d[0]]}` }); }} />
               ) : grid.error ? <ErrorBox error={grid.error} onRetry={grid.reload} /> : <Skeleton h={260} />}
             </div>
-            {cell && (() => {
-              const [code, m] = cell.split(":");
-              return byCode.has(code) && /^\d{6}$/.test(m) ? <aside><PartitionDetail sgg={code} ym={`${m.slice(0, 4)}-${m.slice(4)}`} /></aside> : null;
-            })()}
+            {picked && <aside><PartitionDetail sgg={picked[0]} ym={picked[1]} /></aside>}
           </div>
         </section>
       )}

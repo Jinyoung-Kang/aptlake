@@ -1,0 +1,139 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "jobs": {
+   "active": [
+    {
+     "durationS": null,
+     "endedAt": null,
+     "job": "month_pipeline",
+     "jobLabel": "월 수집·반영·발행",
+     "partition": "202409",
+     "priority": "retry",
+     "priorityLabel": "재시도",
+     "requestedAt": "<recent>",
+     "runId": "q-1",
+     "startedAt": null,
+     "status": "QUEUED",
+     "trigger": "수동"
+    },
+    {
+     "durationS": null,
+     "endedAt": null,
+     "job": "month_pipeline",
+     "jobLabel": "월 수집·반영·발행",
+     "partition": "202410",
+     "priority": "retry",
+     "priorityLabel": "재시도",
+     "requestedAt": "<recent>",
+     "runId": "r-1",
+     "startedAt": "<recent>",
+     "status": "STARTED",
+     "trigger": "수동"
+    }
+   ],
+   "recent": [
+    {
+     "durationS": 55.0,
+     "endedAt": "<recent>",
+     "job": "month_pipeline",
+     "jobLabel": "월 수집·반영·발행",
+     "partition": "202407",
+     "priority": "retry",
+     "priorityLabel": "재시도",
+     "requestedAt": "<recent>",
+     "runId": "fail-old",
+     "startedAt": "<recent>",
+     "status": "FAILURE",
+     "trigger": "수동"
+    },
+    {
+     "durationS": 55.0,
+     "endedAt": "<recent>",
+     "job": "month_pipeline",
+     "jobLabel": "월 수집·반영·발행",
+     "partition": "202408",
+     "priority": "retry",
+     "priorityLabel": "재시도",
+     "requestedAt": "<recent>",
+     "runId": "fail-new",
+     "startedAt": "<recent>",
+     "status": "FAILURE",
+     "trigger": "수동"
+    },
+    {
+     "durationS": 55.0,
+     "endedAt": "<recent>",
+     "job": "month_pipeline",
+     "jobLabel": "월 수집·반영·발행",
+     "partition": "202407",
+     "priority": "retry",
+     "priorityLabel": "재시도",
+     "requestedAt": "<recent>",
+     "runId": "ok-1",
+     "startedAt": "<recent>",
+     "status": "SUCCESS",
+     "trigger": "수동"
+    }
+   ]
+  },
+  "pipeline": {
+   "available": true
+  },
+  "schedules": [
+   {
+    "label": "수집 센서 (기한 도래 파티션)",
+    "lastTick": {
+     "at": "<recent>",
+     "error": "boom postgresql://pipeline:***@postgres/aptlake",
+     "runs": 0,
+     "skipReason": "",
+     "status": "FAILURE"
+    },
+    "name": "due_partitions_sensor",
+    "nextAt": "<recent>",
+    "rule": "5분마다 평가",
+    "status": "RUNNING",
+    "type": "sensor"
+   }
+  ],
+  "serverTime": "<recent>",
+  "summary": {
+   "backfillEstimate": {
+    "basis": "남은 파티션 수 ÷ 일일 호출 상한 (다른 프로그램과 키를 공유하면 더 걸림)",
+    "days": 1,
+    "remainingCalls": 1
+   },
+   "budget": {
+    "byPriority": {},
+    "cap": 8000,
+    "day": "<today>",
+    "exhaustedAt": null,
+    "exhaustedReason": null,
+    "limit": 10000,
+    "stopLabel": null,
+    "used": 0
+   },
+   "lastPublish": {
+    "at": "2024-08-05T03:00:00+00:00",
+    "version": "gold@test.1"
+   },
+   "partitions": {
+    "MERGED": 1,
+    "PENDING": 1,
+    "QUARANTINED": 1
+   },
+   "publishPending": 0,
+   "publishedMonths": 0,
+   "totalPartitions": 3
+  }
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

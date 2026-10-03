@@ -1,9 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, useApi, type TickerItem } from "../lib/api";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import type { TickerItem } from "../api/types";
+import { useClickOutside } from "../hooks/useClickOutside";
+import { useComplexSearch } from "../hooks/useComplexSearch";
+import { useTheme } from "../hooks/useTheme";
+import { useApi } from "../hooks/useApi";
 import { kst, num } from "../lib/format";
 import { href, navigate } from "../lib/router";
 import { pushRecent, searchRegions, useRegions } from "../lib/regions";
 import { Change, sqm } from "./ui";
+import { paths } from "../api/endpoints";
 
 export const NAV = [
   { path: "/market", label: "시장 개요" },
@@ -15,32 +20,17 @@ export const NAV = [
   { path: "/ops", label: "수집 상태" },
 ];
 
-type Complex = { complexKey: string; sggCd: string; umdName: string; aptName: string; buildYear: number | null; validTrades: number };
-
 function SearchBox() {
   const { regions, byCode } = useRegions();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [complexes, setComplexes] = useState<Complex[]>([]);
-  const box = useRef<HTMLDivElement>(null);
+  const complexes = useComplexSearch(q);
+  const box = useRef<HTMLElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(box, close);
 
   const regionHits = useMemo(() => searchRegions(regions, q, 6), [q, regions]);
-  useEffect(() => {
-    const term = q.trim();
-    if (term.length < 2 || /^[ㄱ-ㅎ\s]+$/.test(term)) { setComplexes([]); return; }
-    const ctrl = new AbortController();
-    const t = setTimeout(() => {
-      api<{ complexes: Complex[] }>(`/v1/search?q=${encodeURIComponent(term)}`, { signal: ctrl.signal })
-        .then((r) => setComplexes(r.complexes.slice(0, 8))).catch(() => undefined);
-    }, 220);
-    return () => { clearTimeout(t); ctrl.abort(); };
-  }, [q]);
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
 
   const items: { key: string; go: () => void; main: string; sub: string; group: string }[] = [
     ...regionHits.map((r) => ({ key: `r${r.sggCd}`, group: "시군구", main: r.name, sub: `${r.sidoName} · ${r.sggCd}`,
@@ -52,7 +42,8 @@ function SearchBox() {
   const pick = (i: number) => { items[i]?.go(); setOpen(false); setQ(""); };
 
   return (
-    <div className="search" ref={box} role="search">
+    // biome-ignore lint/a11y/noRedundantRoles: <search> 를 모르는 브라우저(사파리 17·크롬 118 이전)에서도 검색 영역으로 알리게
+    <search className="search" ref={box} role="search">
       <span className="glass" aria-hidden="true">⌕</span>
       <input value={q} placeholder="시군구·단지명 검색 (예: 분당, ㅂㄷ, 래미안)" aria-label="시군구·단지 검색"
              role="combobox" aria-expanded={open && items.length > 0} aria-controls="search-results"
@@ -75,15 +66,15 @@ function SearchBox() {
           ))}
         </div>
       )}
-    </div>
+    </search>
   );
 }
 
 function Ticker() {
-  const { data } = useApi<{ month: string; items: TickerItem[] }>("/v1/market/ticker");
+  const { data } = useApi<{ month: string; items: TickerItem[] }>(paths.ticker());
   if (!data?.items.length) return null;
   return (
-    <div className="ticker" aria-label="주요 지표">
+    <section className="ticker" aria-label="주요 지표">
       <div className="ticker-inner">
         {data.items.map((t) => (
           <div className="tick" key={t.key} title={t.changeBasis ?? undefined}>
@@ -94,24 +85,12 @@ function Ticker() {
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
-const THEME_KEY = "aptlake.theme";
-function useTheme(): [string, (t: string) => void] {
-  const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem(THEME_KEY) || "light"; } catch { return "light"; }
-  });
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem(THEME_KEY, theme); } catch { /* 저장 못 해도 이번 화면에는 적용 */ }
-  }, [theme]);
-  return [theme, setTheme];
-}
-
 export function Shell({ path, meta, children }: { path: string; meta: { version?: string; asOf?: string | null }; children: ReactNode }) {
-  const [theme, setTheme] = useTheme();
+  const theme = useTheme();
   const { error } = useRegions();
   return (
     <>
@@ -121,8 +100,10 @@ export function Shell({ path, meta, children }: { path: string; meta: { version?
           <SearchBox />
           <div className="right">
             <span className="meta-chip" title="데이터셋 버전 · 원천 관측 시각">{meta.version ?? "–"} · 원천 {kst(meta.asOf ?? null, false)}</span>
-            <button type="button" className="icon-btn" aria-label={theme === "dark" ? "밝은 화면" : "어두운 화면"} title="화면 테마"
-                    onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀" : "☾"}</button>
+            <button type="button" className="icon-btn theme-btn" aria-label={theme.label} title={theme.label} onClick={theme.cycle}>
+              <span aria-hidden="true">{theme.choice === "system" ? "◐" : theme.choice === "dark" ? "☾" : "☀"}</span>
+              <span className="theme-name">{theme.choice === "system" ? "자동" : theme.choice === "dark" ? "어둡게" : "밝게"}</span>
+            </button>
           </div>
         </div>
         <nav className="nav" aria-label="메뉴">

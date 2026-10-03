@@ -1,0 +1,24 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "files": { "includes": ["src/**"] },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      // 도입 시점(2026-10)에 있던 위반을 모두 고쳐 error 로 되돌렸다. 의도된 예외는 코드에 이유를 단 biome-ignore 로만.
+      "correctness": { "useExhaustiveDependencies": "error", "useHookAtTopLevel": "error" },
+      "suspicious": { "useIterableCallbackReturn": "error", "noArrayIndexKey": "error" },
+      "a11y": {
+        "useSemanticElements": "error",
+        "noStaticElementInteractions": "error",
+        "useKeyWithClickEvents": "error",
+        "useAriaPropsSupportedByRole": "error",
+        "useAriaPropsForRole": "error"
+      },
+      "style": { "noNonNullAssertion": "error", "noDescendingSpecificity": "error", "useTemplate": "error" },
+      "complexity": { "noImportantStyles": "error" }
+    }
+  }
+}

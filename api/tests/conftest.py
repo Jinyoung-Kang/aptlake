@@ -8,11 +8,16 @@ from decimal import Decimal
 from pathlib import Path
 
 import clickhouse_connect
+import httpx
 import psycopg
 import pytest
+import pytest_asyncio
 from testcontainers.community.clickhouse import ClickHouseContainer
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
+
+from aptlake_api.core import keys
+from aptlake_api.core.settings import settings
 
 ROOT = Path(__file__).resolve().parents[2]
 PW = "test-pw"
@@ -23,13 +28,17 @@ def stack():
     with (
         PostgresContainer("postgres:16-alpine", username="postgres", password=PW, dbname="aptlake") as pg,
         RedisContainer("redis:7.4-alpine") as rd,
-        ClickHouseContainer("clickhouse/clickhouse-server:25.8", username="admin", password=PW)
+        ClickHouseContainer("clickhouse/clickhouse-server:26.8", username="admin", password=PW)
         .with_env("CLICKHOUSE_READER_PASSWORD", PW)
         .with_env("CLICKHOUSE_USAGE_PASSWORD", PW)
         .with_env("CLICKHOUSE_PUBLISHER_PASSWORD", PW)
         .with_env("CLICKHOUSE_EXPORT_PASSWORD", PW)
         .with_volume_mapping(
             str(ROOT / "infra/clickhouse/users.d/aptlake-users.xml"), "/etc/clickhouse-server/users.d/aptlake-users.xml"
+        )
+        # 운영과 같은 서버 설정 — 엔진 버전을 올렸을 때 없어진 설정 이름이 여기서 먼저 걸린다 (26.8 업그레이드 때 놓쳤던 것)
+        .with_volume_mapping(
+            str(ROOT / "infra/clickhouse/config.d/aptlake.xml"), "/etc/clickhouse-server/config.d/aptlake.xml"
         ) as ch,
     ):
         pg_host, pg_port = pg.get_container_host_ip(), pg.get_exposed_port(5432)
@@ -284,3 +293,45 @@ def _seed_clickhouse(c) -> None:
             "trades",
         ],
     )
+
+
+# ───── 앱·클라이언트 (모든 API 테스트 공용) ─────
+
+
+@pytest_asyncio.fixture(scope="session")
+async def apps(stack):
+    settings.cache_clear()
+    from aptlake_api.main import create_internal_app, create_public_app
+
+    public, internal = create_public_app(), create_internal_app()
+    async with public.router.lifespan_context(public), internal.router.lifespan_context(internal):
+        await public.state.res.redis.set("al:ds:ver", "gold@test.1")
+        yield public, internal
+
+
+@pytest_asyncio.fixture(scope="session")
+async def pub(apps):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=apps[0], client=("10.9.0.1", 1)), base_url="http://t"
+    ) as c:
+        yield c
+
+
+@pytest_asyncio.fixture(scope="session")
+async def adm(apps):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=apps[1]), base_url="http://t") as c:
+        yield c
+
+
+@pytest_asyncio.fixture(scope="session")
+async def admin_key(stack):
+    import psycopg
+
+    issued = keys.issue("test-pepper")
+    with psycopg.connect(stack["su"], autocommit=True) as c:
+        cid = c.execute("INSERT INTO api.client (name, plan_id) VALUES ('op','pro') RETURNING client_id").fetchone()[0]
+        c.execute(
+            "INSERT INTO api.api_key VALUES (%s,%s,%s,%s, now(), now() + interval '1 day', NULL, NULL)",
+            (issued.key_id, cid, issued.secret_hmac, ["admin", "read"]),
+        )
+    return issued.api_key

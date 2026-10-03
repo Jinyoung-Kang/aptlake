@@ -1,0 +1,15 @@
+{
+ "body": {
+  "code": "INVALID_CURSOR",
+  "detail": "커서 서명이 맞지 않거나 다른 질의의 커서입니다.",
+  "status": 400,
+  "title": "Invalid Cursor",
+  "traceId": "<trace>",
+  "type": "about:blank"
+ },
+ "etag": false,
+ "headers": {
+  "content-type": "application/problem+json"
+ },
+ "status": 400
+}

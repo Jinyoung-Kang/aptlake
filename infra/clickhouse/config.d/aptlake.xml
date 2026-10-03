@@ -12,7 +12,6 @@
     <mark_cache_size>67108864</mark_cache_size>
     <index_mark_cache_size>16777216</index_mark_cache_size>
     <primary_index_cache_size>33554432</primary_index_cache_size>
-    <skipping_index_cache_size>16777216</skipping_index_cache_size>
     <compiled_expression_cache_size>16777216</compiled_expression_cache_size>
     <query_condition_cache_size>16777216</query_condition_cache_size>
 
@@ -27,6 +26,8 @@
     <background_buffer_flush_schedule_pool_size>2</background_buffer_flush_schedule_pool_size>
     <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
     <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
+    <!-- 26.x 의 background_streaming_schedule_pool_size 는 기본값(16) 유지: 2 로 줄이면 표마다 걸린 백그라운드 작업 배정이
+         '일시 중지' 경고와 함께 밀렸다 (26.8 업그레이드 때 확인) -->
 
     <!--
       진단용 시스템 로그는 끈다: 기본값은 스택 샘플(trace_log)·서버 로그(text_log, trace 수준)·

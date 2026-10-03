@@ -1,0 +1,138 @@
+{
+ "body": {
+  "available": {
+   "default": "2024-12",
+   "from": "2024-01",
+   "to": "2024-12"
+  },
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "definitions": {
+   "cancelRate": "해제 건수 ÷ 신고 건수(%)",
+   "median": "㎡당 거래가 중위수(만원/㎡) — 해제·이상치 제외",
+   "medianYoY": "전년 같은 달 대비 중위수 변화율(%) — 두 달 모두 표본 30건 이상일 때만"
+  },
+  "disclaimer": "공개 신고 자료를 가공한 학습·포트폴리오용 데이터입니다. 공식 통계가 아니며 투자 판단 근거로 쓰지 마세요.",
+  "month": "2024-06",
+  "nation": {
+   "cancelRate": 4.72,
+   "cancelled": 50,
+   "median": 1506.0,
+   "medianYoY": null,
+   "p25": 1200.0,
+   "p75": 1800.0,
+   "regionId": "00",
+   "sample": 900,
+   "spark": {
+    "median": [
+     1501.0,
+     1502.0,
+     1503.0,
+     1504.0,
+     1505.0,
+     1506.0
+    ],
+    "months": [
+     "2024-01",
+     "2024-02",
+     "2024-03",
+     "2024-04",
+     "2024-05",
+     "2024-06"
+    ],
+    "trades": [
+     960,
+     970,
+     980,
+     990,
+     1000,
+     1010
+    ]
+   },
+   "trades": 1010,
+   "tradesMoM": 1.0,
+   "tradesYoY": null
+  },
+  "provisional": false,
+  "rankings": {
+   "gainers": [],
+   "losers": [],
+   "volume": [
+    {
+     "cancelRate": 4.72,
+     "cancelled": 5,
+     "lowSample": false,
+     "median": 1506.0,
+     "medianYoY": null,
+     "sample": 90,
+     "sggCd": "41135",
+     "trades": 101,
+     "tradesMoM": 1.0,
+     "tradesYoY": null
+    }
+   ]
+  },
+  "sgg": [
+   {
+    "cancelRate": 4.72,
+    "cancelled": 5,
+    "lowSample": false,
+    "median": 1506.0,
+    "medianYoY": null,
+    "sample": 90,
+    "sggCd": "41135",
+    "trades": 101,
+    "tradesMoM": 1.0,
+    "tradesYoY": null
+   }
+  ],
+  "sido": [
+   {
+    "cancelRate": 4.72,
+    "cancelled": 20,
+    "median": 1506.0,
+    "medianYoY": null,
+    "p25": 1200.0,
+    "p75": 1800.0,
+    "regionId": "41",
+    "sample": 360,
+    "spark": {
+     "median": [
+      1501.0,
+      1502.0,
+      1503.0,
+      1504.0,
+      1505.0,
+      1506.0
+     ],
+     "months": [
+      "2024-01",
+      "2024-02",
+      "2024-03",
+      "2024-04",
+      "2024-05",
+      "2024-06"
+     ],
+     "trades": [
+      384,
+      388,
+      392,
+      396,
+      400,
+      404
+     ]
+    },
+    "trades": 404,
+    "tradesMoM": 1.0,
+    "tradesYoY": null
+   }
+  ]
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

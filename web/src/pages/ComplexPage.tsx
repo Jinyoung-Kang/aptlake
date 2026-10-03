@@ -1,32 +1,24 @@
 import { useMemo, useState } from "react";
-import { useApi, type Trade } from "../lib/api";
+import type { ComplexDetail } from "../api/types";
+import { useApi } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
-import { Badge, ErrorBox, Kpi, Skeleton, sqm } from "../components/ui";
-import { DASH, manwon, num, quantile } from "../lib/format";
+import { Badge, ErrorBox, Group, Kpi, Skeleton, sqm } from "../components/ui";
+import { DASH, manwon, num } from "../lib/format";
+import { bandOf, inBand, presentBands, validMedian } from "../domain/complex";
 import { href, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
-
-type Resp = {
-  complex: { complexKey: string; sggCd: string; umdName: string; jibun: string | null; aptName: string; buildYear: number | null; landLeasehold: boolean; firstSeen: string; validTrades: number };
-  recentTrades: Trade[];
-  history: [string, number, number | null, number, number, number, number][];
-};
-const BANDS = [
-  { key: "all", label: "전체", lo: 0, hi: Infinity }, { key: "s", label: "60m² 미만", lo: 0, hi: 60 },
-  { key: "m", label: "60~85m²", lo: 60, hi: 85 }, { key: "l", label: "85~135m²", lo: 85, hi: 135 }, { key: "xl", label: "135m² 이상", lo: 135, hi: Infinity },
-];
+import { paths } from "../api/endpoints";
 
 export default function ComplexPage({ route }: { route: Route }) {
   const key = route.parts[1] ?? "";
   const { byCode } = useRegions();
-  const { data, error, loading, stale, reload } = useApi<Resp>(/^c_[0-9a-f]{20}$/.test(key) ? `/v1/complexes/${key}` : null);
+  const { data, error, loading, stale, reload } = useApi<ComplexDetail>(/^c_[0-9a-f]{20}$/.test(key) ? paths.complex(key) : null);
   const [band, setBand] = useState("all");
-  const b = BANDS.find((x) => x.key === band)!;
-  const hist = useMemo(() => (data?.history ?? []).filter((h) => h[1] >= b.lo && h[1] < b.hi), [data, b]);
-  const present = useMemo(() => BANDS.filter((x) => x.key === "all" || (data?.history ?? []).some((h) => h[1] >= x.lo && h[1] < x.hi)), [data]);
-  const valid = hist.filter((h) => !h[5] && !h[6]);
-  const med = quantile(valid.map((h) => h[4]), 0.5);
+  const b = bandOf(band);
+  const hist = useMemo(() => inBand(data?.history ?? [], b), [data, b]);
+  const present = useMemo(() => presentBands(data?.history ?? []), [data]);
+  const { median: med, n: validN } = validMedian(hist);
 
   const build = (p: Palette) => {
     const bs = base(p);
@@ -65,22 +57,22 @@ export default function ComplexPage({ route }: { route: Route }) {
           <div className="kpis">
             <Kpi k="유효 거래 (전 기간)" v={num(c.validTrades)} unit="건" d={`처음 관측 ${c.firstSeen.replaceAll("-", ".")}`} />
             <Kpi k="준공" v={c.buildYear ? `${c.buildYear}년` : DASH} d={c.landLeasehold ? "토지임대부" : "일반"} />
-            <Kpi k={`m²당 중위가 · ${b.label}`} v={num(med)} unit="만원/m²" d={`표시 거래 ${num(valid.length)}건 기준`} />
+            <Kpi k={`m²당 중위가 · ${b.label}`} v={num(med)} unit="만원/m²" d={`표시 거래 ${num(validN)}건 기준`} />
           </div>
           <section className="section">
             <div className="section-head">
               <h2>거래 이력</h2><span className="sub">점 하나 = 거래 하나 · 속 빈 원 = 해제</span>
               <div className="tools">
-                <div className="chips" role="group" aria-label="전용면적">
+                <Group label="전용면적" className="chips">
                   {present.map((x) => <button key={x.key} type="button" className="chip" aria-pressed={x.key === band} onClick={() => setBand(x.key)}>{sqm(x.label)}</button>)}
-                </div>
+                </Group>
               </div>
             </div>
             <div className="panel panel-pad"><Chart build={build} deps={[hist]} height={340} label="단지 거래 이력 산점도" /></div>
           </section>
           <section className="section">
             <div className="section-head"><h2>최근 거래</h2><span className="sub">최근 20건</span></div>
-            <DataTable rows={data!.recentTrades} rowKey={(t) => t.tradeId} columns={[
+            <DataTable rows={data?.recentTrades ?? []} rowKey={(t) => t.tradeId} columns={[
               { key: "d", header: "계약일", cell: (t) => t.dealDate.replaceAll("-", ".") },
               { key: "a", header: "전용m²", align: "right", cell: (t) => num(t.areaM2, 2) },
               { key: "f", header: "층", align: "right", cell: (t) => t.floor ?? DASH },

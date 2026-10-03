@@ -1,40 +1,23 @@
 import { useMemo, useRef, useState } from "react";
-import { useApi, type IndexSummaryItem, type Overview, type SggSummary } from "../lib/api";
+import type { GeoSgg, IndexSummaryItem, Overview, SggSummary } from "../api/types";
+import { useApi } from "../hooks/useApi";
 import { Chart, echarts, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { MonthPicker } from "../components/MonthPicker";
-import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm, sqm, StatRow, Tabs } from "../components/ui";
+import { Badge, Change, ErrorBox, Group, Kpi, Segmented, Skeleton, Sparkline, Sqm, sqm, StatRow, Tabs } from "../components/ui";
 import { DASH, esc, num, ymLabel } from "../lib/format";
+import { mapPieces, METRICS, metricOf, metricValue, type Metric } from "../domain/market";
+import { representative } from "../domain/priceIndex";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
+import { paths } from "../api/endpoints";
 
-type Metric = "median" | "medianYoY" | "trades" | "cancelRate";
-const METRICS: { value: Metric; label: string; unit: string; title: string }[] = [
-  { value: "median", label: "m²당 중위가", unit: "만원/m²", title: "해제·이상치 제외 m²당 거래가 중위수" },
-  { value: "medianYoY", label: "가격 변화(전년비)", unit: "%", title: "전년 같은 달 대비 중위수 변화율 — 두 달 모두 표본 30건 이상" },
-  { value: "trades", label: "거래량", unit: "건", title: "해제 제외 신고 건수" },
-  { value: "cancelRate", label: "해제율", unit: "%", title: "해제 건수 ÷ 신고 건수" },
-];
-
-type Geo = { type: "FeatureCollection"; source: string; features: { id: string; properties: { sggCd: string; name?: string }; geometry: unknown }[] };
-let registered = "";
-
-function quantileBins(values: number[], n: number): number[] {
-  const v = [...values].sort((a, b) => a - b);
-  if (v.length < n) return [];
-  const edges: number[] = [];
-  for (let i = 1; i < n; i++) edges.push(v[Math.floor((i * v.length) / n)]);
-  return [...new Set(edges)];
-}
-
-function niceLabel(x: number, metric: Metric): string {
-  return metric === "trades" ? num(x) : metric === "median" ? num(x) : num(x, 1);
-}
+let registered = "";  // 등록한 경계(출처+개수) — 같은 경계를 다시 등록하지 않게
 
 const MAP_HOME = { zoom: 1.12, center: [127.8, 36.1] as [number, number] };
 const MAP_ZOOM = { min: 0.9, max: 12 };
 
-function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: Geo }) {
+function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: GeoSgg }) {
   const { byCode } = useRegions();
   // 지도 시점은 지표를 바꿔도 유지 (드래그 이동은 차트가, 확대는 버튼이 바꾼다)
   const view = useRef({ ...MAP_HOME });
@@ -52,43 +35,18 @@ function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: 
   }
   const values = useMemo(() => {
     const m = new Map<string, SggSummary>();
-    data.sgg.forEach((s) => m.set(s.sggCd, s));
+    for (const s of data.sgg) m.set(s.sggCd, s);
     return m;
   }, [data]);
-  const meta = METRICS.find((m) => m.value === metric)!;
+  const meta = METRICS.find((m) => m.value === metric) ?? METRICS[0];
 
   const build = (p: Palette) => {
-    const valOf = (s: SggSummary | undefined): number | null => {
-      if (!s) return null;
-      if (metric === "median") return s.lowSample ? null : s.median;
-      if (metric === "medianYoY") return s.medianYoY;
-      if (metric === "trades") return s.trades;
-      return s.trades + s.cancelled > 0 ? s.cancelRate : null;
-    };
     const series = geo.features.map((f) => {
       const code = f.properties.sggCd;
-      const v = valOf(values.get(code));
+      const v = metricValue(values.get(code), metric);
       return { name: code, value: v ?? "-" };
     });
-    let pieces: Record<string, unknown>[];
-    if (metric === "medianYoY") {
-      pieces = [
-        { lt: -5, label: "−5% 미만", color: p.div[0] }, { gte: -5, lt: -1, label: "−5 ~ −1%", color: p.div[1] },
-        { gte: -1, lte: 1, label: "−1 ~ +1%", color: p.div[2] }, { gt: 1, lte: 5, label: "+1 ~ +5%", color: p.div[3] },
-        { gt: 5, label: "+5% 초과", color: p.div[4] },
-      ];
-    } else {
-      const nums = series.map((s) => s.value).filter((v): v is number => typeof v === "number");
-      const edges = quantileBins(nums, 6);
-      const ramp = [p.seq[1], p.seq[2], p.seq[3], p.seq[4], p.seq[5], p.seq[7]];
-      const bounds = [Number.NEGATIVE_INFINITY, ...edges, Number.POSITIVE_INFINITY];
-      pieces = bounds.slice(0, -1).map((lo, i) => {
-        const hi = bounds[i + 1];
-        const label = lo === Number.NEGATIVE_INFINITY ? `${niceLabel(hi, metric)} 미만`
-          : hi === Number.POSITIVE_INFINITY ? `${niceLabel(lo, metric)} 이상` : `${niceLabel(lo, metric)} ~ ${niceLabel(hi, metric)}`;
-        return { ...(lo === Number.NEGATIVE_INFINITY ? {} : { gte: lo }), ...(hi === Number.POSITIVE_INFINITY ? {} : { lt: hi }), label, color: ramp[Math.min(i, ramp.length - 1)] };
-      });
-    }
+    const pieces = mapPieces(series.map((x) => x.value).filter((v): v is number => typeof v === "number"), metric, p);
     return {
       backgroundColor: "transparent",
       tooltip: {
@@ -121,11 +79,11 @@ function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: 
   };
   return (
     <>
-      <div className="map-tools" role="group" aria-label="지도 확대">
+      <Group label="지도 확대" className="map-tools">
         <button type="button" className="btn icon" aria-label="확대" title="확대" onClick={() => setView(view.current.zoom * 1.5)}>+</button>
         <button type="button" className="btn icon" aria-label="축소" title="축소" onClick={() => setView(view.current.zoom / 1.5)}>−</button>
         <button type="button" className="btn" title="전국 보기로" onClick={() => setView(MAP_HOME.zoom, MAP_HOME.center)}>초기화</button>
-      </div>
+      </Group>
       <Chart build={build} deps={[data, metric, geo]} height={600} label={`시군구별 ${meta.label} 지도`}
              onReady={(c) => {
                chart.current = c;
@@ -161,15 +119,15 @@ function RankList({ rows, kind }: { rows: SggSummary[]; kind: "volume" | "gainer
 
 export default function MarketPage({ route }: { route: Route }) {
   const ym = route.params.get("ym");
-  const metric = (route.params.get("metric") as Metric) || "median";
-  const { data, error, loading, stale, reload } = useApi<Overview>(`/v1/market/overview${ym ? `?ym=${ym}` : ""}`);
-  const geo = useApi<Geo>("/v1/geo/sgg");
-  const idx = useApi<{ items: IndexSummaryItem[] }>("/v1/index/summary");
+  const metric = metricOf(route.params.get("metric"));
+  const { data, error, loading, stale, reload } = useApi<Overview>(paths.marketOverview(ym));
+  const geo = useApi<GeoSgg>(paths.geoSgg());
+  const idx = useApi<{ items: IndexSummaryItem[] }>(paths.indexSummary());
   const { sidoName } = useRegions();
   const [rankTab, setRankTab] = useState<"volume" | "gainers" | "losers">("volume");
   const nation = data?.nation;
   const natAll = idx.data?.items.find((x) => x.regionId === "00");
-  const natIdx = natAll ? (natAll.confirmed ?? natAll) : undefined;  // 대표값 = 확정된 최근 달
+  const natIdx = natAll ? representative(natAll) : undefined;  // 대표값 = 확정된 최근 달
 
   return (
     <>
@@ -259,7 +217,7 @@ export default function MarketPage({ route }: { route: Route }) {
               { key: "trades", header: "거래(건)", align: "right", cell: (r) => num(r.trades), sort: (r) => r.trades },
               { key: "mom", header: "전월비", align: "right", cell: (r) => <Change v={r.tradesMoM} />, sort: (r) => r.tradesMoM },
               { key: "yoy", header: "전년비", align: "right", cell: (r) => <Change v={r.tradesYoY} />, sort: (r) => r.tradesYoY },
-              { key: "median", header: "m²당 중위가", align: "right", cell: (r) => num(r.median), sort: (r) => r.median },
+              { key: "median", header: "m²당 중위가(만원)", align: "right", cell: (r) => num(r.median), sort: (r) => r.median },
               { key: "myoy", header: "중위가 전년비", align: "right", cell: (r) => <Change v={r.medianYoY} />, sort: (r) => r.medianYoY },
               { key: "cancel", header: "해제율", align: "right", cell: (r) => (r.cancelRate == null ? DASH : `${num(r.cancelRate, 1)}%`), sort: (r) => r.cancelRate },
               { key: "spark", header: "12개월 거래", cell: (r) => <Sparkline values={r.spark.trades} label={`${sidoName(r.regionId)} 최근 12개월 거래량`} /> },

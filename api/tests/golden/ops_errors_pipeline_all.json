@@ -1,0 +1,74 @@
+{
+ "body": {
+  "apiErrorSummary": [],
+  "cleared": null,
+  "counts": {
+   "pipeline": 4
+  },
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "entries": [
+   {
+    "at": "<recent>",
+    "cleared": false,
+    "detail": "boom postgresql://pipeline:***@postgres/aptlake",
+    "id": "tick:due_partitions_sensor:<ts>",
+    "level": "ERROR",
+    "message": "boom postgresql://pipeline:***@postgres/aptlake",
+    "ref": null,
+    "resolved": false,
+    "source": "pipeline",
+    "where": "수집 센서 (기한 도래 파티션)"
+   },
+   {
+    "at": "<recent>",
+    "cleared": false,
+    "detail": "502 for https://apis.data.go.kr/x?serviceKey=*** (fail-old)\n\n  File a.py",
+    "id": "run:fail-old:0",
+    "level": "ERROR",
+    "message": "502 for https://apis.data.go.kr/x?serviceKey=*** (fail-old)",
+    "ref": "fail-old",
+    "resolved": true,
+    "source": "pipeline",
+    "where": "월 수집·반영·발행 · 202407 · bronze__rtms"
+   },
+   {
+    "at": "<recent>",
+    "cleared": false,
+    "detail": "502 for https://apis.data.go.kr/x?serviceKey=*** (fail-new)\n\n  File a.py",
+    "id": "run:fail-new:0",
+    "level": "ERROR",
+    "message": "502 for https://apis.data.go.kr/x?serviceKey=*** (fail-new)",
+    "ref": "fail-new",
+    "resolved": false,
+    "source": "pipeline",
+    "where": "월 수집·반영·발행 · 202408 · bronze__rtms"
+   },
+   {
+    "at": "<recent>",
+    "cleared": false,
+    "detail": "old boom",
+    "id": "tick:due_partitions_sensor:<ts>",
+    "level": "ERROR",
+    "message": "old boom",
+    "ref": null,
+    "resolved": true,
+    "source": "pipeline",
+    "where": "수집 센서 (기한 도래 파티션)"
+   }
+  ],
+  "notes": [],
+  "truncated": false,
+  "window": {
+   "hours": 168,
+   "since": "<recent>"
+  }
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

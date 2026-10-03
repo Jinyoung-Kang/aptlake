@@ -6,10 +6,10 @@ from hypothesis import given
 from hypothesis import strategies as st
 from starlette.requests import Request
 
-from aptlake_api import cursor, keys
-from aptlake_api.auth import client_ip
-from aptlake_api.deps import assert_all_routes_scoped, require_scope
-from aptlake_api.settings import Settings
+from aptlake_api.core import cursor, keys
+from aptlake_api.core.auth import client_ip
+from aptlake_api.core.http import assert_all_routes_scoped, require_scope
+from aptlake_api.core.settings import Settings
 
 PEPPER = "pepper-for-tests"
 

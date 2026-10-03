@@ -12,14 +12,18 @@ const tradesMs = new Trend("trades_ms", true);
 const hitMs = new Trend("cache_hit_ms", true);
 const missMs = new Trend("cache_miss_ms", true);
 const limited = new Rate("anon_429");
+// 전후 비교(A/B)용: 기본은 기획서 목표 부하(200 + 100 RPS), 다른 대상·부하는 환경 변수로
+const RATE_MONTHS = +(__ENV.RATE_MONTHS || 200);
+const RATE_TRADES = +(__ENV.RATE_TRADES || 100);
+const DURATION = __ENV.DURATION || "60s";
 
 export const options = {
   scenarios: {
-    months: { executor: "constant-arrival-rate", rate: 200, timeUnit: "1s", duration: "60s",
+    months: { executor: "constant-arrival-rate", rate: RATE_MONTHS, timeUnit: "1s", duration: DURATION,
               preAllocatedVUs: 60, maxVUs: 200, exec: "months" },
-    trades: { executor: "constant-arrival-rate", rate: 100, timeUnit: "1s", duration: "60s",
+    trades: { executor: "constant-arrival-rate", rate: RATE_TRADES, timeUnit: "1s", duration: DURATION,
               preAllocatedVUs: 40, maxVUs: 150, exec: "trades" },
-    over_limit: { executor: "constant-arrival-rate", rate: 1, timeUnit: "1s", duration: "60s",
+    over_limit: { executor: "constant-arrival-rate", rate: 1, timeUnit: "1s", duration: DURATION,
                   preAllocatedVUs: 2, exec: "anonymous" },
   },
   thresholds: {

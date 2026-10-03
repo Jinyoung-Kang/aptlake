@@ -1,0 +1,38 @@
+{
+ "body": {
+  "apiErrorSummary": [],
+  "cleared": null,
+  "counts": {
+   "ingest": 1
+  },
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "entries": [
+   {
+    "at": "<recent>",
+    "cleared": false,
+    "detail": "HTTP 500 for https://apis.data.go.kr/x?serviceKey=***&LAWD_CD=41135\n\n대상 시군구(최대 8개): 41135",
+    "id": "ingest:202408:QUARANTINED:43c4ac8e",
+    "level": "ERROR",
+    "message": "HTTP 500 for https://apis.data.go.kr/x?serviceKey=***&LAWD_CD=41135",
+    "ref": null,
+    "resolved": false,
+    "source": "ingest",
+    "where": "원천 수집 · 2024-08 · 시군구 1개 격리"
+   }
+  ],
+  "notes": [],
+  "truncated": false,
+  "window": {
+   "hours": 168,
+   "since": "<recent>"
+  }
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}
