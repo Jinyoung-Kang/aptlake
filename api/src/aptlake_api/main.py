@@ -30,6 +30,7 @@ from .core.settings import settings
 from .core.usage import UsageRecorder
 from .features.complexes.router import router as complexes_router
 from .features.index.router import router as index_router
+from .features.quality.router import router as quality_router
 from .features.regions.router import router as regions_router
 from .features.trades.router import router as trades_router
 
@@ -112,7 +113,7 @@ def _build(name: str, internal: bool) -> FastAPI:
     if internal:
         app.include_router(routes_admin.router)
     else:
-        for feature in (regions_router, trades_router, complexes_router, index_router):
+        for feature in (regions_router, trades_router, complexes_router, index_router, quality_router):
             app.include_router(feature)
         app.include_router(routes_public.router)
         app.include_router(routes_market.router)

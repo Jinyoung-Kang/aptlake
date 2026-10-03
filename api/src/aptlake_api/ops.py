@@ -13,40 +13,15 @@
 from __future__ import annotations
 
 import datetime as dt
-import re
 import time
 from typing import Any
 
 import httpx
 
+from .core.redact import redact  # noqa: F401 — 운영 화면·품질 응답이 쓰는 비밀 가림
+
 # 가릴 이름: 이름 끝이 이 단어면 값을 가린다 (s3.secret-access-key, aws_session_token, X-Amz-Signature, serviceKey …).
 # 'key' 단독 이름(V-World ?key=)은 앞에 다른 단어가 없을 때만 — complex_key·stepKey 같은 식별자는 남긴다.
-_SENSITIVE_NAME = (
-    r"(?:(?<![\w.-])key|(?<![\w.-])[\w.-]*?(?:service_?key|api[-_]?key|crtfc_key|access[-_]?key(?:[-_]?id)?"
-    r"|secret(?:[-_]?access)?(?:[-_]?key)?|private[-_]?key|password|passwd|pwd|token|credentials?|signature))"
-)
-REDACTIONS: list[tuple[re.Pattern[str], str]] = [
-    (re.compile(r"al_live_[2-9A-HJ-NP-Z]{12}\.[A-Za-z0-9_-]{20,}"), "al_live_***"),
-    # URL 사용자 정보의 비밀번호 (postgresql+psycopg://user:pw@, redis://:pw@ …)
-    (re.compile(r"(?i)\b([a-z][a-z0-9+.-]*)://([^:/@\s]*):([^@\s]+)@"), r"\1://\2:***@"),
-    # 인증 헤더 (Bearer/Basic 스킴 뒤의 값까지)
-    (
-        re.compile(r"(?i)\b(authorization|x-api-key)([\"']?\s*[:=]\s*[\"']?)(?:(?:bearer|basic|token)\s+)?[^\s\"',}]+"),
-        r"\1\2***",
-    ),
-    # name=value · "name": "value" · 'name': 'value'
-    (re.compile(rf"(?i)({_SENSITIVE_NAME})([\"']?\s*[:=]\s*[\"']?)(?!\*\*\*)[^\s\"',}}&]+"), r"\1\2***"),
-]
-
-
-def redact(text: str | None) -> str:
-    if not text:
-        return ""
-    for pattern, repl in REDACTIONS:
-        text = pattern.sub(repl, text)
-    return text
-
-
 JOB_LABEL = {
     "month_pipeline": "월 수집·반영·발행",
     "dims_and_index": "단지 차원·자체 지수",

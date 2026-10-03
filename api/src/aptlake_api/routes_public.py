@@ -7,16 +7,15 @@ import math
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Path, Query, Request
-from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
-from . import ops
 from .core.auth import Principal
 from .core.clock import provisional
-from .core.http import require_scope, respond
+from .core.http import require_scope
 from .core.problems import ApiError
 from .core.responses import OrjsonResponse
 from .core.settings import settings
+from .core.values import iso
 
 router = APIRouter(prefix="/v1")
 
@@ -60,218 +59,6 @@ def _ts(v: dt.datetime | None) -> str | None:
 
 def _round(v: float | None) -> float | None:
     return None if v is None or math.isnan(v) else round(v, 1)
-
-
-# ───────────────────────── 품질·계보 ─────────────────────────
-
-
-@router.get("/quality/summary", summary="전체 신선도·파티션 상태·최근 실패 검사")
-async def quality_summary(request: Request, p: Principal = require_scope("read")) -> Response:
-    async def compute():
-        async with request.app.state.res.pg.connection() as c:
-            status = await (
-                await c.execute("SELECT status, count(*) AS n FROM ops.ingest_partition GROUP BY status")
-            ).fetchall()
-            fresh = await (
-                await c.execute(
-                    "SELECT max(last_fetched_at) AS fetched, max(last_changed_at) AS changed FROM ops.ingest_partition"
-                )
-            ).fetchone()
-            ver = await (
-                await c.execute(
-                    """SELECT version, published_at, data_as_of FROM ops.dataset_version
-                       ORDER BY published_at DESC LIMIT 1"""
-                )
-            ).fetchone()
-            failed = await (
-                await c.execute(
-                    """SELECT d.asset, d.partition, d.check_name, d.severity, d.blocking, d.metric, d.at,
-                              EXISTS (SELECT 1 FROM ops.dq_result x
-                                      WHERE x.asset = d.asset AND x.partition IS NOT DISTINCT FROM d.partition
-                                        AND x.check_name = d.check_name AND x.at > d.at AND x.passed) AS resolved
-                       FROM ops.dq_result d
-                       WHERE NOT d.passed AND d.at > now() - interval '7 days' ORDER BY d.at DESC LIMIT 200"""
-                )
-            ).fetchall()
-            budget = await (
-                await c.execute(
-                    """SELECT day, limit_calls, used_calls, by_priority FROM ops.api_budget
-                   WHERE source = 'rtms' ORDER BY day DESC LIMIT 7"""
-                )
-            ).fetchall()
-        return {
-            "partitions": {r["status"]: r["n"] for r in status},
-            "freshness": {"lastFetchedAt": _iso(fresh["fetched"]), "lastChangedAt": _iso(fresh["changed"])},
-            "dataset": None
-            if not ver
-            else {
-                "version": ver["version"],
-                "publishedAt": _iso(ver["published_at"]),
-                "dataAsOf": _iso(ver["data_as_of"]),
-            },
-            "failedChecks7d": [
-                {
-                    "asset": f["asset"],
-                    "partition": f["partition"],
-                    "check": f["check_name"],
-                    "severity": f["severity"],
-                    "blocking": f["blocking"],
-                    "metric": f["metric"],
-                    "at": _iso(f["at"]),
-                    "resolved": bool(f["resolved"]),  # 같은 검사가 이후 통과했으면 해결됨
-                }
-                for f in failed
-            ],
-            "apiBudget": [
-                {
-                    "day": b["day"].isoformat(),
-                    "limit": b["limit_calls"],
-                    "used": b["used_calls"],
-                    "byPriority": b["by_priority"],
-                }
-                for b in budget
-            ],
-        }, 0
-
-    return await respond(request, "quality_summary", {}, compute, cache=False)
-
-
-def _iso(v: Any) -> str | None:
-    return v.isoformat() if v else None
-
-
-@router.get("/quality/partitions", summary="파티션 상태 격자 (시군구 × 계약월) — 품질 히트맵용")
-async def quality_grid(
-    request: Request,
-    from_: Annotated[str, Query(alias="from", pattern=YM_Q)],
-    to: Annotated[str, Query(pattern=YM_Q)],
-    sido: Annotated[str | None, Query(pattern=r"^\d{2}$", description="시도 2자리 — 지정하면 그 시도 시군구만")] = None,
-    p: Principal = require_scope("read"),
-) -> Response:
-    start, end = _ym_to_date(from_), _ym_to_date(to)
-    # 전국 격자는 칸이 많아(시군구 256 × 월) 60개월까지, 시도 하나는 시군구가 많아야 47개라 240개월까지
-    limit = 240 if sido else 60
-    if end < start or _months_between(start, end) > limit:
-        raise ApiError(422, "RANGE_TOO_LARGE", "Range Too Large", f"최대 {limit}개월")
-
-    async def compute():
-        async with request.app.state.res.pg.connection() as c:
-            rows = await (
-                await c.execute(
-                    """SELECT p.sgg_cd, p.deal_ym, p.status, p.rows_last FROM ops.ingest_partition p
-                   WHERE p.deal_ym BETWEEN %s AND %s AND (%s::text IS NULL OR left(p.sgg_cd, 2) = %s)
-                   ORDER BY p.sgg_cd, p.deal_ym""",
-                    (start.strftime("%Y%m"), end.strftime("%Y%m"), sido, sido),
-                )
-            ).fetchall()
-        grid: dict[str, dict[str, Any]] = {}
-        for r in rows:
-            grid.setdefault(r["sgg_cd"], {})[r["deal_ym"]] = [r["status"], r["rows_last"]]
-        return {"from": from_, "to": to, "cells": grid, "legend": ["status", "rows"]}, 0
-
-    return await respond(request, "quality_grid", {"a": from_, "b": to, "s": sido}, compute, cache=False)
-
-
-@router.get("/quality/rollup", summary="시도 × 계약월 수집 완결도 (파티션 상태별 개수)")
-async def quality_rollup(
-    request: Request,
-    from_: Annotated[str, Query(alias="from", pattern=YM_Q)],
-    to: Annotated[str, Query(pattern=YM_Q)],
-    p: Principal = require_scope("read"),
-) -> Response:
-    start, end = _ym_to_date(from_), _ym_to_date(to)
-    if end < start or _months_between(start, end) > 240:
-        raise ApiError(422, "RANGE_TOO_LARGE", "Range Too Large", "최대 240개월")
-
-    async def compute():
-        async with request.app.state.res.pg.connection() as c:
-            rows = await (
-                await c.execute(
-                    """SELECT left(sgg_cd, 2) AS sido, deal_ym, status, count(*) AS n FROM ops.ingest_partition
-                       WHERE deal_ym BETWEEN %s AND %s GROUP BY 1, 2, 3 ORDER BY 1, 2""",
-                    (start.strftime("%Y%m"), end.strftime("%Y%m")),
-                )
-            ).fetchall()
-        cells: dict[str, dict[str, dict[str, int]]] = {}
-        for r in rows:
-            cells.setdefault(r["sido"], {}).setdefault(r["deal_ym"], {})[r["status"]] = r["n"]
-        return {"from": from_, "to": to, "cells": cells}, 0
-
-    return await respond(request, "quality_rollup", {"a": from_, "b": to}, compute, cache=False)
-
-
-@router.get("/quality/partitions/{sggCd}/{dealYm}", summary="파티션 품질 검사 결과·계보")
-async def quality_partition(
-    request: Request,
-    sggCd: SGG,  # noqa: N803
-    dealYm: Annotated[str, Path(pattern=YM_Q)],  # noqa: N803
-    p: Principal = require_scope("read"),
-) -> Response:
-    ym = dealYm.replace("-", "")
-
-    async def compute():
-        async with request.app.state.res.pg.connection() as c:
-            part = await (
-                await c.execute(
-                    """SELECT status, attempts, rows_last, rows_prev, payload_sha256, last_ingest_id, last_fetched_at,
-                          last_changed_at, fetch_count, next_due_at, last_error
-                   FROM ops.ingest_partition WHERE sgg_cd=%s AND deal_ym=%s""",
-                    (sggCd, ym),
-                )
-            ).fetchone()
-            if part is None:
-                raise ApiError(404, "PARTITION_NOT_FOUND", "Not Found")
-            checks = await (
-                await c.execute(
-                    """SELECT DISTINCT ON (asset, check_name) asset, check_name, passed, severity, blocking, metric, at
-                   FROM ops.dq_result WHERE partition = %s OR partition = %s
-                   ORDER BY asset, check_name, at DESC""",
-                    (f"{sggCd}/{ym}", ym),
-                )
-            ).fetchall()
-            ver = await (
-                await c.execute(
-                    """SELECT version, published_at, snapshots FROM ops.dataset_version WHERE %s = ANY(partitions)
-                   ORDER BY published_at DESC LIMIT 1""",
-                    (ym,),
-                )
-            ).fetchone()
-        lineage = []
-        if part["payload_sha256"]:
-            lineage.append(f"s3://raw/rtms/deal_ym={ym}/sgg_cd={sggCd}/{part['payload_sha256']}/")
-        if ver:
-            lineage += [f"{t}@snap {sid}" for t, sid in ver["snapshots"].items()]
-            lineage.append(f"clickhouse ({ver['version']}, {_iso(ver['published_at'])})")
-        return {
-            "partition": {
-                "sggCd": sggCd,
-                "dealYm": dealYm,
-                "status": part["status"],
-                "attempts": part["attempts"],
-                "rows": part["rows_last"],
-                "rowsPrev": part["rows_prev"],
-                "observations": part["fetch_count"],
-                "lastFetchedAt": _iso(part["last_fetched_at"]),
-                "lastChangedAt": _iso(part["last_changed_at"]),
-                "nextDueAt": _iso(part["next_due_at"]),
-                "lastError": ops.redact(part["last_error"]) or None,  # 공개 응답 — 비밀값 가림 (오류 로그와 같은 규칙)
-            },
-            "checks": [
-                {
-                    "asset": ch["asset"],
-                    "name": ch["check_name"],
-                    "passed": ch["passed"],
-                    "blocking": ch["blocking"],
-                    "severity": ch["severity"],
-                    "metric": ch["metric"],
-                    "at": _iso(ch["at"]),
-                }
-                for ch in checks
-            ],
-            "lineage": lineage,
-        }, 0
-
-    return await respond(request, "quality_partition", {"s": sggCd, "m": ym}, compute, cache=False)
 
 
 # ───────────────────────── 내 사용량 ─────────────────────────
@@ -374,8 +161,8 @@ async def get_export(
         "jobId": str(job["job_id"]),
         "status": job["status"],
         "rows": job["rows"],
-        "createdAt": _iso(job["created_at"]),
-        "finishedAt": _iso(job["finished_at"]),
+        "createdAt": iso(job["created_at"]),
+        "finishedAt": iso(job["finished_at"]),
     }
     if job["status"] == "done" and job["object_key"]:
         from .exports import presign
