@@ -351,7 +351,7 @@ services:
     logging: *logging
 
   grafana:
-    image: grafana/grafana:12.4.11
+    image: grafana/grafana:12.4.12
     profiles: ["obs"]
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
