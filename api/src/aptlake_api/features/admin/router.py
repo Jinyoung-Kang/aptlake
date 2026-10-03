@@ -74,8 +74,8 @@ async def revoke_key(
 @router.post("/partitions/{sggCd}/{dealYm}/retry", status_code=202)
 async def retry_partition(
     request: Request,
-    sggCd: Annotated[str, Path(pattern=r"^\d{5}$")],  # noqa: N803
-    dealYm: Annotated[str, Path(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],  # noqa: N803
+    sggCd: Annotated[str, Path(pattern=r"^[0-9]{5}$")],  # noqa: N803
+    dealYm: Annotated[str, Path(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")],  # noqa: N803
     p: Principal = require_scope("admin"),
 ) -> OrjsonResponse:
     out = await service.retry_partition(_repo(request), sggCd, dealYm, _actor(request, p))

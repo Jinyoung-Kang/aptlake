@@ -22,7 +22,7 @@ router = APIRouter(prefix="/v1")
 @router.get("/trades", summary="거래 목록 (커서 페이지, 최신 계약일 순)")
 async def trades(
     request: Request,
-    sggCd: Annotated[str, Query(pattern=r"^\d{5}$")],  # noqa: N803
+    sggCd: Annotated[str, Query(pattern=r"^[0-9]{5}$")],  # noqa: N803
     from_: Annotated[dt.date, Query(alias="from")],
     to: dt.date,
     minArea: Annotated[float | None, Query(ge=0, le=1000)] = None,  # noqa: N803
