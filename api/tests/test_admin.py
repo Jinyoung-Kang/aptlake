@@ -29,3 +29,29 @@ async def test_retry_partition_only_from_quarantine_and_audited(adm, admin_key, 
         ).fetchone()
     assert row == ("RETRY", 0, None)
     assert _actions(stack["su"], "41135/203001") == ["partition.retry"]
+
+
+async def test_admin_change_is_rolled_back_when_audit_fails(apps, adm, admin_key, stack, monkeypatch):
+    """감사 기록이 실패하면 변경도 남지 않아야 한다 (기록 없는 키 발급·폐기 금지)."""
+    import httpx
+
+    from aptlake_api import routes_admin
+
+    h = {"X-API-Key": admin_key}
+    # 처리되지 않은 예외도 테스트에서 500 응답으로 받는다 (기본은 예외를 그대로 올림)
+    raw = httpx.AsyncClient(transport=httpx.ASGITransport(app=apps[1], raise_app_exceptions=False), base_url="http://t")
+    cid = (await adm.post("/v1/admin/clients", json={"name": "audit-fail"}, headers=h)).json()["clientId"]
+    key = (await adm.post(f"/v1/admin/clients/{cid}/keys", json={"scopes": ["read"]}, headers=h)).json()["keyId"]
+
+    async def broken_audit(*args, **kwargs):
+        raise RuntimeError("audit store down")
+
+    monkeypatch.setattr(routes_admin, "audit", broken_audit)
+    async with raw:
+        r = await raw.post(f"/v1/admin/clients/{cid}/keys", json={"scopes": ["read"]}, headers=h)
+        assert r.status_code == 500
+        r = await raw.delete(f"/v1/admin/keys/{key}", headers=h)
+        assert r.status_code == 500
+    with psycopg.connect(stack["su"], autocommit=True) as pg:
+        keys = pg.execute("SELECT key_id, revoked_at FROM api.api_key WHERE client_id = %s", (cid,)).fetchall()
+    assert keys == [(key, None)]  # 두 번째 키는 만들어지지 않았고, 첫 키는 폐기되지 않았다
