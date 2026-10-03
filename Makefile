@@ -5,7 +5,7 @@ LAKE := $(COMPOSE) --profile lake
 ALL := $(COMPOSE) --profile lake --profile obs
 DAGSTER := $(LAKE) exec -T dagster
 
-.PHONY: help init up serve obs down clean ps logs admin-key demo-keys loadtest-key pipeline-redeploy lake-init regions backfill-start backfill-stop \
+.PHONY: help init up serve obs down backup backup-verify clean ps logs admin-key demo-keys loadtest-key pipeline-redeploy lake-init regions backfill-start backfill-stop \
         month index maintenance test test-api test-pipeline test-web test-integration lint loadtest web-dev audit
 
 help: ## 명령 목록
@@ -26,6 +26,12 @@ obs: ## Prometheus·Grafana 추가 기동 (grafana http://127.0.0.1:3620, admin 
 
 down: ## 중지 (데이터 보존)
 	$(ALL) down
+
+backup: ## 백업: PostgreSQL 3개 DB 덤프 + MinIO 원본·레이크 증분 복사 + .env (backups/, git 제외·권한 700)
+	@tools/backup.sh
+
+backup-verify: ## 최근 백업을 임시 PostgreSQL 에 실제로 복원해 운영과 비교 (운영 데이터는 건드리지 않음)
+	@tools/backup_verify.sh
 
 clean: ## 중지 + 모든 볼륨 삭제 (데이터 초기화!)
 	$(ALL) down -v

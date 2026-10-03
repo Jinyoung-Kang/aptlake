@@ -30,3 +30,6 @@ loadtest/results/
 .claude/settings.local.json
 CLAUDE.local.md
 .coverage
+
+# 백업 (비밀값·키 해시 포함 — 절대 커밋하지 않음)
+backups/

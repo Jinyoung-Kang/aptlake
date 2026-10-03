@@ -86,5 +86,17 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
 ## 유지보수
 - 매주 일 04:00 KST `weekly_iceberg_maintenance`: optimize → expire_snapshots(7일) → remove_orphan_files(7일). 7일 안의 시간여행은 항상 가능.
 
+## 백업과 복원
+- `make backup` — PostgreSQL 3개 DB(aptlake: 키·클라이언트·감사·수집 상태 / lakekeeper: Iceberg 카탈로그 / dagster: 실행 이력) 덤프,
+  MinIO `raw`(원천 원본)·`lake`(Iceberg 파일) 증분 복사, `.env` 사본을 `backups/` 에 둔다 (git 제외, 권한 700, **비밀값 포함**).
+  파이프라인 실행 중이면 거부한다(카탈로그와 파일이 어긋날 수 있음). 서빙 DB(ClickHouse)는 레이크에서 다시 발행하면 되므로 백업하지 않는다.
+- `make backup-verify` — 가장 최근 덤프를 임시 PostgreSQL 컨테이너에 실제로 복원해 핵심 표 행 수를 운영과 비교, MinIO 사본 객체 수 확인.
+- 권장: 큰 변경(엔진 업그레이드·스키마 변경) 전, 그리고 주 1회. 오래된 `backups/pg/<시각>` 폴더는 직접 정리한다 (도구는 지우지 않음).
+- 복원 (볼륨이 손상됐을 때):
+  1. `.env` 를 백업의 `env` 로 되돌린다 (Lakekeeper 암호화 키·DB 비밀번호가 같아야 함).
+  2. `docker compose up -d postgres minio` → 각 DB 를 지우고 다시 만든 뒤 `docker compose exec -T postgres pg_restore -U postgres -d <db> --clean --if-exists < backups/pg/<시각>/<db>.dump`
+  3. MinIO: `docker compose run --rm --no-deps -v "$PWD/backups/minio:/backup" --entrypoint sh minio-init -c 'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" && mc mirror /backup/raw local/raw && mc mirror /backup/lake local/lake'`
+  4. `make up` → 서빙 DB 재발행: `docker compose exec -T postgres psql -U postgres -d aptlake -c "UPDATE ops.month_state SET needs_publish = true"` (센서가 원천 호출 없이 발행만 다시 함) + `make index`
+
 ## 초기화
 `make clean` — 모든 볼륨 삭제 (raw 버킷 Object Lock 도 볼륨과 함께 사라짐).
