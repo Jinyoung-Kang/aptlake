@@ -276,13 +276,18 @@ async def _all(*aws: Awaitable[Any]) -> list[Any]:
     return results
 
 
-async def _pipeline_entries(dag: Orchestrator, since: dt.datetime, include_resolved: bool) -> list[dict]:
+async def _pipeline_entries(dag: Orchestrator, since: dt.datetime, include_resolved: bool) -> tuple[list[dict], bool]:
+    """실행 실패 + 센서 틱 오류. 두 번째 값: 센서 질의만 실패해 틱 오류가 빠졌는가 (실행 실패는 그대로 보여 준다)."""
     entries: list[dict] = []
-    failed, succeeded, inst = await _all(
+    failed, succeeded, inst = await asyncio.gather(
         dag.runs(["FAILURE"], created_after=since.timestamp(), limit=40),
         dag.runs(["SUCCESS"], created_after=since.timestamp(), limit=500),
         dag.instigators(),
+        return_exceptions=True,
     )
+    for r in (failed, succeeded):
+        if isinstance(r, BaseException):
+            raise r
     # 같은 작업·파티션이 나중에 성공했으면 '해결됨' (재시도·재실행으로 복구된 실패)
     last_ok: dict[tuple[str, str | None], float] = {}
     for r in succeeded:
@@ -310,6 +315,10 @@ async def _pipeline_entries(dag: Orchestrator, since: dt.datetime, include_resol
 
     for part in await asyncio.gather(*(one(r) for r in failed)):
         entries += part
+    if isinstance(inst, BaseException):
+        if isinstance(inst, DagsterUnavailable):
+            return entries, True
+        raise inst
     for s in inst["sensors"]:
         ticks = s["sensorState"].get("ticks") or []
         # 실행 실패와 같은 규칙: 그 뒤에 오류 없이 끝난 틱(요청·건너뜀)이 있으면 '해결됨'
@@ -332,7 +341,7 @@ async def _pipeline_entries(dag: Orchestrator, since: dt.datetime, include_resol
                         "resolved": tick_resolved,
                     }
                 )
-    return entries
+    return entries, False
 
 
 def _ingest_entry(r: Row) -> dict:
@@ -422,10 +431,12 @@ async def errors(
         return source in ("all", s)
 
     async def pipeline() -> tuple[list[dict], str | None]:
+        note = "오케스트레이터(Dagster)에 연결할 수 없어 파이프라인 실행 오류는 빠졌습니다."
         try:
-            return await _pipeline_entries(dag, since, include_resolved), None
+            out, partial = await _pipeline_entries(dag, since, include_resolved)
         except DagsterUnavailable:
-            return [], "오케스트레이터(Dagster)에 연결할 수 없어 파이프라인 실행 오류는 빠졌습니다."
+            return [], note
+        return out, note if partial else None
 
     async def ingest() -> tuple[list[dict], str | None]:
         errs, spent = await _all(store.ingest_errors(since), store.budget_exhaustions(since))

@@ -316,3 +316,31 @@ async def test_market_rankings_do_not_depend_on_row_order():
         assert [s["sggCd"] for s in a["rankings"][k]] == codes[:10], k
         assert a["rankings"][k] == b["rankings"][k], k
     assert [s["sggCd"] for s in a["sgg"]] == [s["sggCd"] for s in b["sgg"]] == codes
+
+
+async def test_error_log_keeps_run_failures_when_only_sensor_query_fails():
+    """실행 목록은 읽었는데 스케줄·센서 질의만 실패해도 실행 실패 항목은 보여 준다 (예전 동작) — 안내 문구와 함께."""
+    from aptlake_api.features.ops import service as ops
+
+    at = dt.datetime(2026, 10, 2, 12, tzinfo=dt.UTC)
+    run = {"runId": "r-1", "jobName": "month_pipeline", "status": "FAILURE", "creationTime": at.timestamp(),
+           "startTime": at.timestamp(), "endTime": at.timestamp() + 60, "tags": [{"key": "dagster/partition", "value": "202407"}]}  # fmt: skip
+
+    class SensorDown(SlowOps):
+        delay = 0.0
+
+        async def runs(self, statuses=None, created_after=None, limit=50):
+            return [run] if statuses == ["FAILURE"] else []
+
+        async def run_errors(self, run_id):
+            return [{"at": None, "step": "bronze__rtms", "error": {"message": "boom"}}]
+
+        async def instigators(self):
+            raise ops.DagsterUnavailable("ReadTimeout")
+
+    fake = SensorDown()
+    body, _ = await ops.errors(
+        fake, fake, hours=24, source="pipeline", include_resolved=False, include_cleared=False, now=at
+    )
+    assert [e["ref"] for e in body["entries"]] == ["r-1"]
+    assert len(body["notes"]) == 1 and "Dagster" in body["notes"][0]
