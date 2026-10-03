@@ -1,0 +1,44 @@
+화면 | 성능 | 접근성 | 모범 사례 | FCP | LCP | TBT | CLS | 전송량
+desktop_complex_c_c7be522b831459963100 | 89 | 100 | 100 | 0.5 s | 0.6 s | 0 ms | 0.218 | Total size was 322 KiB
+desktop_market | 88 | 100 | 100 | 0.5 s | 0.7 s | 0 ms | 0.233 | Total size was 344 KiB
+desktop_quality | 84 | 100 | 100 | 0.5 s | 0.6 s | 0 ms | 0.322 | Total size was 325 KiB
+desktop_region_11110 | 84 | 100 | 100 | 0.5 s | 0.6 s | 0 ms | 0.32 | Total size was 328 KiB
+desktop_trades_sgg_11110 | 76 | 100 | 100 | 0.4 s | 0.4 s | 0 ms | 0.825 | Total size was 106 KiB
+mobile_complex_c_c7be522b831459963100 | 69 | 100 | 100 | 2.1 s | 2.9 s | 40 ms | 0.847 | Total size was 322 KiB
+mobile_market | 73 | 100 | 100 | 2.2 s | 3.1 s | 40 ms | 0.398 | Total size was 344 KiB
+mobile_quality | 70 | 100 | 100 | 2.1 s | 2.9 s | 50 ms | 0.639 | Total size was 325 KiB
+mobile_region_11110 | 68 | 100 | 100 | 2.2 s | 3.1 s | 50 ms | 0.83 | Total size was 328 KiB
+mobile_trades_sgg_11110 | 76 | 100 | 100 | 1.5 s | 1.7 s | 0 ms | 0.67 | Total size was 106 KiB
+
+모바일 시장 개요 — 0.9 미만 진단:
+   first-contentful-paint First Contentful Paint 2.2 s
+   largest-contentful-paint Largest Contentful Paint 3.1 s
+   cumulative-layout-shift Cumulative Layout Shift 0.398
+   largest-contentful-paint-element Largest Contentful Paint element 3,070 ms
+   layout-shifts Avoid large layout shifts 3 layout shifts found
+   valid-source-maps Missing source maps for large first-party JavaScript 
+   label-content-name-mismatch Elements with visible text labels do not have matching accessible names. 
+   render-blocking-resources Eliminate render-blocking resources Est savings of 150 ms
+   unused-javascript Reduce unused JavaScript Est savings of 166 KiB
+   cls-culprits-insight Layout shift culprits 
+   network-dependency-tree-insight Network dependency tree 
+   render-blocking-insight Render blocking requests Est savings of 150 ms
+
+== mobile_region_11110 레이아웃 이동 요소 (점수 기여)
+   0.83  body > div#root > main.container  | '시장 개요 › 서울특별시\nQA종로구\n서울특별시 · QA종로구\n▼\n2,124\n만원/m2\n▲ '
+
+== mobile_complex_c_c7be522b831459963100 레이아웃 이동 요소 (점수 기여)
+   0.83  body > div#root > main.container  | '단지 · 서울특별시 QA종로구 QA11동 167-1\nQA167단지\n유효 거래 (전 기간)\n'
+   0.017  body > div#root > footer.footer  | '원천: 국토교통부 아파트 매매 실거래가 자료 · 행정안전부 법정동코드 · 한국부동산원 R-'
+
+== desktop_trades_sgg_11110 레이아웃 이동 요소 (점수 기여)
+   0.661  body > div#root > main.container > div  | '계약일\n↕\n\t단지\n↕\n\t\n↕\n전용\nm2\n\t\n↕\n층\t\n↕\n거래금액\t\n↕\nm2\n당(만원)\t상태'
+   0.163  body > div#root > main.container  | '거래 목록 · 서울특별시\nQA종로구 매매 거래\n서울특별시 · QA종로구\n▼\n📅 2026.0'
+
+== mobile_market 레이아웃 이동 요소 (점수 기여)
+   0.212  body > div#root > footer.footer  | '원천: 국토교통부 아파트 매매 실거래가 자료 · 행정안전부 법정동코드 · 한국부동산원 R-'
+   0.179  body > div#root > footer.footer  | '원천: 국토교통부 아파트 매매 실거래가 자료 · 행정안전부 법정동코드 · 한국부동산원 R-'
+   0.007  div#root > main.container > div > div.layout  | '시군구 지도\n2026.07 · 색이 진할수록 큼 · 회색 = 자료 없음/표본 부족 · 끌어'
+
+== label-content-name-mismatch (WCAG 2.5.3)
+   <a class="brand" href="#/market" aria-label="AptLake 홈">

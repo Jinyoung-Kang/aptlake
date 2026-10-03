@@ -56,3 +56,13 @@ describe("화면 특성 (서버 골든 응답으로 그린 결과)", () => {
     await act(async () => root.unmount());
   });
 });
+
+describe("QA-014 보이는 글자와 접근 가능한 이름 (WCAG 2.5.3 Label in Name)", () => {
+  it("로고 링크의 이름이 화면에 보이는 글자를 담는다", async () => {
+    const { root, el } = await renderApp("#/market");
+    const a = el.querySelector("a.brand");
+    const name = a?.getAttribute("aria-label") ?? a?.textContent ?? "";
+    for (const visible of ["AptLake", "아파트 실거래 데이터"]) expect(name).toContain(visible);
+    await act(async () => root.unmount());
+  });
+});
