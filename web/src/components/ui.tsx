@@ -190,7 +190,13 @@ export function usePopover() {
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const inside = !!ref.current?.contains(document.activeElement);
+      setOpen(false);
+      // 팝업 안에 있던 초점이 닫히며 사라지지 않게 연 버튼으로 되돌린다 (WAI-ARIA 대화상자 패턴, QA-016)
+      if (inside) ref.current?.querySelector<HTMLElement>("[aria-haspopup]")?.focus();
+    };
     document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
     return () => {
