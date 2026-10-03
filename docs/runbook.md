@@ -69,6 +69,9 @@ curl -X DELETE -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/keys/<keyId
 - 파이프라인: `make pipeline-redeploy` (진행 중인 달을 끝낸 뒤 교체 — 중간에 죽이면 그 달은 FETCHING 으로 남았다가 1시간 뒤 다시 수집됨)
 - API·웹: `docker compose up -d --build api api-internal web` (웹 nginx 는 API 컨테이너 IP 변경을 10초 안에 따라감)
 - 서빙 스키마: `ch-migrate`(API 배포 때 먼저 돈다)가 스키마를 멱등 적용하고, 표 구조를 바꾸는 일회성 이관(`infra/clickhouse/migrate/`, 예: region_month 연 파티션)은 조건이 맞을 때만 실행한다. 이관과 그 표를 쓰는 발행 코드가 함께 바뀌면 **수집을 멈추고**(`dagster sensor stop due_partitions_sensor`, 실행 0 확인) 이관 → `make pipeline-redeploy` 순서로.
+  - 발행 코드가 그대로인 이관은 **스테이징을 먼저 지우고** 시작한다(예: trade_current 입도 1024, ADR-038). 그사이 발행은 스테이징이 없거나 교체 직전 행 수 확인(이관이 새로 만든 빈 스테이징)에서 실패하고, 그 달은 `needs_publish` 가 남아 센서가 발행만 다시 한다 — 수집을 멈추지 않아도 서빙에서 발행이 빠지지 않는다. 다만 그 실패가 표 교체 도중(수 ms)에 걸리면 재시도까지 표끼리 잠깐 어긋날 수 있으니, 가능하면 진행 중 실행이 없을 때(`SELECT count(*) FROM runs WHERE status IN ('STARTED','STARTING')` = 0) 배포한다.
+  - 이관이 실패하면 ch-migrate 가 스키마를 다시 적용해 스테이징을 되살리고 원래 표는 그대로다. ch-migrate 가 도중에 강제 종료됐다면 스테이징이 없어 발행이 계속 실패하므로 `docker compose up ch-migrate` 를 다시 돌린다.
+  - 이관 뒤 확인: `SELECT name, extract(engine_full, 'index_granularity = ([0-9]+)') FROM system.tables WHERE database='aptlake' AND name LIKE 'trade_current%'` 가 둘 다 1024, 행 수·`sum(cityHash64(toString(tuple(*))))` 가 이관 전과 같음, `trade_current_g1024_new` 가 남지 않음.
 
 ## 의도한 응답·화면 변경 반영 (골든·스냅숏)
 리팩터링은 이 둘이 그대로여야 한다. 응답·화면을 **일부러** 바꿨을 때만 다시 만들고, 차이를 읽은 뒤 같은 커밋에 넣는다.
