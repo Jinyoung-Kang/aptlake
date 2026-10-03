@@ -1,0 +1,19 @@
+화면 조합 18 · 누른 요소 합 448
+#/market                            1280 누름  20 문제 없음
+#/region/11110                      1280 누름  15 문제 없음
+#/region/11110?tab=distribution     1280 누름   7 문제 없음
+#/region/11110?tab=complexes        1280 누름  15 문제 없음
+#/trades?sgg=11110                  1280 누름  15 문제 없음
+#/index                             1280 누름  28 문제 없음
+#/quality                           1280 누름   2 문제 없음
+#/dev                               1280 누름   0 문제 없음
+#/ops                               1280 누름 122 {'errors': ['Failed to load resource: the server responded with a status of 400 (Bad Request)', 'Failed to load resource: the server responded with a status of 401 (Unauthorized)'], 'failed': ['GET /v1/regions/11110/months?from=2026-07&to=2000-13 400', 'GET /v1/regions 401'], 'duplicates': ['GET /v1/regions', 'GET /v1/regions/11110/months?from=2025-08&to=2026-07']}
+#/market                             375 누름  20 문제 없음
+#/region/11110                       375 누름  15 문제 없음
+#/region/11110?tab=distribution      375 누름   7 문제 없음
+#/region/11110?tab=complexes         375 누름  15 문제 없음
+#/trades?sgg=11110                   375 누름  15 문제 없음
+#/index                              375 누름  28 문제 없음
+#/quality                            375 누름   2 문제 없음
+#/dev                                375 누름   0 문제 없음
+#/ops                                375 누름 122 {'errors': ['Failed to load resource: the server responded with a status of 400 (Bad Request)', 'Failed to load resource: the server responded with a status of 401 (Unauthorized)'], 'failed': ['GET /v1/regions/11110/months?from=2026-07&to=2000-13 400', 'GET /v1/regions 401'], 'duplicates': ['GET /v1/regions', 'GET /v1/regions/11110/months?from=2025-08&to=2026-07']}
