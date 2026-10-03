@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, api, errorText, fetchRetry } from "../api/client";
+import { ApiError, api, apiSend, errorText, fetchRetry } from "../api/client";
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
@@ -83,5 +83,14 @@ describe("QA-012 같은 조회를 동시에 부르면 요청은 한 번", () => 
     await expect(a).rejects.toThrow();
     expect(await b).toEqual({ v: 2 });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("QA-001 쓰기 요청은 사용자가 넣은 운영자 키를 그 요청에만 붙인다", () => {
+  it("apiSend 에 키를 주면 X-API-Key 로 보낸다", async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { cleared: null }));
+    await apiSend("DELETE", "/v1/ops/errors/clear", "al_live_TESTTESTTEST.secret");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-API-Key"]).toBe("al_live_TESTTESTTEST.secret");
   });
 });

@@ -116,3 +116,25 @@ async def test_qa_004_docs_external_assets_are_pinned_with_sri(pub):
         assert re.search(r"swagger-ui-dist@\d+\.\d+\.\d+/", t), f"버전 고정 아님: {t}"
         assert re.search(r'integrity="sha(256|384|512)-[A-Za-z0-9+/=]+"', t), f"SRI 없음: {t}"
         assert 'crossorigin="anonymous"' in t, t
+
+
+# QA-001: 웹 BFF 키가 ops 전체 권한이라, 공개 웹에서 누구나(브라우저 밖에서도 Sec-Fetch-Site 헤더 한 줄로)
+#         내부 오류 로그를 비우고 되돌릴 수 있었다. 결정(사용자, 2026-10-04): 보기는 공개(웹 키 = read + ops_read),
+#         비우기·되돌리기는 ops 권한(운영자 키)만.
+async def test_qa_001_ops_read_scope_views_but_cannot_clear(pub, adm, admin_key):
+    viewer, _ = await new_key(adm, admin_key, "free", scopes=("read", "ops_read"))
+    for path in ("/v1/ops/status", "/v1/ops/errors", "/v1/ops/connectivity"):
+        r = await pub.get(path, headers={"X-API-Key": viewer})
+        assert r.status_code == 200, (path, r.status_code, r.text[:200])
+    for method in ("POST", "DELETE"):
+        r = await pub.request(method, "/v1/ops/errors/clear", headers={"X-API-Key": viewer})
+        assert r.status_code == 403 and r.json()["code"] == "SCOPE_REQUIRED", (method, r.status_code)
+    operator, _ = await new_key(adm, admin_key, "pro", scopes=("ops",))
+    assert (await pub.post("/v1/ops/errors/clear", headers={"X-API-Key": operator})).status_code == 200
+    assert (await pub.delete("/v1/ops/errors/clear", headers={"X-API-Key": operator})).status_code == 200
+
+
+def test_qa_001_web_bff_key_gets_read_only_ops():
+    from aptlake_api import provision
+
+    assert provision.WEB_SCOPES == ["read", "ops_read"]
