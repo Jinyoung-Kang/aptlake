@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 import pytest
 from helpers import new_key
 
@@ -59,3 +62,41 @@ async def test_qa_003_non_ascii_digits_rejected_in_export_body_and_admin_path(pu
     assert r.status_code == 400, (r.status_code, r.text[:200])
     r = await adm.post("/v1/admin/partitions/４１１３５/2024-07/retry", headers={"X-API-Key": admin_key})
     assert r.status_code == 400, (r.status_code, r.text[:200])
+
+
+# QA-007: 서빙 DB(ClickHouse)가 응답하지 않으면 API 요청이 시간 초과 없이 매달렸다 (클라이언트 기본 300초).
+#         QA 스택에서 15초 멈추자 요청이 15.9초까지 기다렸다 — Redis 는 2초 만에 503 으로 끝난다.
+async def test_qa_007_unresponsive_clickhouse_fails_fast_with_503(pub, stack):
+    container = stack["ch_container"].get_wrapped_container()
+    container.pause()
+    try:
+        t = time.perf_counter()
+        try:
+            r = await asyncio.wait_for(pub.get("/v1/search", params={"q": "응답없음"}), timeout=25)
+        except TimeoutError:
+            pytest.fail("ClickHouse 가 멈춘 동안 25초가 지나도 응답이 없음 (시간 초과 없음)")
+        elapsed = time.perf_counter() - t
+    finally:
+        container.unpause()
+    assert r.status_code == 503, (r.status_code, r.text[:200])
+    assert elapsed < 15, elapsed
+
+
+# QA-008: 운영 DB(PostgreSQL) 질의에 시간·잠금 상한이 없어, 긴 트랜잭션이 잠금을 쥐면 그동안 무기한 기다렸다
+#         (QA 스택: ops.log_view 를 20초 잠그자 /v1/ops/errors 가 18.3초 뒤 200). 연결 풀(10)이 고갈되면 다른 경로도 멈춘다.
+async def test_qa_008_postgres_lock_wait_is_bounded(pub, adm, admin_key, stack):
+    import psycopg
+
+    key, _ = await new_key(adm, admin_key, "pro", scopes=("ops",))
+    with psycopg.connect(stack["su"]) as c:
+        c.execute("LOCK TABLE ops.log_view IN ACCESS EXCLUSIVE MODE")  # 트랜잭션 안 — 끝날 때까지 잠금 유지
+        t = time.perf_counter()
+        try:
+            r = await asyncio.wait_for(pub.get("/v1/ops/errors", headers={"X-API-Key": key}), timeout=25)
+        except TimeoutError:
+            pytest.fail("잠금이 풀리지 않는 동안 25초가 지나도 응답이 없음 (시간·잠금 상한 없음)")
+        finally:
+            c.rollback()
+        elapsed = time.perf_counter() - t
+    assert r.status_code == 503, (r.status_code, r.text[:200])
+    assert elapsed < 10, elapsed
