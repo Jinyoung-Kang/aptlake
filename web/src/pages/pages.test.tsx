@@ -58,11 +58,16 @@ describe("화면 특성 (서버 골든 응답으로 그린 결과)", () => {
 });
 
 describe("QA-014 보이는 글자와 접근 가능한 이름 (WCAG 2.5.3 Label in Name)", () => {
-  it("로고 링크의 이름이 화면에 보이는 글자를 담는다", async () => {
+  // Lighthouse·axe 처럼: 보이는 글자(aria-hidden 제외)를 이어 붙여 공백만 하나로 정리한 뒤, 이름에 그대로 들어 있어야 한다.
+  // (처음 수정은 'AptLake' 와 '아파트 실거래 데이터' 를 따로 봐서, 공백 없이 붙은 'AptLake아파트…' 를 놓쳤다 — 독립 검토)
+  const norm = (t: string) => t.replace(/\s+/g, " ").trim();
+  const visible = (el: Element): string =>
+    [...el.childNodes].map((n) => (n.nodeType === 3 ? n.textContent ?? "" : (n as Element).getAttribute?.("aria-hidden") === "true" ? "" : visible(n as Element))).join("");
+  it.each([["로고 링크", "a.brand"], ["테마 버튼", "button.theme-btn"]])("%s", async (_name, sel) => {
     const { root, el } = await renderApp("#/market");
-    const a = el.querySelector("a.brand");
-    const name = a?.getAttribute("aria-label") ?? a?.textContent ?? "";
-    for (const visible of ["AptLake", "아파트 실거래 데이터"]) expect(name).toContain(visible);
+    const node = el.querySelector(sel) as Element;
+    const name = norm(node.getAttribute("aria-label") ?? visible(node));
+    expect(name).toContain(norm(visible(node)));
     await act(async () => root.unmount());
   });
 });
