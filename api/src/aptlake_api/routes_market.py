@@ -495,8 +495,10 @@ async def region_complexes(
             SELECT complex_key, any(apt_nm) AS apt, any(umd_nm) AS umd, any(build_year) AS built,
                    countIf(is_cancelled = 0) AS n, countIf(is_cancelled = 1) AS cancelled,
                    quantileExactInclusiveIf(0.5)(ppm2, is_cancelled = 0 AND is_outlier = 0 AND area_m2 > 0) AS med,
-                   max(deal_date) AS last_date, argMax(price_manwon, deal_date) AS last_price,
-                   argMax(toFloat64(area_m2), deal_date) AS last_area
+                   max(deal_date) AS last_date,
+                   -- 같은 날 거래가 여럿이면 거래 ID 로 하나를 정한다 (그냥 deal_date 면 엔진·병합 순서에 따라 바뀜)
+                   argMax(price_manwon, (deal_date, trade_id)) AS last_price,
+                   argMax(toFloat64(area_m2), (deal_date, trade_id)) AS last_area
             FROM trade_current
             WHERE sgg_cd = {s:String} AND deal_date BETWEEN {a:Date} AND {b:Date}
             GROUP BY complex_key ORDER BY n DESC, med DESC LIMIT {l:UInt16}""",

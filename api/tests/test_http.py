@@ -466,3 +466,14 @@ async def test_ops_errors_survive_clickhouse_timeout(apps, adm, admin_key):
         public.state.res.ch = real_ch
         await public.state.dagster.aclose()
         public.state.dagster = real_dag
+
+
+async def test_region_complexes_last_trade_is_deterministic(pub):
+    """같은 날 거래가 여러 건이면 '최근 거래'는 거래 ID 가 가장 큰 건으로 정한다 (엔진 버전·병합 순서와 무관하게).
+
+    시드: 2024-07-31 거래는 i = 30, 61, …, 247 → 거래 ID 최대는 i=247, 가격 100000+247.
+    """
+    for _ in range(3):
+        r = await pub.get("/v1/regions/41135/complexes", params={"from": "2024-07", "to": "2024-07"})
+        [c] = r.json()["items"]
+        assert (c["lastDate"], c["lastPrice"]) == ("2024-07-31", 100247)
