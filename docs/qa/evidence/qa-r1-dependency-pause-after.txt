@@ -1,0 +1,26 @@
+== clickhouse 15초 멈춤 (요청 744건, 20 rps)
+  전    months   {200: 47}  p50 10ms p95 20ms max 128ms
+  전    ops      {200: 32}  p50 26ms p95 44ms max 75ms
+  전    regions  {200: 36}  p50 32ms p95 44ms max 104ms
+  전    trades   {200: 42}  p50 18ms p95 24ms max 37ms
+  멈춤   months   {200: 52, 503: 13}  p50 8743ms p95 13158ms max 13838ms
+  멈춤   ops      {200: 77}  p50 8620ms p95 12579ms max 14616ms
+  멈춤   regions  {200: 65, 503: 13}  p50 7805ms p95 14886ms max 16404ms
+  멈춤   trades   {503: 15, 200: 60}  p50 8455ms p95 12474ms max 14457ms
+  푼 뒤  months   {200: 79}  p50 12ms p95 1903ms max 2396ms
+  푼 뒤  ops      {200: 67}  p50 28ms p95 1860ms max 3089ms
+  푼 뒤  regions  {200: 66}  p50 37ms p95 2499ms max 3084ms
+  푼 뒤  trades   {200: 80}  p50 20ms p95 1611ms max 2830ms
+== postgres 15초 멈춤 (요청 740건, 20 rps)
+  전    months   {200: 47}  p50 5ms p95 9ms max 63ms
+  전    ops      {200: 31}  p50 27ms p95 69ms max 98ms
+  전    regions  {200: 36}  p50 6ms p95 11ms max 17ms
+  전    trades   {200: 42}  p50 6ms p95 9ms max 10ms
+  멈춤   months   {200: 64}  p50 7ms p95 15ms max 17ms
+  멈춤   ops      {200: 76}  p50 8517ms p95 15782ms max 16332ms
+  멈춤   regions  {200: 77}  p50 7ms p95 42ms max 52ms
+  멈춤   trades   {200: 75}  p50 8ms p95 26ms max 56ms
+  푼 뒤  months   {200: 78}  p50 6ms p95 93ms max 192ms
+  푼 뒤  ops      {200: 68}  p50 30ms p95 218ms max 881ms
+  푼 뒤  regions  {200: 67}  p50 6ms p95 30ms max 921ms
+  푼 뒤  trades   {200: 79}  p50 7ms p95 24ms max 142ms
