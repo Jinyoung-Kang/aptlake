@@ -10,8 +10,9 @@ export const METRICS: { value: Metric; label: string; unit: string; title: strin
   { value: "cancelRate", label: "해제율", unit: "%", title: "해제 건수 ÷ 신고 건수" },
 ];
 
+/** URL 의 지표 이름 — 모르는 값이면 기본(중위가). 이름·단위와 칠하는 값이 어긋나지 않게 한곳에서 정한다. */
 export function metricOf(v: string | null): Metric {
-  return (v as Metric) || "median";
+  return METRICS.find((m) => m.value === v)?.value ?? "median";
 }
 
 /** 지도에 칠할 값. 표본 부족 중위가·신고 0건 해제율은 '자료 없음'(null). */

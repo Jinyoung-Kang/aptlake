@@ -15,6 +15,8 @@ describe("시장 지도", () => {
     expect(metricValue(sgg({ trades: 0, cancelled: 2, cancelRate: 100 }), "cancelRate")).toBe(100);
     expect(metricValue(undefined, "trades")).toBeNull();
     expect(metricOf(null)).toBe("median");
+    // 모르는 값이면 기본 지표 — 이름은 중위가인데 색은 해제율로 칠하는 일이 없게 (main 은 화면이 깨졌다)
+    expect([metricOf("foo"), metricOf("trades")]).toEqual(["median", "trades"]);
   });
   it("분위 경계: 같은 값은 하나로, 값이 적으면 경계 없음", () => {
     expect(quantileBins([1, 2, 3, 4, 5, 6], 6)).toEqual([2, 3, 4, 5, 6]);
