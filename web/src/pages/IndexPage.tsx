@@ -3,7 +3,7 @@ import type { IndexSummaryItem, RegionIndex } from "../api/types";
 import { useApi } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
-import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm } from "../components/ui";
+import { Badge, Change, ErrorBox, Group, Kpi, Segmented, Skeleton, Sparkline, Sqm } from "../components/ui";
 import { DASH, num, ymLabel } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
@@ -61,11 +61,11 @@ export default function IndexPage({ route }: { route: Route }) {
           <h1>{sidoName(rid)} 아파트 가격지수</h1>
         </div>
       </div>
-      <div className="chips" role="group" aria-label="지역" style={{ marginBottom: 14 }}>
+      <Group label="지역" className="chips mb-14">
         {[{ id: "00" }, ...regions.filter((r) => r.regionId !== "00").map((r) => ({ id: r.regionId }))].map((r) => (
           <button key={r.id} type="button" className="chip" aria-pressed={r.id === rid} onClick={() => setParams(route, { region: r.id })}>{sidoName(r.id)}</button>
         ))}
-      </div>
+      </Group>
       {cur && head && (
         <div style={{ marginBottom: 14 }}>
           <div className="quote">

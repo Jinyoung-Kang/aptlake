@@ -40,14 +40,19 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, selectedKey, i
           <tr>
             {columns.map((c) => {
               const dir = sort && sort.key === c.key ? sort.dir : null;  // 이 열로 정렬 중이면 방향
-              const active = dir != null;
+              const arrow = dir ? <span className="arrow" aria-hidden="true">{dir === "asc" ? "▲" : "▼"}</span> : null;
               return (
                 <th key={c.key} className={`${c.align === "right" ? "num" : ""} ${c.sort ? "sortable" : ""}`} style={{ width: c.width }}
-                    title={c.title} aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined}
-                    onClick={c.sort ? () => setSort(dir ? { key: c.key, dir: dir === "asc" ? "desc" : "asc" } : { key: c.key, dir: "desc" }) : undefined}>
-                  {active && c.align === "right" ? <span className="arrow">{dir === "asc" ? "▲" : "▼"}</span> : null}
-                  {sqm(c.header)}
-                  {active && c.align !== "right" ? <span className="arrow">{dir === "asc" ? "▲" : "▼"}</span> : null}
+                    title={c.title} aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined} scope="col">
+                  {c.sort ? (
+                    // 정렬은 머리글 안의 버튼으로 — 키보드(Tab·Enter·Space)와 화면낭독기로도 쓸 수 있게
+                    <button type="button" className="th-sort" onClick={() => setSort(dir ? { key: c.key, dir: dir === "asc" ? "desc" : "asc" } : { key: c.key, dir: "desc" })}>
+                      {c.align === "right" ? arrow : null}
+                      {sqm(c.header)}
+                      {c.align !== "right" ? arrow : null}
+                      {dir ? null : <span className="arrow idle" aria-hidden="true">↕</span>}
+                    </button>
+                  ) : sqm(c.header)}
                 </th>
               );
             })}

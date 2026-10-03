@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ymAdd, ymDiff, ymLabel } from "../lib/format";
-import { usePopover } from "./ui";
+import { Group, usePopover } from "./ui";
 
 const MONTHS = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
 
@@ -59,6 +59,7 @@ export function MonthRangePicker({ from, to, min, max, maxSpan, onChange }: {
                 <span>{year}년</span>
                 <button type="button" aria-label="다음 해" disabled={year >= maxY} onClick={() => setYear(year + 1)}>›</button>
               </div>
+              {/* biome-ignore lint/a11y/noStaticElementInteractions: 마우스가 벗어나면 범위 미리보기 강조만 지운다 (각 달은 버튼이라 키보드로 고를 수 있음) */}
               <div className="mp-grid" onMouseLeave={() => setHover(null)}>
                 {MONTHS.map((label, i) => {
                   const ym = `${year}-${String(i + 1).padStart(2, "0")}`;
@@ -93,14 +94,14 @@ export function RangePills({ from, to, min, max, maxSpan, onChange }: {
     { label: "6개월", n: 6 }, { label: "1년", n: 12 }, { label: "2년", n: 24 }, { label: "3년", n: 36 }, { label: "전체", n: "all" },
   ];
   return (
-    <div className="seg" role="group" aria-label="빠른 기간">
+    <Group label="빠른 기간" className="seg">
       {opts.map((o) => {
         let a = o.n === "all" ? min : clamp(ymAdd(max, -((o.n as number) - 1)), min, max);
         if (maxSpan && ymDiff(a, max) + 1 > maxSpan) a = ymAdd(max, -(maxSpan - 1));
         const on = from === a && to === max;
         return <button key={o.label} type="button" aria-pressed={on} onClick={() => onChange(a, max)}>{o.label}</button>;
       })}
-    </div>
+    </Group>
   );
 }
 

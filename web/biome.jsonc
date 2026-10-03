@@ -7,18 +7,18 @@
     "enabled": true,
     "rules": {
       "recommended": true,
-      // 도입 시점(2026-10)에 이미 있던 위반은 경고로 두고, 고친 뒤 error 로 되돌린다 (남은 것: 접근성·CSS — UI 단계)
+      // 도입 시점(2026-10)에 있던 위반을 모두 고쳐 error 로 되돌렸다. 의도된 예외는 코드에 이유를 단 biome-ignore 로만.
       "correctness": { "useExhaustiveDependencies": "error", "useHookAtTopLevel": "error" },
       "suspicious": { "useIterableCallbackReturn": "error", "noArrayIndexKey": "error" },
       "a11y": {
-        "useSemanticElements": "warn",
-        "noStaticElementInteractions": "warn",
-        "useKeyWithClickEvents": "warn",
-        "useAriaPropsSupportedByRole": "warn",
-        "useAriaPropsForRole": "warn"
+        "useSemanticElements": "error",
+        "noStaticElementInteractions": "error",
+        "useKeyWithClickEvents": "error",
+        "useAriaPropsSupportedByRole": "error",
+        "useAriaPropsForRole": "error"
       },
-      "style": { "noNonNullAssertion": "error", "noDescendingSpecificity": "warn", "useTemplate": "error" },
-      "complexity": { "noImportantStyles": "warn" }
+      "style": { "noNonNullAssertion": "error", "noDescendingSpecificity": "error", "useTemplate": "error" },
+      "complexity": { "noImportantStyles": "error" }
     }
   }
 }

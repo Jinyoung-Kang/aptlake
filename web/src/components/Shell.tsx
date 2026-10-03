@@ -26,7 +26,7 @@ function SearchBox() {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const complexes = useComplexSearch(q);
-  const box = useRef<HTMLDivElement>(null);
+  const box = useRef<HTMLElement>(null);
   const close = useCallback(() => setOpen(false), []);
   useClickOutside(box, close);
 
@@ -42,7 +42,7 @@ function SearchBox() {
   const pick = (i: number) => { items[i]?.go(); setOpen(false); setQ(""); };
 
   return (
-    <div className="search" ref={box} role="search">
+    <search className="search" ref={box}>
       <span className="glass" aria-hidden="true">⌕</span>
       <input value={q} placeholder="시군구·단지명 검색 (예: 분당, ㅂㄷ, 래미안)" aria-label="시군구·단지 검색"
              role="combobox" aria-expanded={open && items.length > 0} aria-controls="search-results"
@@ -65,7 +65,7 @@ function SearchBox() {
           ))}
         </div>
       )}
-    </div>
+    </search>
   );
 }
 
@@ -73,7 +73,7 @@ function Ticker() {
   const { data } = useApi<{ month: string; items: TickerItem[] }>(paths.ticker());
   if (!data?.items.length) return null;
   return (
-    <div className="ticker" aria-label="주요 지표">
+    <section className="ticker" aria-label="주요 지표">
       <div className="ticker-inner">
         {data.items.map((t) => (
           <div className="tick" key={t.key} title={t.changeBasis ?? undefined}>
@@ -84,7 +84,7 @@ function Ticker() {
           </div>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 

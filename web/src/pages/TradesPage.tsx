@@ -5,7 +5,7 @@ import { useApi, useAvailable } from "../hooks/useApi";
 import DateRangePicker from "../components/DateRangePicker";
 import RegionPicker from "../components/RegionPicker";
 import { DataTable } from "../components/DataTable";
-import { Badge, ErrorBox, Kpi, Skeleton, Sqm, sqm, Switch } from "../components/ui";
+import { Badge, ErrorBox, Group, Kpi, Skeleton, Sqm, sqm, Switch } from "../components/ui";
 import { DASH, isoDate, kst, manwon, num } from "../lib/format";
 import { href, setParams, type Route } from "../lib/router";
 import { recentRegions, useRegions } from "../lib/regions";
@@ -72,9 +72,9 @@ export default function TradesPage({ route }: { route: Route }) {
         <RegionPicker value={sgg} onChange={(c) => setParams(route, { sgg: c })} />
         {avail && <DateRangePicker from={from} to={to} min={`${avail.from}-01`} max={maxPickDate(avail, today)}
                                    maxDays={366 * 5} onChange={(a, b) => setParams(route, { from: a, to: b })} />}
-        <div className="chips" role="group" aria-label="전용면적">
+        <Group label="전용면적" className="chips">
           {AREA_BANDS.map((a) => <button key={a.key} type="button" className="chip" aria-pressed={a.key === area} onClick={() => setParams(route, { area: a.key })}>{sqm(a.label)}</button>)}
-        </div>
+        </Group>
         <Switch checked={cancel} onChange={(v) => setParams(route, { cancel: v ? "1" : "0" })} label="해제 거래 포함" />
       </div>
       {summary && (

@@ -3,7 +3,7 @@ import type { ComplexDetail } from "../api/types";
 import { useApi } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
-import { Badge, ErrorBox, Kpi, Skeleton, sqm } from "../components/ui";
+import { Badge, ErrorBox, Group, Kpi, Skeleton, sqm } from "../components/ui";
 import { DASH, manwon, num } from "../lib/format";
 import { bandOf, inBand, presentBands, validMedian } from "../domain/complex";
 import { href, type Route } from "../lib/router";
@@ -63,9 +63,9 @@ export default function ComplexPage({ route }: { route: Route }) {
             <div className="section-head">
               <h2>거래 이력</h2><span className="sub">점 하나 = 거래 하나 · 속 빈 원 = 해제</span>
               <div className="tools">
-                <div className="chips" role="group" aria-label="전용면적">
+                <Group label="전용면적" className="chips">
                   {present.map((x) => <button key={x.key} type="button" className="chip" aria-pressed={x.key === band} onClick={() => setBand(x.key)}>{sqm(x.label)}</button>)}
-                </div>
+                </Group>
               </div>
             </div>
             <div className="panel panel-pad"><Chart build={build} deps={[hist]} height={340} label="단지 거래 이력 산점도" /></div>

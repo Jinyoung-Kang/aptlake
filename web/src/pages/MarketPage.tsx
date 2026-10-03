@@ -4,7 +4,7 @@ import { useApi } from "../hooks/useApi";
 import { Chart, echarts, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { MonthPicker } from "../components/MonthPicker";
-import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm, sqm, StatRow, Tabs } from "../components/ui";
+import { Badge, Change, ErrorBox, Group, Kpi, Segmented, Skeleton, Sparkline, Sqm, sqm, StatRow, Tabs } from "../components/ui";
 import { DASH, esc, num, ymLabel } from "../lib/format";
 import { mapPieces, METRICS, metricOf, metricValue, type Metric } from "../domain/market";
 import { representative } from "../domain/priceIndex";
@@ -79,11 +79,11 @@ function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: 
   };
   return (
     <>
-      <div className="map-tools" role="group" aria-label="지도 확대">
+      <Group label="지도 확대" className="map-tools">
         <button type="button" className="btn icon" aria-label="확대" title="확대" onClick={() => setView(view.current.zoom * 1.5)}>+</button>
         <button type="button" className="btn icon" aria-label="축소" title="축소" onClick={() => setView(view.current.zoom / 1.5)}>−</button>
         <button type="button" className="btn" title="전국 보기로" onClick={() => setView(MAP_HOME.zoom, MAP_HOME.center)}>초기화</button>
-      </div>
+      </Group>
       <Chart build={build} deps={[data, metric, geo]} height={600} label={`시군구별 ${meta.label} 지도`}
              onReady={(c) => {
                chart.current = c;
@@ -217,7 +217,7 @@ export default function MarketPage({ route }: { route: Route }) {
               { key: "trades", header: "거래(건)", align: "right", cell: (r) => num(r.trades), sort: (r) => r.trades },
               { key: "mom", header: "전월비", align: "right", cell: (r) => <Change v={r.tradesMoM} />, sort: (r) => r.tradesMoM },
               { key: "yoy", header: "전년비", align: "right", cell: (r) => <Change v={r.tradesYoY} />, sort: (r) => r.tradesYoY },
-              { key: "median", header: "m²당 중위가", align: "right", cell: (r) => num(r.median), sort: (r) => r.median },
+              { key: "median", header: "m²당 중위가(만원)", align: "right", cell: (r) => num(r.median), sort: (r) => r.median },
               { key: "myoy", header: "중위가 전년비", align: "right", cell: (r) => <Change v={r.medianYoY} />, sort: (r) => r.medianYoY },
               { key: "cancel", header: "해제율", align: "right", cell: (r) => (r.cancelRate == null ? DASH : `${num(r.cancelRate, 1)}%`), sort: (r) => r.cancelRate },
               { key: "spark", header: "12개월 거래", cell: (r) => <Sparkline values={r.spark.trades} label={`${sidoName(r.regionId)} 최근 12개월 거래량`} /> },

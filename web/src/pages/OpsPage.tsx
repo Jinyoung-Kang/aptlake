@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import ApiTest from "../components/ApiTest";
 import { DataTable } from "../components/DataTable";
-import { Badge, CopyButton, ErrorBox, Kpi, Segmented, Skeleton, Switch, Tabs } from "../components/ui";
+import { Badge, CopyButton, ErrorBox, Group, Kpi, Segmented, Skeleton, Switch, Tabs } from "../components/ui";
 import { DASH, kst, kstShort, num, relative, ymLabel } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { paths } from "../api/endpoints";
@@ -118,23 +118,23 @@ export default function OpsPage({ route }: { route: Route }) {
         <div className="toolbar">
           <Segmented label="기간" value={hours} onChange={(v) => setParams(route, { hours: v })}
                      options={[{ value: "24", label: "24시간" }, { value: "168", label: "7일" }, { value: "720", label: "30일" }]} />
-          <div className="chips" role="group" aria-label="출처">
+          <Group label="출처" className="chips">
             {LOG_SOURCES.map((k) => (
               <button key={k} type="button" className="chip" aria-pressed={source === k} onClick={() => setParams(route, { source: k })}>
                 {k === "all" ? "전체" : SOURCE_LABEL[k]}<span className="n">{k === "all" ? (errs.data?.entries.length ?? 0) : (errs.data?.counts[k] ?? 0)}</span>
               </button>
             ))}
-          </div>
+          </Group>
           <input className="text-input" style={{ minWidth: 200 }} placeholder="로그 검색" value={q} onChange={(e) => setQ(e.target.value)} aria-label="로그 검색" />
           <Switch checked={resolved} onChange={(v) => setParams(route, { resolved: v ? "1" : null })} label="해결된 항목 포함" />
           {errs.data?.cleared && <Switch checked={showCleared} onChange={(v) => setParams(route, { old: v ? "1" : null })} label="비우기 이전 보기" />}
           <div className="tools-right">
             {clear.confirming ? (
-              <span className="confirm" role="group" aria-label="로그 비우기 확인">
+              <Group label="로그 비우기 확인" className="confirm">
                 <span className="small">지금까지의 로그를 숨길까요?</span>
                 <button type="button" className="btn danger" onClick={() => clear.setCleared(true)}>비우기</button>
                 <button type="button" className="btn" onClick={() => clear.setConfirming(false)}>취소</button>
-              </span>
+              </Group>
             ) : (
               <button type="button" className="btn" onClick={() => clear.setConfirming(true)} title="원본 기록은 지우지 않고, 지금 이전 항목을 화면에서 숨깁니다">로그 비우기</button>
             )}
@@ -156,20 +156,23 @@ export default function OpsPage({ route }: { route: Route }) {
         {!errs.data ? (errs.loading ? <Skeleton h={200} /> : null) : entries.length === 0 ? (
           <div className="log"><div className="empty">이 기간·조건에 오류가 없습니다.</div></div>
         ) : (
-          <div className="log" role="list">
-            {entries.map((e) => (
-              <div key={e.id} className={`log-row ${e.resolved || e.cleared ? "resolved" : ""}`} role="listitem">
-                <div className="log-head" onClick={() => open.toggle(e.id)} aria-expanded={open.has(e.id)}>
-                  <span className="at">{kst(e.at)}</span>
-                  <span className={`lvl ${e.level}`}>{e.level}</span>
-                  <span className="src">{SOURCE_LABEL[e.source] ?? e.source}</span>
-                  <span className="msg"><Badge tone={entryState(e).tone}>{entryState(e).label}</Badge> {e.message}<span className="where">{e.where}</span></span>
+          <ul className="log">
+            {entries.map((e, i) => (
+              <li key={e.id} className={`log-row ${e.resolved || e.cleared ? "resolved" : ""}`}>
+                <div className="log-head">
+                  {/* 줄 전체가 펼치기 버튼 — 키보드(Tab·Enter)로도 열고 닫는다 */}
+                  <button type="button" className="log-toggle" aria-expanded={open.has(e.id)} aria-controls={`log-detail-${i}`} onClick={() => open.toggle(e.id)}>
+                    <span className="at">{kst(e.at)}</span>
+                    <span className={`lvl ${e.level}`}>{e.level === "ERROR" ? "✕ " : "! "}{e.level}</span>
+                    <span className="src">{SOURCE_LABEL[e.source] ?? e.source}</span>
+                    <span className="msg"><Badge tone={entryState(e).tone}>{entryState(e).label}</Badge> {e.message}<span className="where">{e.where}</span></span>
+                  </button>
                   <CopyButton text={() => entryText(e)} label="복사" className="btn ghost" />
                 </div>
-                {open.has(e.id) && e.detail ? <pre className="log-detail">{e.detail}</pre> : null}
-              </div>
+                {open.has(e.id) && e.detail ? <pre className="log-detail" id={`log-detail-${i}`}>{e.detail}</pre> : null}
+              </li>
             ))}
-          </div>
+          </ul>
         )}
         {errs.data?.truncated && <p className="note">최근 500건까지만 표시합니다. 기간을 줄이거나 출처를 고르세요.</p>}
         {errs.data && errs.data.apiErrorSummary.length > 0 && (

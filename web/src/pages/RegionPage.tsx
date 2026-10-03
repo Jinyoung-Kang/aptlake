@@ -179,13 +179,13 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
             <DataTable rows={data.byArea} rowKey={(r) => r.band} caption="면적대별" columns={[
               { key: "band", header: "전용면적(m²)", cell: (r) => <span className="name">{r.band}</span> },
               { key: "n", header: "거래", align: "right", cell: (r) => num(r.n) },
-              { key: "m", header: "m²당 중위가", align: "right", cell: (r) => num(r.medianPpm2) },
-              { key: "p", header: "중위 거래가", align: "right", cell: (r) => manwon(r.medianPrice) },
+              { key: "m", header: "m²당 중위가(만원)", align: "right", cell: (r) => num(r.medianPpm2) },
+              { key: "p", header: "중위 거래가(원)", align: "right", cell: (r) => manwon(r.medianPrice) },
             ]} />
             <DataTable rows={data.byFloor} rowKey={(r) => r.band} caption="층별" columns={[
               { key: "band", header: "층", cell: (r) => <span className="name">{r.band}</span> },
               { key: "n", header: "거래", align: "right", cell: (r) => num(r.n) },
-              { key: "m", header: "m²당 중위가", align: "right", cell: (r) => num(r.medianPpm2) },
+              { key: "m", header: "m²당 중위가(만원)", align: "right", cell: (r) => num(r.medianPpm2) },
             ]} />
           </div>
           <div className="note">{data.notes.map((n) => <p key={n}>{n}</p>)}</div>
@@ -210,8 +210,8 @@ function Complexes({ sgg, from, to }: { sgg: string; from: string; to: string })
             { key: "apt", header: "단지", cell: (r) => <span className="name">{r.aptName}<span className="sub">{r.umdName}{r.buildYear ? ` · ${r.buildYear}년 준공` : ""}</span></span>, sort: (r) => r.aptName },
             { key: "trades", header: "거래", align: "right", cell: (r) => num(r.trades), sort: (r) => r.trades },
             { key: "cancel", header: "해제", align: "right", cell: (r) => num(r.cancelled), sort: (r) => r.cancelled },
-            { key: "med", header: "m²당 중위가", align: "right", cell: (r) => num(r.medianPpm2), sort: (r) => r.medianPpm2 },
-            { key: "last", header: "최근 거래", align: "right", cell: (r) => <span>{manwon(r.lastPrice)}<span className="sub">{r.lastDate.replaceAll("-", ".")} · {num(r.lastArea, 1)}<Sqm /></span></span>, sort: (r) => r.lastDate },
+            { key: "med", header: "m²당 중위가(만원)", align: "right", cell: (r) => num(r.medianPpm2), sort: (r) => r.medianPpm2 },
+            { key: "last", header: "최근 거래(원)", align: "right", cell: (r) => <span>{manwon(r.lastPrice)}<span className="sub">{r.lastDate.replaceAll("-", ".")} · {num(r.lastArea, 1)}<Sqm /></span></span>, sort: (r) => r.lastDate },
           ]}
           foot={<span>{ymLabel(from)} ~ {ymLabel(to)} 거래 기준 상위 50개 단지 · 행을 누르면 단지 상세</span>}
         />
