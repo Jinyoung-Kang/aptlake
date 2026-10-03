@@ -1,0 +1,327 @@
+# AptLake 출시 기준 QA 보고서 (2026-10)
+
+- 브랜치 `qa/2026-10-release` (main d70042c 에서 분기)
+- 계획: [2026-10-qa-plan.md](2026-10-qa-plan.md)
+- 증거: [evidence/](evidence/)
+
+## 1. 요약
+- **결함 16건**
+  - 심각도별: 치명 0, 높음 2, 보통 9, 낮음 5
+  - 처리: 14건은 실패 시험 → 근본 원인 수정 → 같은 시험 통과, 2건(QA-005·009)은 미수정 권고
+  - 보안 결함: 2건(QA-001·004) 수정, 1건(QA-005) 권고
+  - 데이터 손실·오염: 재현된 것 없음
+- **출시 판단**
+  - 로컬 단일 노드 운영 기준(지금 배포 형태: 모든 포트 127.0.0.1): **출시 가능**. 이 브랜치를 배포한다는 조건이다.
+  - 공개 인터넷 서비스 기준: **조건부**. 근거와 조건은 8장에 있다.
+- **시험:** 기존 313개 → **346개**, 전부 통과
+  - QA 재현 시험 33개를 더했다.
+  - 운영 레이크 통합 시험 2개는 QA 레이크에서 통과했다.
+
+## 2. 검증 범위와 방법
+| 영역 | 방법 | 대상·규모 |
+|---|---|---|
+| 환경 | 운영과 완전히 분리한 QA 스택(`qa/docker-compose.qa.yml` — 볼륨·네트워크·포트·이미지 태그 분리) + Testcontainers. **운영 스택에는 시험 요청을 보내지 않았다** | 생성 데이터: 시군구 256 × 69개월, 거래 2,705,106, 조작 문자열(XSS·SQL·템플릿·긴 이름·이모지·비밀값 모양 오류 메시지) |
+| 기능 | 매개변수 퍼징(`qa/probes/fuzz_api.py`), 값 대조(`correctness.py`), 경계값 | 14경로 × 조작값 47종 = 1,598요청 (수정 전·후), 값 대조 970건(두 시드), 경계 26건 |
+| 보안 | 권한 상승·IDOR·관리 경로 변형·인젝션·XSS·CSP·CORS·CSRF·한도 우회·비밀값·EOL·취약점 | BFF 위조 헤더, 다른 클라이언트의 내보내기·사용량, 관리 경로 변형 20종, XFF 위조, 동시 120건, 인증 실패 40회, gitleaks(커밋 101), 이미지 11종 Trivy |
+| 신뢰성 | 부하 중 의존 구성요소 멈춤(`chaos.py`), 잠금, 재시작, 동시 요청, 백업→복원 | ClickHouse·Redis·PostgreSQL 15·40초 멈춤, PG 표 잠금, API·작업자 재시작, 같은 요청 50건, QA 스택 백업 + 새 장비 복원 훈련 |
+| 성능 | k6(QA 네트워크 안), query_log 질의 비용, Lighthouse | 200+100·80+40 RPS 각 2회, 혼합 8경로 2회, 주요 5화면 × 모바일·데스크톱 |
+| 화면·접근성 | 실제 Chrome(puppeteer·내장 브라우저): axe WCAG 2.1 AA, 콘솔·실패·중복 요청, 상호작용, 키보드, 폭 375·1280, 밝게·어둡게 | 10화면 × 2폭 × 2테마 = 40조합, 상호작용 18조합 448~450회 클릭, Tab 40회 × 9화면 |
+| 회귀 | 기존 시험 전체 + 레이크 통합 시험(QA 레이크) | 아래 3장 |
+
+외부 원천 API(국토부·행안부·R-ONE·V-World)는 부르지 않았다. 저장된 응답과 목으로만 검증했다.
+
+## 3. 실행한 시험과 결과
+| 묶음 | 전 | 후 | 결과 |
+|---|---|---|---|
+| 파이프라인 단위 | 75 | 76 (+ 발행 교체 도중 끊김 뒤 재발행 회복) | 통과 |
+| 파이프라인 통합 (레이크) | 2 | 2 — **QA 레이크**에서 실행 | 통과 |
+| API (단위 + Testcontainers 통합) | 141 | 164 (+ QA 재현 23) | 통과 |
+| 웹 (Vitest, 스냅숏 11 포함) | 73 | 82 (+ QA 재현 9) | 통과 |
+| dbt | 22 | 22 — `dbt parse` 만 (데이터 시험은 미실행, 7장) | parse 통과 |
+| 정적 검사 | ruff·mypy·tsc·Biome·색 대비 150쌍 | 같음 | 통과 |
+| 의존성 취약점 | pip-audit(파이프라인·API)·npm audit | 같음 | 0건 |
+| QA 점검 스크립트 | — | 퍼징·값 대조·장애 주입·BFF 권한·복원 훈련·화면 40조합·Lighthouse 10조합 | 수정 후 모두 통과 (QA-005·009 제외) |
+
+## 4. 결함 목록 (심각도순)
+심각도 기준은 다음과 같다.
+- 치명: 인증 우회·데이터 손실/오염
+- 높음: 주요 기능 오작동·악용 가능한 보안 약점
+- 보통: 경계·부분 오류, 우회 가능
+- 낮음: 표시·사소함
+
+환경은 별도 표시가 없으면 다음과 같다.
+- QA 스택(macOS M1, Docker VM 7.75GB·CPU 4, ClickHouse 26.8, 생성 데이터)
+- 또는 Testcontainers
+
+| 번호 | 심각도 | 영역 | 제목 | 상태 |
+|---|---|---|---|---|
+| QA-001 | 높음 | 보안 | 공개 웹으로 누구나 오류 로그 비우기·되돌리기 (ops 권한 상승) | 수정 (사용자 결정) |
+| QA-006 | 높음 | 기능 | 전국 전체 기간 대량 내보내기가 메모리 상한에서 실패 | 수정 |
+| QA-002 | 보통 | 기능·신뢰성 | 범위 밖 연도(0000·9999-12) → 500, 같은 연결의 다음 요청도 끊김 | 수정 |
+| QA-005 | 보통 | 보안 | 이미지 안의 수정판 있는 HIGH·CRITICAL 취약점, CI 이미지 스캔 없음 | **미수정 (권고)** |
+| QA-007 | 보통 | 신뢰성 | ClickHouse 무응답 시 시간 초과 없음 (기본 300초) | 수정 |
+| QA-008 | 보통 | 신뢰성 | PostgreSQL 잠금을 무기한 기다림 | 수정 |
+| QA-009 | 보통 | 성능 | 200+100 RPS 목표(NFR-04) 미달 | **미수정 (알려진 한계)** |
+| QA-010 | 보통 | 접근성 | 글 속 링크가 색으로만 구분 (WCAG 1.4.1) | 수정 |
+| QA-011 | 보통 | 접근성 | 스크롤 영역에 키보드로 접근 불가 (WCAG 2.1.1) | 수정 |
+| QA-013 | 보통 | UX·성능 | 데이터가 늦게 오며 화면이 크게 밀림 (CLS 0.21~0.83) | 수정 |
+| QA-015 | 보통 | 기능 | 지역 분석에서 긴 기간을 고르면 422 ('전체' 버튼 포함) | 수정 |
+| QA-003 | 낮음 | 기능 | 숫자 패턴이 유니코드 숫자(전각·아랍-인도)를 받음 | 수정 |
+| QA-004 | 낮음 | 보안 | /docs 가 버전 고정·SRI 없이 외부 스크립트를 실행 | 수정 |
+| QA-012 | 낮음 | 성능 | 화면마다 시세 띠 요청이 두 번 | 수정 |
+| QA-014 | 낮음 | 접근성 | 로고 링크 이름이 보이는 글자를 담지 않음 (WCAG 2.5.3) | 수정 |
+| QA-016 | 낮음 | 접근성 | 팝업을 Esc 로 닫으면 초점이 사라짐 | 수정 |
+
+### QA-001 (높음, 보안) 공개 웹으로 누구나 오류 로그 비우기·되돌리기
+- **재현:** QA 스택에서 키 없이 다음을 보낸다.
+  - `curl -X POST -H 'Sec-Fetch-Site: same-origin' http://127.0.0.1:3710/v1/ops/errors/clear`
+  - `GET /v1/ops/errors` 도 같은 헤더로 보낸다.
+- **기대:** ADR-031 대로 익명에게 ops 쓰기가 막혀야 한다.
+- **실제:** 200 이다. 로그가 비워지고(`{"cleared":{"at":…}}`), DELETE 로 되돌릴 수 있고, 내부 오류 로그·연결 점검도 읽힌다.
+  - 감사 기록은 actor `web:<IP HMAC>` 이고 client_ip 는 비어 있다.
+  - 교차 출처(`Sec-Fetch-Site: cross-site`)는 403 이라 CSRF 는 막혀 있다.
+- **원인:**
+  - [provision.py:47](../../api/src/aptlake_api/provision.py) 웹 키 권한 `["read","ops"]`
+  - [aptlake.conf.template:9](../../web/templates/aptlake.conf.template) 위조 가능한 헤더로 웹 키를 붙임
+  - [ops/router.py:76·81](../../api/src/aptlake_api/features/ops/router.py) 보기·쓰기가 같은 권한
+- **결정·수정(사용자 선택):** 보기는 공개, 비우기·되돌리기는 운영자 키로 나눈다.
+  - `ops_read` 신설(V008), 웹 키 = `read`·`ops_read`
+  - 쓰기는 `ops` 만, 화면은 운영자 키를 입력받는다
+- **증거:** [qa-s1-ops-via-bff.txt](evidence/qa-s1-ops-via-bff.txt), [qa-s1-ops-clear-via-bff.txt](evidence/qa-s1-ops-clear-via-bff.txt), [qa-001-bff-before.txt](evidence/qa-001-bff-before.txt) → [qa-001-bff-after.txt](evidence/qa-001-bff-after.txt), [qa-001-ui-after.txt](evidence/qa-001-ui-after.txt)
+- **시험:**
+  - `api/tests/test_qa_2026_10.py::test_qa_001_*`
+  - `web/src/api/client.test.ts`(QA-001)
+  - `qa/probes/security_bff.sh`, `qa/probes/ui_ops_clear.mjs`
+  - 커밋: 3246adc → 1263bdc
+
+### QA-006 (높음, 기능) 전국 전체 기간 대량 내보내기 실패
+- **재현:** pro·bulk 키로 `POST /v1/exports {"from":"2021-01-01","to":"2026-09-30"}` 을 보낸다.
+- **기대:** pro 플랜은 기간 제한이 없으므로 Parquet 이 만들어져야 한다.
+- **실제:** 약 2초 만에 작업 `failed`, 오류는 `DatabaseError` 한 단어다.
+  - ClickHouse 에는 `MEMORY_LIMIT_EXCEEDED`(384 MiB > 381 MiB, MergeSortingTransform)가 남는다.
+  - 5년(220만 행)은 373MB 로 상한 직전이다. 거래가 매달 늘어 내보낼 수 있는 기간이 줄어든다.
+  - 운영 거래 표(269만 행)도 같은 규모다.
+- **원인:**
+  - [storage.py:75](../../api/src/aptlake_api/features/exports/storage.py) 전체 `ORDER BY`
+  - [aptlake-users.xml:23](../../infra/clickhouse/users.d/aptlake-users.xml) exporter 프로필에 외부 정렬 설정이 없다.
+  - 26.8 은 비율 설정(기본 0.5)이 있으면 바이트 값이 쓰이지 않는다.
+- **수정:** `max_bytes_before_external_sort` 150MB + `max_bytes_ratio_before_external_sort` 0. 270만 행에서 최대 216MB·3.9초이고, API 경유로 255만 행 완료를 확인했다.
+- **증거:** [qa-d4-export-failure-cause.txt](evidence/qa-d4-export-failure-cause.txt)
+- **시험:** `api/tests/test_qa_export_memory.py` (운영과 같은 users.d, 300만 행). 커밋: 1c49342 → 6c9d874
+
+### QA-002 (보통) 범위 밖 연도 → 500
+- **재현:** 다음 요청을 보낸다.
+  - `GET /v1/regions/41135/months?from=0000-01&to=2024-12`
+  - 같은 형태로 `distribution?ym=9999-12`, `market/overview?ym=0000-01`, 품질 경로
+- **기대:** 400 INVALID_PARAMETER.
+- **실제:** 500 INTERNAL 이고 로그에 `ValueError: year 0 is out of range` 가 남는다. 동시 요청에서는 같은 keep-alive 연결로 온 다음 요청이 끊겼다(`Server disconnected`).
+- **원인:**
+  - [params.py:9](../../api/src/aptlake_api/core/params.py) 연도 범위 없음
+  - [values.py:12·17](../../api/src/aptlake_api/core/values.py) `date(0,…)`·10000년
+- **수정:** `YM_Q` 연도를 1900~2099 로 제한하고, 관리 경로도 같은 패턴을 쓴다.
+- **증거:** [qa-fuzz-api.jsonl](evidence/qa-fuzz-api.jsonl) (500 12건·끊김 3건) → [qa-fuzz-api-after-summary.txt](evidence/qa-fuzz-api-after-summary.txt) (5xx 0)
+- **시험:** `test_qa_002_*` 10건. 커밋: fd9204b → 7a78b21
+
+### QA-005 (보통, 보안) 이미지 안의 수정판 있는 HIGH·CRITICAL 취약점 — 미수정
+- **재현:** `trivy image --severity HIGH,CRITICAL --ignore-unfixed` 를 QA·운영 이미지에 돌린다.
+- **실제:**
+  - 자체 이미지(api·pipeline): CRITICAL 3·HIGH 6
+    - Debian `libpcre2-8-0` deb13u2 → u3 수정판이 있다.
+    - `psycopg-binary` 3.3.6(최신) 휠이 묶어 온 `libpcre2 10.32`(AlmaLinux 8)와 지원이 끝난 `libcrypto 1.1.1k` 가 있다.
+  - 웹 이미지: HIGH 1
+  - 서드파티 이미지: trino(netty CRITICAL 등 31), postgres(gosu Go stdlib CRITICAL 1·HIGH 21), silo(amqp091 CRITICAL 3), redis·grafana·prometheus·clickhouse(HIGH 1~5)
+  - CI 는 소스 트리만 Trivy 로 검사하고 빌드한 이미지는 검사하지 않는다.
+- **판단:** 네트워크로 닿는 경로는 확인하지 못했다. 예: pcre2 는 libselinux 용, gosu 는 기동 때만 쓴다. 그래도 수정판이 있어 보통으로 둔다.
+- **권고:** 기반 이미지 다이제스트 갱신, CI 에 이미지 Trivy 스캔(예외 목록 포함), `psycopg[c]`(Debian libpq) 검토, 서드파티 태그 갱신.
+- **증거:** [qa-s7-trivy-images.txt](evidence/qa-s7-trivy-images.txt), [qa-005-psycopg-bundled-libs.txt](evidence/qa-005-psycopg-bundled-libs.txt)
+- **시험:** 실패 시험 대신 위 Trivy 명령(이미지 스캔이라 단위 시험으로 만들지 않음).
+
+### QA-007 (보통, 신뢰성) ClickHouse 무응답 시 시간 초과 없음
+- **재현:** 20 rps 부하 중 `docker pause aptlake-qa-clickhouse-1` 15초.
+- **기대:** 서버 질의 상한(5초) 근처에서 503 으로 빨리 실패한다. Redis 는 2초에 503 이다.
+- **실제:** 모든 요청이 멈춘 시간만큼(최대 15.9초) 기다렸다가 200 이 났다. 클라이언트 기본값 300초까지 매달릴 수 있고, 웹은 30초 뒤 504 다.
+- **원인:** [resources.py:43·52](../../api/src/aptlake_api/core/resources.py) `send_receive_timeout` 미지정
+- **수정:** 연결 3초·응답 10초. 40초 멈춤에서도 가장 오래 걸린 요청이 16.5초였다(풀 대기 포함, 나머지는 503 이나 캐시 응답).
+- **증거:** [qa-r1-dependency-pause.txt](evidence/qa-r1-dependency-pause.txt) → [qa-r1-dependency-pause-after.txt](evidence/qa-r1-dependency-pause-after.txt), [qa-r1-clickhouse-pause40-after.txt](evidence/qa-r1-clickhouse-pause40-after.txt)
+- **시험:** `test_qa_007_*` (시험 스택의 ClickHouse 컨테이너를 실제로 멈춤). 커밋: 73494a1 → abfaef9
+
+### QA-008 (보통, 신뢰성) PostgreSQL 잠금을 무기한 기다림
+- **재현:** `BEGIN; LOCK TABLE ops.log_view IN ACCESS EXCLUSIVE MODE; SELECT pg_sleep(20)` 동안 `GET /v1/ops/errors`.
+- **기대:** 짧은 시간 안에 503.
+- **실제:** 18.3초 뒤 200 이다. 연결 풀(10개)이 차면 다른 PG 경로도 멈출 수 있다.
+- **원인:** [resources.py:25](../../api/src/aptlake_api/core/resources.py) 질의·잠금 상한 없음
+- **수정:** `statement_timeout` 5초·`lock_timeout` 2초. 시험에서 약 2초에 503 이다. 서버 프로세스 자체가 멈추면 서버가 상한을 집행하지 못한다(한계).
+- **증거:** [qa-r1-pg-lock.txt](evidence/qa-r1-pg-lock.txt)
+- **시험:** `test_qa_008_*`. 커밋: 73494a1 → 2ba6481
+
+### QA-009 (보통, 성능) NFR-04 목표 미달 — 미수정
+- **재현:** `qa/load/run_k6.sh t300 api.js RATE_MONTHS=200 RATE_TRADES=100`
+- **기대:** months p95 < 80 ms, trades p95 < 150 ms.
+- **실제:** 처리량 261.5·286.4 req/s, months p95 2,045·1,489 ms, trades p95 3,467·2,432 ms 다. 120 RPS 는 근처다(87~199 / 164~311 ms).
+- **원인(측정):**
+  - CPU 4개 VM 을 k6·API·ClickHouse 가 나눠 쓴다.
+  - 질의당 고정 비용이 4~6 ms 다. region_month 의 인덱스 간격을 줄여 읽는 행을 91% 줄여도 CPU 는 그대로였다.
+  - 같은 요청이 몰릴 때 합쳐 주지 않는다(개선 제안 A2).
+- **증거:** [load/](evidence/load/), [qa-p-slow-queries.txt](evidence/qa-p-slow-queries.txt), [qa-p-region-month-granularity.txt](evidence/qa-p-region-month-granularity.txt)
+
+### QA-010 (보통, 접근성) 글 속 링크가 색으로만 구분
+- **재현:** `QA_TOOLS=… node qa/probes/ui_a11y.mjs --assert`
+- **실제:** 40조합 모두 axe `link-in-text-block`(serious)에 걸렸다. 경로 표시줄·바닥글·문단 링크다.
+- **원인:** [theme.css:110](../../web/src/theme.css) `a { text-decoration: none }`
+- **수정:** 글 속 링크에 밑줄을 친다.
+- **증거:** [qa-ui-a11y-summary.txt](evidence/qa-ui-a11y-summary.txt) → [qa-ui-assert-final.txt](evidence/qa-ui-assert-final.txt) (문제 0/40)
+- **커밋:** b57be8f → e18f315 (+ 린트 후속 d1ec95f)
+
+### QA-011 (보통, 접근성) 스크롤 영역에 키보드로 접근 불가
+- **실제:** axe `scrollable-region-focusable`(serious)이 40조합 모두에서 나왔다. 지표 띠·표 감싸개·코드 블록이다.
+- **원인:** [Shell.tsx:78](../../web/src/components/Shell.tsx), [DataTable.tsx:36](../../web/src/components/DataTable.tsx), `pre` 들
+- **수정:** `tabIndex=0` + 이름(`<section aria-label>`)
+- **커밋:** b57be8f → dd6ce70 (+ d1ec95f: 이 수정이 깨뜨린 Biome 린트를 고침 — 수정 커밋 뒤 린트를 돌리지 않아 놓쳤다)
+
+### QA-013 (보통, UX·성능) 화면이 크게 밀림 (CLS)
+- **재현:** `qa/probes/lighthouse.sh <폴더> --assert-cls`
+- **실제:** 10조합 모두 CLS > 0.1 이다(0.21~0.83, Core Web Vitals 기준 '나쁨' 0.25 초과 다수).
+- **원인(레이아웃 이동 기록으로 확인):**
+  - [Shell.tsx:75](../../web/src/components/Shell.tsx) 지표 띠가 데이터 전 `null` → 본문 전체를 밂
+  - [TradesPage.tsx:73·80](../../web/src/pages/TradesPage.tsx) 요약 줄·기간 선택기가 늦게 끼어듦
+  - [QualityPage.tsx:113](../../web/src/pages/QualityPage.tsx) 높이 고정 골격
+  - [RegionPicker.tsx:49](../../web/src/components/RegionPicker.tsx) 좁은 화면 줄바꿈 변화
+- **수정:** 같은 구조로 자리를 먼저 그린다. CLS 0.000~0.036, 성능 점수 68~89 → 89~100.
+- **증거:** [qa-013-cls-before.txt](evidence/qa-013-cls-before.txt) → [qa-013-cls-after.txt](evidence/qa-013-cls-after.txt)
+- **커밋:** eda45c6 → 694bfa3
+
+### QA-015 (보통, 기능) 지역 분석에서 긴 기간 → 422
+- **재현:** QA 웹 `#/region/11110` 에서 '전체'를 누르거나 5년 근처 기간을 고른다.
+- **실제:** `months?from=2021-01&to=2026-09` 가 422 RANGE_EXCEEDS_PLAN 이고, 화면에 오류가 나며, 같은 요청이 한 번 더 나간다.
+- **원인:** [region.ts:19](../../web/src/domain/region.ts) 전년 대비용 12개월(`fetchFrom`)이 웹 플랜 상한(60개월)을 넘는다.
+- **수정:** 받는 기간을 60개월 안으로 묶는다.
+- **증거:** [qa-ui-interact-summary.txt](evidence/qa-ui-interact-summary.txt) → [qa-ui-interact-after-summary.txt](evidence/qa-ui-interact-after-summary.txt)
+- **시험:** `region.test.ts` QA-015 4건. 커밋: 5a8fe5f → d369475
+
+### QA-003 (낮음) 유니코드 숫자 통과
+- **재현:** `GET /v1/regions/41135/months?from=２０２４-01&to=2024-06` (전각)
+- **실제:** 200 이고 2024-01 데이터를 준다(`int()` 가 전각 숫자를 읽음). 시군구 `١١١١٠` 은 빈 200 이다.
+- **원인:** [params.py:9-10](../../api/src/aptlake_api/core/params.py) 등 7곳의 `\d`
+- **수정:** `[0-9]`
+- **시험:** `test_qa_003_*` 7건. 커밋: fd9204b → 368692c
+
+### QA-004 (낮음, 보안) /docs 외부 스크립트 고정·SRI 없음
+- **재현:** `curl -s http://127.0.0.1:3710/docs`
+- **실제:** `swagger-ui-dist@5/swagger-ui-bundle.js` 를 integrity 없이 불러온다. 같은 출처라 BFF 가 붙이는 웹 키 권한으로 API 를 부를 수 있다.
+- **원인:** [main.py:90](../../api/src/aptlake_api/main.py) FastAPI 기본 `/docs`
+- **수정:** 5.33.1 고정 + sha384 SRI. 실제 Chrome 에서 화면이 그려짐을 확인했다(작업 25개, 콘솔 오류 0).
+- **증거:** [qa-s4-docs-cdn.txt](evidence/qa-s4-docs-cdn.txt) → [qa-004-docs-after.txt](evidence/qa-004-docs-after.txt)
+- **커밋:** a8d1548 → 0173209
+
+### QA-012 (낮음, 성능) 시세 띠 중복 요청
+- **실제:** 40조합 모두 `/v1/market/ticker ×2` 다(App·Shell 이 동시에 부르고, 캐시는 끝난 응답만 저장).
+- **원인:** [client.ts:48](../../web/src/api/client.ts)
+- **수정:** 진행 중인 같은 조회를 공유한다. 호출자별 취소는 그대로다.
+- **커밋:** b57be8f → d393c98
+
+### QA-014 (낮음, 접근성) 로고 링크 이름 불일치 (WCAG 2.5.3)
+- **실제:** 화면에는 'AptLake 아파트 실거래 데이터'인데 이름은 'AptLake 홈'이다(Lighthouse `label-content-name-mismatch`).
+- **원인:** [Shell.tsx:99](../../web/src/components/Shell.tsx)
+- **수정:** 이름 'AptLake 아파트 실거래 데이터 · 홈'
+- **커밋:** eda45c6 → 8024770
+
+### QA-016 (낮음, 접근성) 팝업 Esc 뒤 초점 소실
+- **재현:** 지역 선택 버튼에 초점 → Enter → Esc
+- **실제:** 초점이 `body` 로 간다.
+- **원인:** [ui.tsx:193](../../web/src/components/ui.tsx) Esc 처리
+- **수정:** 연 버튼으로 초점을 되돌린다(지역·월·기간 선택 공통).
+- **증거:** [qa-ui-keyboard.txt](evidence/qa-ui-keyboard.txt) → [qa-ui-keyboard-after.txt](evidence/qa-ui-keyboard-after.txt)
+- **커밋:** 28ca113 → d8e6647
+
+## 5. 확인됨 (결함 아님)
+- **다른 클라이언트의 데이터·관리 경로**
+  - 다른 클라이언트의 내보내기 작업은 404, 사용량은 자기 것만 보인다.
+  - 관리 경로 변형 20종(대소문자·`//`·`%2F`·`..` 등)은 모두 차단됐다(생성된 클라이언트 0).
+- **인젝션·XSS·CSP**
+  - SQL·LIKE 인젝션 없음. 검색은 바인딩 + `positionCaseInsensitiveUTF8` 를 쓴다.
+  - XSS: 조작 문자열이 든 단지·지역·로그를 8화면에서 열어 봤고 실행 0, CSP 위반 0이었다. 툴팁 formatter 8곳 모두 `esc()` 를 거친다.
+- **헤더·CSRF·한도**
+  - 보안 헤더(CSP·XFO·nosniff·Referrer·Permissions·COOP·CORP)가 웹·API 모두 있다.
+  - CORS 사전 요청은 405, 교차 출처 POST 는 웹 키가 붙지 않아 403 이다.
+  - XFF 위조는 무시되고(익명 20회 뒤 429), 동시 120건 중 정확히 60건이 통과했으며(free 분당 60), 인증 실패 30회 뒤 429 다(정상 키에는 영향 없음).
+- **비밀값**
+  - gitleaks 0, 웹 번들·이미지 설정·로그에 키 0이다.
+  - 오류 로그의 `serviceKey=`·`password=` 는 가려진다.
+- **EOL·의존성:** 지원 종료 0건(9개 이미지), pip-audit·npm audit 0건.
+- **데이터 정확성**
+  - 970건 일치: 지역 통계·커서로 끝까지 넘긴 거래 목록(빠짐·중복·순서)·분포 합계·단지 순위·시장 개요
+  - 버전이 바뀌면 캐시가 무효화된다(프로세스 내 1초 캐시는 설계).
+- **발행 원자성:** 표 교체 도중 끊기면 앞 두 표만 새 버전이 되는 창이 있다(ADR-038). 다시 발행하면 네 표가 맞춰지고 스테이징이 비워진다(새 시험).
+- **백업·복원**
+  - QA 스택에서 `make backup` 과 같은 스크립트 → `backup-verify` 가 모두 OK 였다.
+  - 새 장비 복원 훈련(`restore_drill.sh`)에서 행 수가 같고 역할 권한도 유지됐다(api_app 읽기·갱신 가능, 삭제 거부). MinIO 객체도 모두 돌아왔다.
+- **같은 요청 동시 처리**
+  - 내보내기 동시 12건 → 2건만 접수(클라이언트 상한 2, advisory lock)
+  - 로그 비우기·되돌리기 동시 40건 → 감사 기록 40건, 상태 일관
+- **설계대로인 것들**
+  - Redis 장애는 2초에 503 이고, 풀리면 바로 회복한다.
+  - 작업자 재시작으로 끊긴 내보내기는 30분 뒤 실패로 정리된다.
+  - API 재시작 중에는 약 2~3초 오류(직접 호출은 끊김, 웹 경유는 502)가 난다. 인스턴스가 하나이기 때문이다.
+  - 수집 상태의 '잘못된 매개변수(to=2000-13)'·'잘못된 키' 요청은 연결 테스트가 일부러 보내는 부정 검사다.
+- **키보드:** 초점 표시가 없는 요소 0(9화면 × Tab 40회). 검색 자동완성·지역 선택·월 이동이 키보드만으로 된다.
+- **기타:** 개발자 화면 키 입력은 빈 키 무시, 형식 오류 401 안내, 유효 키는 사용량 표시이고 localStorage 에 남지 않는다.
+
+## 6. 측정한 성능 (QA 스택, 생성 데이터 270만 건, 운영 스택이 같은 VM 에서 대기 중)
+| 측정 | 결과 |
+|---|---|
+| 200+100 RPS (목표) | 처리량 261.5·286.4 req/s · months p95 2,045·1,489 ms · trades p95 3,467·2,432 ms (NFR-04 미달) |
+| 80+40 RPS | 120.8 req/s · months p95 199·87 ms · trades p95 311·164 ms |
+| 혼합 8경로 × 10 rps | 분포 p95 756~1,049 · 단지 상세 624~895 · 단지 목록 467~684 · 시장 개요 274~459 · 검색 235~306 · 지수 27~43 · 경계 32~43 · 시세 띠 26~29 ms |
+| 느린 질의 (CPU 합) | region_month 19,240회 113 s(질의당 5.9 ms), 거래 페이지 68.6 s, 거래 요약 54.8 s · 단지 상세 질의당 47 ms(51천 행) · 검색 89천 행 읽음 |
+| 응답·전송 크기 | 차트 묶음 676 KB(gzip 223 KB) · 화면 전송량 106~344 KiB · 전국 전체 내보내기 Parquet 90 MiB |
+| 대량 내보내기 (수정 후) | 270만 행 ClickHouse 최대 216 MB · 3.9초, api-internal 최대 약 367 MiB / 512 MiB |
+| Lighthouse (수정 후) | 성능 데스크톱 99~100 · 모바일 89~99, 접근성 100, 모범 사례 100, CLS ≤ 0.036, 모바일 LCP 1.7~3.3 s |
+| 장애 주입 (수정 후) | Redis 멈춤 → 2초 503 · ClickHouse 40초 멈춤 → 최대 16.5초 · PG 잠금 → 약 2초 503 |
+
+## 7. 검증하지 못한 부분과 이유
+- **공개 배포 구성:** TLS·HSTS·리버스 프록시는 스택에 없다(모든 포트 127.0.0.1).
+- **dbt 데이터 시험 22개:** 레이크에 수집 데이터가 있어야 해서 `dbt parse` 만 했다. QA 레이크에서는 SCD2 통합 시험만 돌렸다.
+- **원천 API 실제 호출·장애:** 규칙상 부르지 않았다. 기존 단위 시험(저장 응답·목: 429·5xx·인증 거부)으로 대신했다.
+- **Dagster 실행 도중 재시작·FETCHING 고착 복구:** QA 스택에 Dagster 를 띄우지 않았다(메모리). 미확인이다.
+- **볼륨 손상 복원(QA 볼륨 삭제):** 볼륨 삭제가 권한 확인에서 거부됐다. 대신 새 컨테이너 복원 훈련으로 같은 절차를 검증했다.
+- **스크린 리더·실제 모바일 기기:** 에뮬레이션·axe·키보드만 확인했다.
+- **일일 행 한도의 동시 초과 여부, 키 존재 여부의 응답 시간 차이:** 시험하지 않았다(미확인).
+- **성능 수치:** 전용 장비가 아닌 공유 VM(CPU 4)에서 쟀다. 운영 스택이 같은 VM 에서 대기 중이었다.
+
+## 8. 출시 가능 여부
+- **로컬 단일 노드 운영(현재 배포 형태): 출시 가능** — 이 브랜치를 배포한다는 조건이다. 근거는 다음과 같다.
+  - 치명 결함 0
+  - 높음 2건(QA-001 권한 상승, QA-006 대량 내보내기) 모두 수정·검증
+  - 보안·신뢰성 핵심 경로(권한·인젝션·XSS·한도·비밀값·백업 복원·장애 시 응답 상한) 확인
+  - 남은 미수정 2건: QA-005 는 닿는 경로가 확인되지 않은 패키지 취약점, QA-009 는 이미 공개된 성능 한계
+- **공개 인터넷 서비스: 조건부.**
+  1. TLS 종단과 HSTS
+  2. QA-005 이미지 갱신과 CI 이미지 스캔
+  3. 기대 부하가 약 120 RPS 를 넘으면 QA-009 해소: CPU 분리·증설, 같은 요청 합치기(A2) 등
+- **배포 절차** (운영 스택에는 하지 않았다):
+  1. `docker compose up -d --build api api-internal web` 을 실행한다.
+     - db-migrate 가 V008 을 적용하고, provision 이 웹 키를 `read`·`ops_read` 로 바꾼다.
+     - Redis 키 캐시가 최대 30초 남는다.
+  2. `infra/clickhouse/users.d` 는 ClickHouse 가 자동으로 다시 읽는다. 체크아웃하는 순간 exporter 프로필이 바뀐다.
+  3. 파이프라인 코드는 바뀌지 않았다(시험만 추가). 재배포는 필요 없다.
+
+## 9. 수정 우선순위 제안 (남은 일)
+1. 이 브랜치 배포 (8장 절차).
+2. QA-005: 기반 이미지 다이제스트 갱신·재빌드, CI 에 이미지 Trivy 스캔 추가(닿지 않는 항목은 근거와 함께 예외), `psycopg[c]` 전환 검토.
+3. QA-009: 같은 요청 합치기(A2), ClickHouse CPU 분리, API 워커·VM CPU 조정 뒤 같은 시나리오로 재측정.
+4. 개선 제안 A3~A8 (아래).
+
+## 10. 개선 제안 (결함 아님 — 구조·운영)
+- **A1 기능 사이 직접 의존 2곳:** `complexes → trades`(`TRADE_COLS`·`trade_item`), `ops → quality`(`RESOLVED`). 공유 모듈로 옮기면 경계가 분명해진다. 순환 import 0, core → features 역방향 0.
+- **A2 데이터 경로에 같은 요청 합치기 없음:** 캐시가 빈 상태에서 같은 분포 요청 50건 → ClickHouse 질의 250회. 경계(geo)에만 single-flight 가 있다. 발행 직후 캐시가 비는 순간 부하가 몰린다.
+- **A3 내보내기 임시 파일이 tmpfs(메모리):** 전체 기간 90 MiB 일 때 api-internal 최대 367/512 MiB. 데이터가 늘면 메모리 상한에 닿는다. 디스크 임시 폴더나 분할 업로드를 권한다.
+- **A4 작업자 재시작 뒤 남은 `running` 작업:** 작업자가 하나뿐이므로 시작할 때 바로 정리할 수 있다(지금은 30분 뒤, 그동안 클라이언트 상한 1칸을 차지).
+- **A5 재배포 중 2~3초 오류:** 인스턴스가 하나다. 웹 BFF 가 멱등 GET 을 다시 시도하게 하거나 순차 교체를 권한다.
+- **A6 사용량 이벤트:** ClickHouse 장애 중에는 설계상 버린다(개수만 셈). 짧은 재시도 뒤 버리면 일시 장애에서 덜 잃는다.
+- **A7 로그 비우기 감사 기록:** client_ip 가 비어 있다(관리 API 는 남김). 웹 경유는 actor 에 IP HMAC 이 있다.
+- **A8 개발자 화면 키:** 다른 메뉴에 갔다 와도 입력란에 남는다. 안내 문구는 '이 화면 메모리에만'이다. localStorage 에는 없다.
+- **A9 region_month 인덱스 간격 축소:** 읽는 행은 91% 줄지만 질의당 CPU 는 같다(4.1~4.7 ms). 권하지 않는다.
+
+## 11. 리뷰
+- 독립 에이전트가 이 보고서의 재현 절차대로 재현되는지와 심각도가 맞는지 검토했다.
+- 결과와 반영 내용은 아래 12장에 있다.
