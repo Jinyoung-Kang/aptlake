@@ -99,9 +99,12 @@ export function errorText(e: unknown): string {
   return "서버에 연결할 수 없습니다 (자동 재시도 후에도 실패). 웹 서버·API 컨테이너가 켜져 있는지 확인하세요.";
 }
 
-/** 쓰기 요청(POST·DELETE). 자동 재시도하지 않는다 — 사용자가 누른 동작은 결과를 그대로 보여 준다. 성공하면 조회 캐시를 비운다. */
-export async function apiSend<T>(method: "POST" | "DELETE", path: string): Promise<T> {
-  const res = await fetch(path, { method, headers: { Accept: "application/json" } });
+/** 쓰기 요청(POST·DELETE). 자동 재시도하지 않는다 — 사용자가 누른 동작은 결과를 그대로 보여 준다. 성공하면 조회 캐시를 비운다.
+ * key: 사용자가 넣은 키(예: 로그 비우기의 운영자 키) — 이 요청에만 붙는다. BFF 는 사용자가 넣은 키를 그대로 넘긴다. */
+export async function apiSend<T>(method: "POST" | "DELETE", path: string, key?: string): Promise<T> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (key) headers["X-API-Key"] = key;
+  const res = await fetch(path, { method, headers });
   const body = await res.json().catch(() => null);
   if (!res.ok) throw new ApiError(body?.code ? body : { status: res.status, code: `HTTP_${res.status}`, title: res.statusText || "HTTP 오류" });
   cache.clear();

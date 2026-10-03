@@ -1,0 +1,5 @@
+비우기 확인 열림·키 없음     {"confirm":null,"actionDisabled":true,"errors":[],"banner":false}
+ops 권한 없는 키        {"confirm":null,"actionDisabled":false,"errors":["Forbidden — 'ops' 스코프가 필요합니다. (SCOPE_REQUIRED)"],"banner":false}
+운영자 키로 비우기         {"confirm":null,"actionDisabled":null,"errors":[],"banner":true}
+되돌리기 확인 열림         {"confirm":null,"actionDisabled":false,"errors":[],"banner":true}
+운영자 키로 되돌리기        {"confirm":null,"actionDisabled":null,"errors":[],"banner":false}

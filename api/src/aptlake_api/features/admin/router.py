@@ -39,7 +39,7 @@ async def create_client(request: Request, body: ClientIn, p: Principal = require
 
 
 class KeyIn(BaseModel):
-    scopes: list[Literal["read", "bulk", "admin", "ops"]] = Field(default=["read"], min_length=1)
+    scopes: list[Literal["read", "bulk", "admin", "ops", "ops_read"]] = Field(default=["read"], min_length=1)
     expiresInDays: int = Field(default=90, ge=1, le=365)  # noqa: N815
 
 
