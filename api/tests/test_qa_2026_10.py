@@ -52,7 +52,9 @@ async def test_qa_003_non_ascii_digits_rejected(pub, adm, admin_key, path, param
 async def test_qa_003_non_ascii_digits_rejected_in_export_body_and_admin_path(pub, adm, admin_key):
     key, _ = await new_key(adm, admin_key, "pro", scopes=("read", "bulk"))
     r = await pub.post(
-        "/v1/exports", json={"from": "2024-07-01", "to": "2024-07-31", "sggCd": "４１１３５"}, headers={"X-API-Key": key}
+        "/v1/exports",
+        json={"from": "2024-07-01", "to": "2024-07-31", "sggCd": "４１１３５"},
+        headers={"X-API-Key": key},
     )
     assert r.status_code == 400, (r.status_code, r.text[:200])
     r = await adm.post("/v1/admin/partitions/４１１３５/2024-07/retry", headers={"X-API-Key": admin_key})
