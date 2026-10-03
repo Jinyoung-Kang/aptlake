@@ -317,41 +317,6 @@ async def geo_sgg(request: Request, p: Principal = require_scope("read")) -> Res
 # ───────────────────────── 검색 ─────────────────────────
 
 
-@router.get("/search", summary="단지명·법정동 검색 (시군구 검색은 화면에서 처리)")
-async def search(
-    request: Request, q: Annotated[str, Query(min_length=1, max_length=40)], p: Principal = require_scope("read")
-) -> Response:
-    term = q.strip()
-    if not term:
-        raise ApiError(400, "INVALID_QUERY", "Invalid Query")
-
-    async def compute():
-        rows = await _q(
-            request,
-            """
-            SELECT complex_key, sgg_cd, umd_nm, apt_nm, build_year, trades FROM complex
-            WHERE positionCaseInsensitiveUTF8(apt_nm, {q:String}) > 0
-               OR positionCaseInsensitiveUTF8(umd_nm, {q:String}) > 0
-            ORDER BY trades DESC LIMIT 15""",
-            {"q": term},
-        )
-        return {
-            "complexes": [
-                {
-                    "complexKey": r["complex_key"],
-                    "sggCd": r["sgg_cd"],
-                    "umdName": r["umd_nm"],
-                    "aptName": r["apt_nm"],
-                    "buildYear": r["build_year"],
-                    "validTrades": r["trades"],
-                }
-                for r in rows
-            ]
-        }, 0
-
-    return await respond(request, "search", {"q": term}, compute)
-
-
 # ───────────────────────── 지역 상세 ─────────────────────────
 
 

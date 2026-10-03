@@ -6,8 +6,10 @@ import datetime as dt
 
 import pytest
 
+from aptlake_api.core import cursor as cursor_mod
 from aptlake_api.core.problems import ApiError
 from aptlake_api.features.regions import service as regions
+from aptlake_api.features.trades import service as trades
 
 
 class FakeRegions:
@@ -64,3 +66,82 @@ def test_period_must_not_be_reversed():
     regions.check_period(dt.date(2024, 1, 1), dt.date(2024, 1, 31))
     with pytest.raises(ApiError):
         regions.check_period(dt.date(2024, 2, 1), dt.date(2024, 1, 31))
+
+
+# ───── 거래 ─────
+
+
+def trade_row(i: int, day: int) -> dict:
+    return {
+        "trade_id": f"41135-202407-{i:016x}-0",
+        "deal_date": dt.date(2024, 7, day),
+        "complex_key": "c_" + "a" * 20,
+        "apt_nm": "A",
+        "umd_nm": "B",
+        "jibun": "",
+        "area_m2": 84.9,
+        "floor": 5,
+        "price_manwon": 100000,
+        "ppm2": 1177.0,
+        "is_cancelled": 0,
+        "cancel_date": None,
+        "registered_date": None,
+        "apt_dong": "",
+        "deal_kind": "",
+        "seller_type": "",
+        "buyer_type": "",
+        "build_year": None,
+        "is_outlier": 0,
+        "version": 1,
+        "missing_since": None,
+    }
+
+
+class FakeTrades:
+    def __init__(self, rows, summary):
+        self.rows, self._summary, self.calls = rows, summary, []
+
+    async def page(self, f, after, limit):
+        self.calls.append(("page", after, limit))
+        return self.rows[:limit]
+
+    async def summary(self, f):
+        self.calls.append(("summary",))
+        return self._summary
+
+
+async def test_trade_page_cursor_and_summary_only_on_first_page():
+    f = trades.TradeFilter("41135", dt.date(2024, 7, 1), dt.date(2024, 7, 31), None, None, True)
+    key, fp = b"k", cursor_mod.query_fingerprint(f.key(2))
+    store = FakeTrades(
+        [trade_row(i, 30 - i) for i in range(3)], {"n": 3, "cancelled": 0, "med": 1177.04, "med_price": 1e5}
+    )
+    body, rows = await trades.page(store, f, 2, None, cursor_key=key, fingerprint=fp)
+    assert rows == 2 and store.calls == [("page", None, 3), ("summary",)]  # 한 건 더 읽어 다음 페이지 여부 판단
+    assert body["summary"] == {"count": 3, "cancelled": 0, "medianPpm2": 1177.0, "medianPrice": 100000}
+    pos = trades.read_cursor(key, body["page"]["nextCursor"], fp)
+    assert pos == {"d": "2024-07-29", "k": trade_row(1, 29)["trade_id"]}
+    store.calls.clear()
+    body2, _ = await trades.page(store, f, 2, pos, cursor_key=key, fingerprint=fp)
+    assert body2["summary"] is None and store.calls == [("page", (dt.date(2024, 7, 29), pos["k"]), 3)]
+    with pytest.raises(ApiError):  # 다른 질의의 커서
+        trades.read_cursor(key, body["page"]["nextCursor"], cursor_mod.query_fingerprint(f.key(3)))
+
+
+def test_trade_summary_without_valid_trades_has_no_median():
+    assert trades._summary({"n": 1, "cancelled": 1, "med": float("nan"), "med_price": float("nan")}) == {
+        "count": 1,
+        "cancelled": 1,
+        "medianPpm2": None,
+        "medianPrice": None,
+    }
+
+
+def test_trade_id_and_page_size_rules():
+    assert trades.parse_trade_id("41135-202407-00000000000000ff-0") == 202407
+    with pytest.raises(ApiError):
+        trades.parse_trade_id("41135-2024-07-x")
+    trades.check_page_size("free", 200, 200)
+    with pytest.raises(ApiError) as e:
+        trades.check_page_size("free", 200, 201)
+    assert e.value.status == 422
