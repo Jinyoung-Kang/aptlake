@@ -7,13 +7,13 @@ import { MonthPicker, MonthRangePicker, RangePills } from "../components/MonthPi
 import RegionPicker from "../components/RegionPicker";
 import { Badge, Change, Empty, ErrorBox, Kpi, RangeBar, Skeleton, Sqm, StatRow, Tabs } from "../components/ui";
 import { DASH, manwon, monthRange, num, ymAdd, ymLabel } from "../lib/format";
+import { fillMonths, latestQuote, medianYoY, recentStats, regionPeriod, splitPoints, WEB_MAX_MONTHS } from "../domain/region";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { recentRegions, useRegions } from "../lib/regions";
 import { paths } from "../api/endpoints";
 
 type Tab = "overview" | "distribution" | "complexes";
 
-const WEB_MAX_MONTHS = 60;
 
 function PriceVolumeChart({ rows }: { rows: MonthRow[] }) {
   const build = (p: Palette) => {
@@ -63,12 +63,8 @@ function PriceVolumeChart({ rows }: { rows: MonthRow[] }) {
 }
 
 function Overview({ rows, all, from }: { rows: MonthRow[]; all: MonthRow[]; from: string }) {
-  const valid = rows.filter((r) => r.medianPricePerM2 != null);
-  const last12 = rows.slice(-12);
-  const t12 = last12.reduce((a, r) => a + r.trades, 0);
-  const c12 = last12.reduce((a, r) => a + r.cancelled, 0);
-  const meds = last12.map((r) => r.medianPricePerM2).filter((v): v is number => v != null);
-  const lastOk = [...valid].reverse().find((r) => !r.provisional) ?? valid[valid.length - 1];
+  const st = recentStats(rows);
+  const lastOk = st.lastConfirmed;
   const tableRows = all.filter((r) => r.dealYm >= from).reverse();
   const byYm = new Map(all.map((r) => [r.dealYm, r])); // 전년비는 표시 기간 앞 12개월까지 받아 계산
   return (
@@ -78,14 +74,14 @@ function Overview({ rows, all, from }: { rows: MonthRow[]; all: MonthRow[]; from
         <aside>
           <div className="section-head"><h2>주요 지표</h2><span className="sub">표시 기간 기준</span></div>
           <div className="stat-list one">
-            <StatRow k="최근 12개월 거래" v={`${num(t12)}건`} />
-            <StatRow k="최근 12개월 해제율" v={t12 + c12 ? `${num((c12 / (t12 + c12)) * 100, 1)}%` : DASH} />
+            <StatRow k="최근 12개월 거래" v={`${num(st.trades)}건`} />
+            <StatRow k="최근 12개월 해제율" v={st.cancelRate != null ? `${num(st.cancelRate, 1)}%` : DASH} />
             <StatRow k="최근 확정 월 중위가" v={lastOk ? `${num(lastOk.medianPricePerM2)} 만원/m²` : DASH} />
-            <StatRow k="12개월 중위가 범위" v={meds.length ? `${num(Math.min(...meds))} ~ ${num(Math.max(...meds))}` : DASH} />
+            <StatRow k="12개월 중위가 범위" v={st.medianRange ? `${num(st.medianRange.lo)} ~ ${num(st.medianRange.hi)}` : DASH} />
           </div>
-          {meds.length > 1 && lastOk?.medianPricePerM2 != null && (
+          {st.medianRange && st.medianRange.n > 1 && lastOk?.medianPricePerM2 != null && (
             <>
-              <RangeBar lo={Math.min(...meds)} hi={Math.max(...meds)} v={lastOk.medianPricePerM2} />
+              <RangeBar lo={st.medianRange.lo} hi={st.medianRange.hi} v={lastOk.medianPricePerM2} />
               <div className="note">막대 = 최근 12개월 월별 중위가의 최저~최고, 세로선 = 최근 확정 월</div>
             </>
           )}
@@ -105,10 +101,7 @@ function Overview({ rows, all, from }: { rows: MonthRow[]; all: MonthRow[]; from
             { key: "p25", header: "1사분위", align: "right", cell: (r) => num(r.p25PricePerM2), sort: (r) => r.p25PricePerM2 },
             { key: "med", header: "중위가", align: "right", cell: (r) => <strong>{num(r.medianPricePerM2)}</strong>, sort: (r) => r.medianPricePerM2 },
             { key: "p75", header: "3사분위", align: "right", cell: (r) => num(r.p75PricePerM2), sort: (r) => r.p75PricePerM2 },
-            { key: "yoy", header: "중위가 전년비", align: "right", cell: (r) => {
-              const prev = byYm.get(ymAdd(r.dealYm, -12));
-              return <Change v={prev?.medianPricePerM2 && r.medianPricePerM2 ? (r.medianPricePerM2 / prev.medianPricePerM2 - 1) * 100 : null} />;
-            } },
+            { key: "yoy", header: "중위가 전년비", align: "right", cell: (r) => <Change v={medianYoY(r, byYm.get(ymAdd(r.dealYm, -12)))} /> },
           ]}
           maxHeight={460}
         />
@@ -141,10 +134,7 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
   };
   const scatter = (p: Palette) => {
     const b = base(p);
-    const pts = data?.points ?? [];
-    const normal = pts.filter((x) => !x[3] && !x[4]).map((x) => [x[0], x[1], x[2]]);
-    const cancelled = pts.filter((x) => x[3]).map((x) => [x[0], x[1], x[2]]);
-    const outlier = pts.filter((x) => !x[3] && x[4]).map((x) => [x[0], x[1], x[2]]);
+    const { normal, cancelled, outlier } = splitPoints(data?.points ?? []);
     return {
       ...b,
       legend: { ...b.legend, data: ["정상 거래", "해제", "이상치"] },
@@ -238,29 +228,14 @@ export default function RegionPage({ route }: { route: Route }) {
     if (!/^\d{5}$/.test(sgg)) navigate(`/region/${recentRegions()[0] ?? "41135"}`, undefined, true);
   }, [sgg]);
   const tab = (route.params.get("tab") as Tab) || "overview";
-  const max = avail?.to ?? "";
-  const min = avail?.from ?? "";
-  const to = route.params.get("to") ?? max;
-  const from = route.params.get("from") ?? (max ? (ymAdd(max, -23) < min ? min : ymAdd(max, -23)) : "");
-  const ym = route.params.get("ym") ?? avail?.default ?? "";
+  const { min, max, from, to, ym, fetchFrom } = regionPeriod(route.params, avail);
   const ok = /^\d{5}$/.test(sgg) && !!from && !!to;
-  // YoY 비교를 위해 표시 기간보다 12개월 앞까지 받는다 (표·지표 계산용)
-  const fetchFrom = from && min ? (ymAdd(from, -12) < min ? min : ymAdd(from, -12)) : from;
   const { data, error, loading, stale, reload } = useApi<RegionMonths>(ok ? paths.regionMonths(sgg, fetchFrom, to) : null);
   const region = byCode.get(sgg);
 
-  const rows = useMemo(() => {
-    const map = new Map((data?.items ?? []).map((r) => [r.dealYm, r]));
-    return monthRange(from, to).map((m) => map.get(m) ?? ({ dealYm: m, reported: 0, trades: 0, cancelled: 0, sampleSize: 0, outliers: 0, p25PricePerM2: null, medianPricePerM2: null, p75PricePerM2: null } as MonthRow));
-  }, [data, from, to]);
+  const rows = useMemo(() => fillMonths(data?.items ?? [], from, to), [data, from, to]);
   const full = data?.items ?? [];
-  const quote = useMemo(() => {
-    const valid = full.filter((r) => r.medianPricePerM2 != null && !r.lowSample);
-    const cur = [...valid].reverse().find((r) => !r.provisional) ?? valid[valid.length - 1];
-    if (!cur) return null;
-    const prev = full.find((r) => r.dealYm === ymAdd(cur.dealYm, -12));
-    return { cur, yoy: prev?.medianPricePerM2 ? (cur.medianPricePerM2! / prev.medianPricePerM2 - 1) * 100 : null };
-  }, [full]);
+  const quote = useMemo(() => latestQuote(full), [full]);
 
   return (
     <>
