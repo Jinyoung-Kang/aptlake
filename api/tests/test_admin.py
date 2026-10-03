@@ -35,7 +35,7 @@ async def test_admin_change_is_rolled_back_when_audit_fails(apps, adm, admin_key
     """감사 기록이 실패하면 변경도 남지 않아야 한다 (기록 없는 키 발급·폐기 금지)."""
     import httpx
 
-    from aptlake_api import routes_admin
+    from aptlake_api.features.admin import repository as admin_repo
 
     h = {"X-API-Key": admin_key}
     # 처리되지 않은 예외도 테스트에서 500 응답으로 받는다 (기본은 예외를 그대로 올림)
@@ -46,7 +46,7 @@ async def test_admin_change_is_rolled_back_when_audit_fails(apps, adm, admin_key
     async def broken_audit(*args, **kwargs):
         raise RuntimeError("audit store down")
 
-    monkeypatch.setattr(routes_admin, "audit", broken_audit)
+    monkeypatch.setattr(admin_repo, "audit", broken_audit)
     async with raw:
         r = await raw.post(f"/v1/admin/clients/{cid}/keys", json={"scopes": ["read"]}, headers=h)
         assert r.status_code == 500

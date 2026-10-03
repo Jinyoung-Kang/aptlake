@@ -18,7 +18,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from prometheus_client import REGISTRY, CollectorRegistry, multiprocess, start_http_server
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import routes_admin
 from .core.auth import _SLIDING, load_plans
 from .core.envelope import Envelope
 from .core.errors import TRANSIENT_HANDLERS, api_error_handler, http_handler, unhandled_handler, validation_handler
@@ -28,6 +27,7 @@ from .core.resources import close_resources, open_resources
 from .core.responses import OrjsonResponse
 from .core.settings import settings
 from .core.usage import UsageRecorder
+from .features.admin.router import router as admin_router
 from .features.complexes.router import router as complexes_router
 from .features.exports import worker as export_worker
 from .features.exports.router import router as exports_router
@@ -117,7 +117,7 @@ def _build(name: str, internal: bool) -> FastAPI:
         return OrjsonResponse({"status": "ok" if ok else "degraded", **checks}, status_code=200 if ok else 503)
 
     if internal:
-        app.include_router(routes_admin.router)
+        app.include_router(admin_router)
     else:
         for feature in (
             regions_router,
