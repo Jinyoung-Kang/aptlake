@@ -22,6 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: 시스템 libpq (psycopg C 구현·psycopg2 를 시스템 libpq 에 대고 소스 빌드 — QA-005)
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends libpq-dev
       - run: uv sync --frozen
       - run: uv run ruff check src tests && uv run ruff format --check src tests
       - run: uv run mypy src
