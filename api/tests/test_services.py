@@ -281,3 +281,38 @@ async def test_error_log_keeps_section_order_and_notes():
     )
     assert [e["source"] for e in body["entries"]] == ["ingest", "quality"]
     assert ["Dagster" in body["notes"][0], "TIMEOUT_EXCEEDED" in body["notes"][1]] == [True, True]
+
+
+# ───── 시장 개요 ─────
+class FakeMarket:
+    def __init__(self, sgg_rows):
+        self.sgg_rows = sgg_rows
+
+    async def month_bounds(self):
+        return dt.date(2023, 1, 1), dt.date(2024, 7, 1)
+
+    async def sgg_months(self, m, pm, py):
+        return self.sgg_rows
+
+    async def rollups(self, a, b, py):
+        return []
+
+
+def sgg_row(code: str, month: dt.date, trades: int, median: float) -> dict:
+    return {"sgg_cd": code, "month": month, "trades": trades, "cancelled": 0, "priced": 50,
+            "median_ppm2": median, "low_sample": 0}  # fmt: skip
+
+
+async def test_market_rankings_do_not_depend_on_row_order():
+    """동점(거래 수·변화율 같음)이면 시군구 코드 순 — 질의 결과 순서(엔진 병합 순서)에 따라 순위가 바뀌면 안 된다."""
+    from aptlake_api.features.market import service as market
+
+    m, py = dt.date(2024, 7, 1), dt.date(2023, 7, 1)
+    codes = [f"{41000 + i * 5}" for i in range(12)]
+    rows = [r for c in codes for r in (sgg_row(c, m, 100, 1100.0), sgg_row(c, py, 100, 1000.0))]
+    a, _ = await market.overview(FakeMarket(rows), m, is_provisional=lambda _: False)
+    b, _ = await market.overview(FakeMarket(rows[::-1]), m, is_provisional=lambda _: False)
+    for k in ("volume", "gainers", "losers"):
+        assert [s["sggCd"] for s in a["rankings"][k]] == codes[:10], k
+        assert a["rankings"][k] == b["rankings"][k], k
+    assert [s["sggCd"] for s in a["sgg"]] == [s["sggCd"] for s in b["sgg"]] == codes

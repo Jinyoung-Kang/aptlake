@@ -65,7 +65,7 @@ def sgg_summaries(rows: list[Row], month: dt.date) -> list[dict[str, Any]]:
                 "tradesMoM": pct_change(r["trades"], pm["trades"]) if pm else None,
             }
         )
-    return out
+    return sorted(out, key=lambda s: s["sggCd"])
 
 
 def region_summary(rows: list[Row], month: dt.date) -> dict[str, Any] | None:
@@ -125,8 +125,9 @@ async def overview(
         "sido": sido,
         "sgg": sgg_out,
         "rankings": {
-            "volume": sorted(sgg_out, key=lambda s: s["trades"], reverse=True)[:10],
-            "gainers": sorted(eligible, key=lambda s: s["medianYoY"], reverse=True)[:10],
+            # 동점은 시군구 코드 순 (sgg_out 이 코드 순이고 sorted 는 안정 정렬) — 질의 결과 순서와 무관하게
+            "volume": sorted(sgg_out, key=lambda s: -s["trades"])[:10],
+            "gainers": sorted(eligible, key=lambda s: -s["medianYoY"])[:10],
             "losers": sorted(eligible, key=lambda s: s["medianYoY"])[:10],
         },
         "definitions": {
