@@ -89,7 +89,7 @@ function Ticker() {
 }
 
 export function Shell({ path, meta, children }: { path: string; meta: { version?: string; asOf?: string | null }; children: ReactNode }) {
-  const [theme, setTheme] = useTheme();
+  const theme = useTheme();
   const { error } = useRegions();
   return (
     <>
@@ -99,8 +99,10 @@ export function Shell({ path, meta, children }: { path: string; meta: { version?
           <SearchBox />
           <div className="right">
             <span className="meta-chip" title="데이터셋 버전 · 원천 관측 시각">{meta.version ?? "–"} · 원천 {kst(meta.asOf ?? null, false)}</span>
-            <button type="button" className="icon-btn" aria-label={theme === "dark" ? "밝은 화면" : "어두운 화면"} title="화면 테마"
-                    onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>{theme === "dark" ? "☀" : "☾"}</button>
+            <button type="button" className="icon-btn theme-btn" aria-label={theme.label} title={theme.label} onClick={theme.cycle}>
+              <span aria-hidden="true">{theme.choice === "system" ? "◐" : theme.choice === "dark" ? "☾" : "☀"}</span>
+              <span className="theme-name">{theme.choice === "system" ? "자동" : theme.choice === "dark" ? "어둡게" : "밝게"}</span>
+            </button>
           </div>
         </div>
         <nav className="nav" aria-label="메뉴">
