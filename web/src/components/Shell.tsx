@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api } from "../api/client";
-import type { ComplexHit, TickerItem } from "../api/types";
+import { type ReactNode, useCallback, useMemo, useRef, useState } from "react";
+import type { TickerItem } from "../api/types";
+import { useClickOutside } from "../hooks/useClickOutside";
+import { useComplexSearch } from "../hooks/useComplexSearch";
+import { useTheme } from "../hooks/useTheme";
 import { useApi } from "../hooks/useApi";
 import { kst, num } from "../lib/format";
 import { href, navigate } from "../lib/router";
@@ -23,25 +25,12 @@ function SearchBox() {
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [complexes, setComplexes] = useState<ComplexHit[]>([]);
+  const complexes = useComplexSearch(q);
   const box = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => setOpen(false), []);
+  useClickOutside(box, close);
 
   const regionHits = useMemo(() => searchRegions(regions, q, 6), [q, regions]);
-  useEffect(() => {
-    const term = q.trim();
-    if (term.length < 2 || /^[ㄱ-ㅎ\s]+$/.test(term)) { setComplexes([]); return; }
-    const ctrl = new AbortController();
-    const t = setTimeout(() => {
-      api<{ complexes: ComplexHit[] }>(paths.search(term), { signal: ctrl.signal })
-        .then((r) => setComplexes(r.complexes.slice(0, 8))).catch(() => undefined);
-    }, 220);
-    return () => { clearTimeout(t); ctrl.abort(); };
-  }, [q]);
-  useEffect(() => {
-    const onDown = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    return () => document.removeEventListener("mousedown", onDown);
-  }, []);
 
   const items: { key: string; go: () => void; main: string; sub: string; group: string }[] = [
     ...regionHits.map((r) => ({ key: `r${r.sggCd}`, group: "시군구", main: r.name, sub: `${r.sidoName} · ${r.sggCd}`,
@@ -97,18 +86,6 @@ function Ticker() {
       </div>
     </div>
   );
-}
-
-const THEME_KEY = "aptlake.theme";
-function useTheme(): [string, (t: string) => void] {
-  const [theme, setTheme] = useState(() => {
-    try { return localStorage.getItem(THEME_KEY) || "light"; } catch { return "light"; }
-  });
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem(THEME_KEY, theme); } catch { /* 저장 못 해도 이번 화면에는 적용 */ }
-  }, [theme]);
-  return [theme, setTheme];
 }
 
 export function Shell({ path, meta, children }: { path: string; meta: { version?: string; asOf?: string | null }; children: ReactNode }) {
