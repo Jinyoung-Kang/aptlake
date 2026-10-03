@@ -334,7 +334,7 @@ services:
 
   # ───────────────────────── 관측 (obs 프로필) ─────────────────────────
   prometheus:
-    image: prom/prometheus:v3.14.0
+    image: prom/prometheus:v3.13.4
     profiles: ["obs"]
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
     volumes:
