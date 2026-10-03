@@ -17,9 +17,7 @@ import json
 import logging
 import os
 import re
-from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
 
 import redis
 from dagster import (
@@ -54,6 +52,7 @@ from . import ingest, lake, maintenance, ops_db, publish, regions, rone, silver
 from .budget import PRIORITIES, Budget, ceilings, kst_today
 from .config import settings
 from .lake import eq, isin
+from .scheduling import Planned, plan_runs, run_calls
 
 log = logging.getLogger(__name__)
 
@@ -504,24 +503,20 @@ maintenance_job = define_asset_job(
 )
 
 
-def _run_sgg_codes(run_config: Mapping[str, Any]) -> list[str]:
-    ops = run_config.get("ops")
-    cfg = ops.get("bronze__rtms_raw", {}).get("config", {}) if isinstance(ops, dict) else {}
-    return list(cfg.get("sgg_codes") or []) if isinstance(cfg, dict) else []
-
-
-def _run_calls(run_config: Mapping[str, Any], n_leaf: int) -> int:
-    """큐에 있는 실행이 쓸 원천 호출 수 (발행 전용 실행은 0)."""
-    ops = run_config.get("ops")
-    cfg = ops.get("bronze__rtms_raw", {}).get("config", {}) if isinstance(ops, dict) else {}
-    if isinstance(cfg, dict) and cfg.get("fetch") is False:
-        return 0
-    return len(_run_sgg_codes(run_config)) or n_leaf
-
-
-def _priority_for(ym: str, today: dt.date) -> str:
-    age = (today.year - int(ym[:4])) * 12 + (today.month - int(ym[4:]))
-    return "incremental" if age < 3 else "recheck" if age < 12 else "backfill"
+def _run_request(p: Planned, now: dt.datetime) -> RunRequest:
+    if not p.fetch:  # 발행 전용 — 원천 호출 없이 하위 단계만
+        return RunRequest(
+            run_key=f"{p.ym}-publish-{now:%Y%m%d%H%M}",
+            partition_key=p.ym,
+            run_config={"ops": {"bronze__rtms_raw": {"config": {"priority": "retry", "fetch": False}}}},
+            tags={"dagster/priority": PRIORITY_TAG["retry"], "aptlake/priority": "publish-only"},
+        )
+    return RunRequest(
+        run_key=f"{p.ym}-{now:%Y%m%d%H%M}",
+        partition_key=p.ym,
+        run_config={"ops": {"bronze__rtms_raw": {"config": {"priority": p.priority, "sgg_codes": list(p.sgg_codes)}}}},
+        tags={"dagster/priority": PRIORITY_TAG[p.priority], "aptlake/priority": p.priority},
+    )
 
 
 @sensor(job=month_pipeline, minimum_interval_seconds=300, default_status=DefaultSensorStatus.STOPPED)
@@ -559,56 +554,20 @@ def due_partitions_sensor(context: SensorEvaluationContext):
     )
     in_flight = {r.tags.get("dagster/partition") for r in active}
     # 아직 끝나지 않은 요청의 예상 호출 수도 예산에서 뺀다 (틱마다 같은 예산을 다시 쓰지 않도록)
-    queued_calls = sum(_run_calls(r.run_config, len(leaf)) for r in active)
-    by_month: dict[str, dict] = {}
-    for r in due:
-        m = by_month.setdefault(r["deal_ym"], {"sgg": set(), "retry": False})
-        m["sgg"].update(r["sgg"])
-        m["retry"] |= r["status"] == "RETRY"
-    budget = _budget()
-    used = budget.snapshot().get("used", 0)
-    ceil = ceilings(settings().rtms_daily_cap, len(leaf), _recheck_pending())
-    order = sorted(
-        by_month.items(),
-        key=lambda kv: (
-            {"incremental": 0, "recheck": 2, "backfill": 3}[_priority_for(kv[0], today)] - (1 if kv[1]["retry"] else 0),
-            -int(kv[0]),
-        ),
+    queued_calls = sum(run_calls(r.run_config, len(leaf)) for r in active)
+    used = _budget().snapshot().get("used", 0)
+    planned = plan_runs(
+        due,
+        today=today,
+        in_flight=in_flight,
+        used=used,
+        queued_calls=queued_calls,
+        ceilings=ceilings(settings().rtms_daily_cap, len(leaf), _recheck_pending()),
+        needing_publish=ops_db.months_needing_publish(),
+        partition_keys=keys,
     )
-    planned = used + queued_calls
-    requests = []
-    for ym, info in order:
-        if ym in in_flight:
-            continue
-        prio = _priority_for(ym, today)
-        n = len(info["sgg"])
-        if planned + n > ceil.for_priority(prio):
-            continue
-        planned += n
-        tag_prio = "retry" if info["retry"] and prio != "incremental" else prio
-        requests.append(
-            RunRequest(
-                run_key=f"{ym}-{dt.datetime.now(tz=dt.UTC):%Y%m%d%H%M}",
-                partition_key=ym,
-                run_config={
-                    "ops": {"bronze__rtms_raw": {"config": {"priority": tag_prio, "sgg_codes": sorted(info["sgg"])}}}
-                },
-                tags={"dagster/priority": PRIORITY_TAG[tag_prio], "aptlake/priority": tag_prio},
-            )
-        )
-    # silver 에는 반영됐지만 발행되지 않은 달 → 원천 호출 없이 하위 단계만 다시 (예산 소모 0)
-    requested = {r.partition_key for r in requests}
-    for ym in ops_db.months_needing_publish():
-        if ym in in_flight or ym in requested or ym not in keys:
-            continue
-        requests.append(
-            RunRequest(
-                run_key=f"{ym}-publish-{dt.datetime.now(tz=dt.UTC):%Y%m%d%H%M}",
-                partition_key=ym,
-                run_config={"ops": {"bronze__rtms_raw": {"config": {"priority": "retry", "fetch": False}}}},
-                tags={"dagster/priority": PRIORITY_TAG["retry"], "aptlake/priority": "publish-only"},
-            )
-        )
+    now = dt.datetime.now(tz=dt.UTC)
+    requests = [_run_request(p, now) for p in planned]
     if not requests:
         return SkipReason(f"nothing due within budget (used {used}, queued {queued_calls})")
     return requests
