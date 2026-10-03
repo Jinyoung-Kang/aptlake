@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from . import ops
 from .core.auth import Principal
 from .core.clock import provisional
-from .core.http import DISCLAIMER, require_scope, respond
+from .core.http import require_scope, respond
 from .core.problems import ApiError
 from .core.responses import OrjsonResponse
 from .core.settings import settings
@@ -60,72 +60,6 @@ def _ts(v: dt.datetime | None) -> str | None:
 
 def _round(v: float | None) -> float | None:
     return None if v is None or math.isnan(v) else round(v, 1)
-
-
-# ───────────────────────── 지수 ─────────────────────────
-
-
-@router.get("/index", summary="자체 지수 시계열 + R-ONE 대비 검증 지표")
-async def price_index(
-    request: Request,
-    regionId: Annotated[str, Query(pattern=r"^\d{2}$", description="시도 2자리, 전국 00")],  # noqa: N803
-    method: Annotated[str, Query(pattern=r"^HEDONIC_TD_v1$")] = "HEDONIC_TD_v1",
-    p: Principal = require_scope("read"),
-) -> Response:
-    async def compute():
-        series = await _q(
-            request,
-            """SELECT period, index_value, ci_low, ci_high, n_obs, model_ver FROM price_index
-                                      WHERE region_id = {r:String} AND method = {m:String} ORDER BY period""",
-            {"r": regionId, "m": method},
-        )
-        ref = await _q(
-            request,
-            """SELECT period, value, source FROM index_reference
-                                   WHERE region_id = {r:String} ORDER BY period""",
-            {"r": regionId},
-        )
-        val = await _q(
-            request,
-            """SELECT reference, corr_mom, direction_match, n_months, window_from, window_to
-                                   FROM index_validation WHERE region_id = {r:String} AND method = {m:String}""",
-            {"r": regionId, "m": method},
-        )
-        if not series:
-            raise ApiError(404, "INDEX_NOT_FOUND", "Not Found", f"{regionId} 지역 지수가 아직 없습니다.")
-        v = val[0] if val else None
-        return {
-            "regionId": regionId,
-            "method": method,
-            "base": f"{series[0]['period']:%Y-%m}=100",
-            "series": [
-                {
-                    "period": f"{r['period']:%Y-%m}",
-                    "value": round(r["index_value"], 2),
-                    "ciLow": round(r["ci_low"], 2),
-                    "ciHigh": round(r["ci_high"], 2),
-                    "nObs": r["n_obs"],
-                    **({"provisional": True} if _provisional(r["period"]) else {}),
-                }
-                for r in series
-            ],
-            "reference": {
-                "source": ref[0]["source"] if ref else None,
-                "series": [{"period": f"{r['period']:%Y-%m}", "value": round(r["value"], 3)} for r in ref],
-            },
-            "validation": None
-            if v is None
-            else {
-                "reference": v["reference"],
-                "corrMoM": v["corr_mom"],
-                "directionMatch": v["direction_match"],
-                "months": v["n_months"],
-                "window": f"{v['window_from']:%Y-%m}~{v['window_to']:%Y-%m}",
-            },
-            "disclaimer": "자체 산출 실험 지수이며 공식 통계가 아닙니다. " + DISCLAIMER,
-        }, 0  # 집계 응답
-
-    return await respond(request, "index", {"r": regionId, "m": method}, compute)
 
 
 # ───────────────────────── 품질·계보 ─────────────────────────

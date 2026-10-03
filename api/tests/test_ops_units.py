@@ -14,7 +14,9 @@ import httpx
 import pytest
 
 from aptlake_api import ops
-from aptlake_api.routes_market import _add, _index_point, provisional
+from aptlake_api.core.clock import provisional
+from aptlake_api.core.values import add_months as _add
+from aptlake_api.features.index.service import index_point
 
 FAKE_KEY_SECRET = "Zq9" * 14 + "Z"  # 43자 — 소스에 키 형식 문자열을 통째로 두지 않는다 (gitleaks 규칙과 충돌 방지)
 SECRETS = {
@@ -152,11 +154,11 @@ def test_index_point_confirmed_month(monkeypatch):
     old = _add(this, -12)
     assert provisional(this) and not provisional(old)
     by = {_add(old, -12): 100.0, _add(old, -1): 110.0, old: 121.0}
-    assert _index_point(by, old) == {
+    assert index_point(by, old, is_provisional=provisional) == {
         "period": f"{old:%Y-%m}",
         "value": 121.0,
         "provisional": False,
         "mom": 10.0,
         "yoy": 21.0,
     }
-    assert _index_point({this: 99.0}, this)["mom"] is None  # 앞 달이 없으면 변화율 없음
+    assert index_point({this: 99.0}, this, is_provisional=provisional)["mom"] is None  # 앞 달이 없으면 변화율 없음
