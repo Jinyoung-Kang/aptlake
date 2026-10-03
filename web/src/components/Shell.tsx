@@ -92,18 +92,20 @@ function Ticker() {
 
 export function Shell({ path, meta, children }: { path: string; meta: { version?: string; asOf?: string | null }; children: ReactNode }) {
   const theme = useTheme();
+  const themeName = theme.choice === "system" ? "자동" : theme.choice === "dark" ? "어둡게" : "밝게";
   const { error } = useRegions();
   return (
     <>
       <header className="header">
         <div className="topbar">
-          <a className="brand" href={href("/market")} aria-label="AptLake 아파트 실거래 데이터 · 홈"><span className="mark" aria-hidden="true" />AptLake<span className="sub">아파트 실거래 데이터</span></a>
+          <a className="brand" href={href("/market")}><span className="mark" aria-hidden="true" />AptLake<span className="sub">아파트 실거래 데이터</span></a>
           <SearchBox />
           <div className="right">
             <span className="meta-chip" title="데이터셋 버전 · 원천 관측 시각">{meta.version ?? "–"} · 원천 {kst(meta.asOf ?? null, false)}</span>
-            <button type="button" className="icon-btn theme-btn" aria-label={theme.label} title={theme.label} onClick={theme.cycle}>
+            {/* 이름은 보이는 글자(자동·밝게·어둡게)로 시작한다 — 음성 입력 사용자가 보이는 글자로 부를 수 있게 (WCAG 2.5.3, QA-014) */}
+            <button type="button" className="icon-btn theme-btn" aria-label={`${themeName} — ${theme.label}`} title={theme.label} onClick={theme.cycle}>
               <span aria-hidden="true">{theme.choice === "system" ? "◐" : theme.choice === "dark" ? "☾" : "☀"}</span>
-              <span className="theme-name">{theme.choice === "system" ? "자동" : theme.choice === "dark" ? "어둡게" : "밝게"}</span>
+              <span className="theme-name">{themeName}</span>
             </button>
           </div>
         </div>
