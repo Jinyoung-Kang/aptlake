@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS aptlake.region_month
     p75_ppm2     Nullable(Float64),
     low_sample   UInt8,
     dataset_ver  LowCardinality(String)
-) ENGINE = MergeTree PARTITION BY toYYYYMM(month) ORDER BY (sgg_cd, month);
+-- 연 단위 파티션 (ADR-037): 1.7만 행 표를 월로 나누면 12개월 질의가 파트 12개를 열어 질의당 CPU 가 약 5배.
+-- 월 발행은 그 해 파티션 전체를 스테이징에 만들어 원자적으로 교체한다 (publish.py). 기존 월 파티션 표는 ../migrate/ 로 바꾼다.
+) ENGINE = MergeTree PARTITION BY toYear(month) ORDER BY (sgg_cd, month);
 
 CREATE TABLE IF NOT EXISTS aptlake.rollup_month
 (
