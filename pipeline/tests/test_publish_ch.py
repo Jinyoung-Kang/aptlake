@@ -120,6 +120,28 @@ def test_failed_reconciliation_leaves_serving_untouched(ch):
     assert ch.query("SELECT count() FROM region_month_staging").first_row[0] == 0
 
 
+def test_publish_does_not_swap_from_staging_recreated_after_reconciliation(ch, monkeypatch):
+    """대조를 통과한 뒤 스테이징이 빈 표로 다시 만들어지면(예: 수집 중 서빙 표 이관) 교체하지 않는다.
+    그대로 교체하면 빈 스테이징으로 REPLACE·DROP PARTITION 이 되어 서빙에서 그 해·그 달이 지워지고 발행은 성공으로 남는다."""
+    seed(ch, BASE)
+    before = serving(ch)
+
+    def stage_then_staging_recreated(client, ym, ver, counts):
+        rows = [row("11110", D(2024, 2, 1), 31, "v2")]
+        counts["region_month"] = publish._stage(client, "region_month", ym, rows, COLS, CHECKS,
+                                                {"n": 1, "trades": 31, "cancelled": 1})  # fmt: skip
+        for t in ("rollup_month", "trade_current", "trade_version"):
+            counts[t] = 0
+        client.command("DROP TABLE region_month_staging")
+        client.command("CREATE TABLE region_month_staging AS region_month")
+
+    monkeypatch.setattr(publish, "ch", lambda: ch)
+    monkeypatch.setattr(publish, "_stage_month", stage_then_staging_recreated)
+    with pytest.raises(publish.ReconciliationError):
+        publish.publish_month("202402", "v2")
+    assert serving(ch) == before
+
+
 def test_migration_converts_monthly_table_without_changing_rows(ch):
     """운영에 이미 있는 월 파티션 표 → 연 파티션 (ch-migrate 가 한 번 실행하는 스크립트)."""
     ch.command("DROP TABLE region_month")
