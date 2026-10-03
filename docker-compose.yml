@@ -169,10 +169,13 @@ services:
       - >-
         ch() { clickhouse-client --host clickhouse --user admin --password "$$CLICKHOUSE_ADMIN_PASSWORD" "$$@"; };
         i=0; until ch -q 'SELECT 1' >/dev/null 2>&1; do i=$$((i + 1)); [ $$i -ge 30 ] && exit 1; sleep 2; done;
-        ch --multiquery < /init/01-schema.sql && echo ch schema up to date
+        ch --multiquery < /init/01-schema.sql &&
+        if [ "$$(ch -q "SELECT partition_key FROM system.tables WHERE database = 'aptlake' AND name = 'region_month'")" = "toYYYYMM(month)" ]; then
+          ch --multiquery < /migrate/region_month_yearly.sql && echo ch region_month → yearly partitions;
+        fi && echo ch schema up to date
     environment:
       CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
-    volumes: ["./infra/clickhouse/init:/init:ro"]
+    volumes: ["./infra/clickhouse/init:/init:ro", "./infra/clickhouse/migrate:/migrate:ro"]
     depends_on: { clickhouse: { condition: service_healthy } }
     restart: "no"
 

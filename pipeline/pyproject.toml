@@ -32,6 +32,7 @@ dev = [
     "ruff>=0.13",
     "mypy>=1.18",
     "pip-audit>=2.9",
+    "testcontainers[clickhouse]>=4.13",
 ]
 
 [build-system]

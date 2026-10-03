@@ -2,6 +2,9 @@
 
 월 파티션: Trino gold → 네 표(region_month·rollup_month·trade_current·trade_version) 모두 *_staging 에 적재·대조
 → 넷 다 맞을 때만 REPLACE PARTITION 네 번을 연달아 (표마다 원자적 교체).
+region_month 는 연 단위 파티션이다(ADR-037) — 그 해의 다른 달은 지금 서빙 중인 행을 그대로 스테이징에 옮기고
+발행하는 달만 새로 넣어, 그 해 파티션을 통째로 교체한다. 발행은 Dagster publish 풀(동시 1) 안에서만 돌아
+같은 해 두 달이 동시에 교체되지 않는다.
 하나라도 틀리면 예외 → 네 표 모두 이전 데이터 그대로 (표 사이 부분 발행 없음).
 예전에는 표마다 적재·대조·교체를 차례로 해서, 세 번째 표 대조가 실패하면 앞의 두 표만 새 데이터가 되는 창이 있었다.
 차원·지수(소형): 새 테이블에 적재 → 대조 → EXCHANGE TABLES (원자적 교체).
@@ -61,14 +64,23 @@ def _stage(
     checks: dict[str, str],
     expected: dict[str, Any],
 ) -> int:
-    """스테이징 파티션에 적재하고 Trino 결과와 대조한다. 서빙 테이블은 건드리지 않는다."""
+    """스테이징 파티션에 적재하고 Trino 결과와 대조한다. 서빙 테이블은 건드리지 않는다. partition = 발행하는 달(YYYYMM)."""
     staging = f"{DB}.{table}_staging"
-    client.command(f"ALTER TABLE {staging} DROP PARTITION {partition}")
+    col = _part_col(table)
+    part = _partition(table, partition)
+    client.command(f"ALTER TABLE {staging} DROP PARTITION {part}")
+    if part != partition:  # 연 파티션: 그 해의 다른 달은 서빙 중인 행 그대로 옮기고, 옮긴 행 수를 대조
+        rest = f"toYear({col}) = {part} AND toYYYYMM({col}) != {partition}"
+        client.command(f"INSERT INTO {staging} SELECT * FROM {DB}.{table} WHERE {rest}")
+        kept = _count(client, f"SELECT count() FROM {staging} WHERE {rest}")
+        live = _count(client, f"SELECT count() FROM {DB}.{table} WHERE {rest}")
+        if kept != live:
+            raise ReconciliationError(f"{table} {part}: 같은 해 다른 달 복사 {kept} != 서빙 {live}")
     if rows:
         client.insert(f"{table}_staging", rows, column_names=columns)
     got = client.query(
         f"SELECT {', '.join(f'{e} AS {k}' for k, e in checks.items())} "
-        f"FROM {staging} WHERE toYYYYMM({_part_col(table)}) = {partition}"
+        f"FROM {staging} WHERE toYYYYMM({col}) = {partition}"
     ).first_row
     assert got is not None
     actual = dict(zip(checks, got, strict=True))
@@ -80,16 +92,30 @@ def _stage(
 
 def _swap(client: Client, table: str, partition: str, n_rows: int) -> None:
     staging = f"{DB}.{table}_staging"
+    part = _partition(table, partition)
+    if part != partition:  # 연 파티션: 발행하는 달이 0건이어도 같은 해 다른 달이 있으면 교체
+        n_rows = _count(client, f"SELECT count() FROM {staging} WHERE toYear({_part_col(table)}) = {part}")
     if n_rows:
-        client.command(f"ALTER TABLE {DB}.{table} REPLACE PARTITION {partition} FROM {staging}")
+        client.command(f"ALTER TABLE {DB}.{table} REPLACE PARTITION {part} FROM {staging}")
     else:
-        client.command(f"ALTER TABLE {DB}.{table} DROP PARTITION {partition}")
-    client.command(f"ALTER TABLE {staging} DROP PARTITION {partition}")
+        client.command(f"ALTER TABLE {DB}.{table} DROP PARTITION {part}")
+    client.command(f"ALTER TABLE {staging} DROP PARTITION {part}")
 
 
 def _drop_staged(client: Client, tables: list[str], partition: str) -> None:
     for t in tables:
-        client.command(f"ALTER TABLE {DB}.{t}_staging DROP PARTITION {partition}")
+        client.command(f"ALTER TABLE {DB}.{t}_staging DROP PARTITION {_partition(t, partition)}")
+
+
+def _count(client: Client, sql: str) -> int:
+    row = client.query(sql).first_row
+    assert row is not None
+    return int(row[0])
+
+
+def _partition(table: str, deal_ym: str) -> str:
+    """서빙 표의 파티션 값 — region_month 는 연(YYYY), 나머지는 월(YYYYMM)."""
+    return deal_ym[:4] if table == "region_month" else deal_ym
 
 
 def _part_col(table: str) -> str:
