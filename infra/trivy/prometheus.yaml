@@ -1,0 +1,10 @@
+# prom/prometheus:v3.13.4 의 남은 HIGH·CRITICAL 예외 (QA-005) — tools/scan_images.sh third-party 가 읽는다.
+# 새 태그로 올리면 다시 스캔해 사라진 항목은 지우고, 만료일이 지나면 다시 판단한다 (지나면 점검이 실패한다).
+#
+# gRPC-Go 의 xDS 서버(xds.NewGRPCServer) 결함이다. Prometheus 는 gRPC 서버를 열지 않는다. 3.13 은 LTS(2027-07 까지)라
+# 수정판이 있는 3.15(2026-11 지원 종료)로 옮기지 않고 3.13 의 다음 패치를 기다린다 (ADR-035).
+vulnerabilities:
+  - id: CVE-2026-84445
+    paths: ["bin/prometheus", "bin/promtool"]
+    expired_at: 2026-12-31
+    statement: gRPC(xDS) 서버를 열지 않는다

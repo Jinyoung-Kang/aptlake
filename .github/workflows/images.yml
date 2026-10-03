@@ -1,0 +1,21 @@
+name: images
+# 서드파티 이미지 취약점 점검 (tools/scan_images.sh third-party) — infra/trivy/<이미지>.yaml 의 예외(사유·만료일)를 빼고
+# HIGH·CRITICAL 중 수정판이 있는 것이 남으면 실패한다 (QA-005). 이미지는 그대로인데 새 취약점이 공개되며 생기는 문제라
+# 주 1회(월요일 09:10 KST), 그리고 compose 이미지·예외 파일을 바꾸는 PR(예: Dependabot 이미지 갱신)에서 돈다.
+# 자체 이미지(api·pipeline·web)는 ci.yml 의 images 작업이 커밋마다 예외 없이 본다.
+on:
+  schedule: [{ cron: "10 0 * * 1" }]
+  workflow_dispatch:
+  pull_request:
+    paths: [docker-compose.yml, "infra/trivy/**", tools/scan_images.sh, .github/workflows/images.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  third-party:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: tools/scan_images.sh third-party

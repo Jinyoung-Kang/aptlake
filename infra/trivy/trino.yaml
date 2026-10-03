@@ -1,0 +1,90 @@
+# trinodb/trino:483 (최신 릴리스) 의 남은 HIGH·CRITICAL 예외 (QA-005) — tools/scan_images.sh third-party 가 읽는다.
+# 새 태그로 올리면 다시 스캔해 사라진 항목은 지우고, 만료일이 지나면 다시 판단한다 (지나면 점검이 실패한다).
+#
+# Trino 는 호스트 포트가 없고 도커 내부망에서 파이프라인(신뢰 클라이언트)과 docker exec 로만 닿는다. TLS 를 켜지 않았고,
+# 카탈로그는 Iceberg REST 하나라 ranger·delta-lake·clickhouse·cassandra 플러그인은 카탈로그로 만들지 않는다.
+vulnerabilities:
+  - id: CVE-2026-33818
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-39821
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-39822
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-46600
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-56853
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-56858
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-56859
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-56860
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-56862
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-56852
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-12-31
+    statement: launcher 는 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-89407
+    paths: ["usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-core-2.22.1.jar", "usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-databind-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-core-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-databind-2.22.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-core-3.2.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-databind-3.2.1.jar"]
+    expired_at: 2026-12-31
+    statement: Jackson 서비스 거부 — 입력은 내부망의 신뢰 클라이언트 질의뿐
+  - id: CVE-2026-89425
+    paths: ["usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-core-2.22.1.jar", "usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-databind-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-core-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-databind-2.22.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-core-3.2.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-databind-3.2.1.jar"]
+    expired_at: 2026-12-31
+    statement: Jackson 서비스 거부 — 입력은 내부망의 신뢰 클라이언트 질의뿐
+  - id: CVE-2026-68497
+    paths: ["usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-core-2.22.1.jar", "usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-databind-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-core-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-databind-2.22.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-core-3.2.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-databind-3.2.1.jar"]
+    expired_at: 2026-12-31
+    statement: Jackson 서비스 거부 — 입력은 내부망의 신뢰 클라이언트 질의뿐
+  - id: CVE-2026-91776
+    paths: ["usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-core-2.22.1.jar", "usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-databind-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-core-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-databind-2.22.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-core-3.2.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-databind-3.2.1.jar"]
+    expired_at: 2026-12-31
+    statement: Jackson 서비스 거부 — 입력은 내부망의 신뢰 클라이언트 질의뿐
+  - id: CVE-2026-91777
+    paths: ["usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-core-2.22.1.jar", "usr/lib/trino/lib/com.fasterxml.jackson.core_jackson-databind-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-core-2.22.1.jar", "usr/lib/trino/secrets-plugin/keystore-secrets-plugin/jackson-databind-2.22.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-core-3.2.1.jar", "usr/lib/trino/plugin/resource-group-managers/tools.jackson.core_jackson-databind-3.2.1.jar"]
+    expired_at: 2026-12-31
+    statement: Jackson 서비스 거부 — 입력은 내부망의 신뢰 클라이언트 질의뿐
+  - id: CVE-2026-75595
+    paths: ["usr/lib/trino/plugin/cassandra/io.netty_netty-handler-4.2.16.Final.jar"]
+    expired_at: 2026-12-31
+    statement: cassandra 카탈로그 없음, TLS SNI 미사용
+  - id: CVE-2026-59902
+    paths: ["usr/lib/trino/plugin/delta-lake/io.netty_netty-transport-sctp-4.2.16.Final.jar"]
+    expired_at: 2026-12-31
+    statement: delta-lake 카탈로그 없음, SCTP 미사용
+  - id: CVE-2026-43871
+    paths: ["usr/lib/trino/plugin/delta-lake/org.apache.thrift_libthrift-0.23.0.jar"]
+    expired_at: 2026-12-31
+    statement: delta-lake 카탈로그·Hive 메타스토어(Thrift) 없음
+  - id: CVE-2026-54399
+    paths: ["usr/lib/trino/plugin/clickhouse/com.clickhouse_clickhouse-jdbc-0.9.8-all.jar"]
+    expired_at: 2026-12-31
+    statement: clickhouse 카탈로그 없음
+  - id: CVE-2026-54428
+    paths: ["usr/lib/trino/plugin/clickhouse/com.clickhouse_clickhouse-jdbc-0.9.8-all.jar"]
+    expired_at: 2026-12-31
+    statement: clickhouse 카탈로그 없음
+  - id: CVE-2026-2332
+    paths: ["usr/lib/trino/plugin/ranger/org.eclipse.jetty_jetty-http-11.0.26.jar"]
+    expired_at: 2026-12-31
+    statement: ranger 접근 제어 플러그인 미사용

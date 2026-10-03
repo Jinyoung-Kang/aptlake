@@ -6,7 +6,7 @@ ALL := $(COMPOSE) --profile lake --profile obs
 DAGSTER := $(LAKE) exec -T dagster
 
 .PHONY: help init up serve obs down backup backup-verify clean ps logs admin-key demo-keys loadtest-key pipeline-redeploy lake-init regions backfill-start backfill-stop \
-        month index maintenance test test-api test-pipeline test-web test-integration lint loadtest web-dev audit
+        month index maintenance test test-api test-pipeline test-web test-integration lint loadtest web-dev audit scan-images
 
 help: ## 명령 목록
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -110,6 +110,9 @@ audit: ## 의존성 취약점 검사 (pip-audit · npm audit)
 	cd pipeline && uv export --frozen --no-dev --no-hashes -o /tmp/aptlake-pipeline-req.txt >/dev/null && uv run pip-audit -r /tmp/aptlake-pipeline-req.txt
 	cd api && uv export --frozen --no-dev --no-hashes -o /tmp/aptlake-api-req.txt >/dev/null && uv run pip-audit -r /tmp/aptlake-api-req.txt
 	cd web && npm audit --omit=dev
+
+scan-images: ## 이미지 취약점 검사 (Trivy: 자체 이미지 + compose 서드파티 이미지, 예외는 infra/trivy)
+	tools/scan_images.sh
 
 loadtest: ## k6 부하 측정 — 도커 네트워크 안에서 api:8610 직접 (수집 센서는 잠시 끄고 재는 것을 권장)
 	@test -n "$$APTLAKE_KEY" || (echo "APTLAKE_KEY 필요: export APTLAKE_KEY=\$$(make -s loadtest-key)" && exit 1)
