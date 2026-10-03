@@ -27,7 +27,12 @@ async def open_resources(s: Settings) -> Resources:
         min_size=2,
         max_size=10,
         open=False,
-        kwargs={"row_factory": dict_row, "autocommit": True},
+        # 질의·잠금 대기 상한 — 긴 트랜잭션이 잠금을 쥐어도 요청이 기한 없이 쌓이지 않고 503 으로 끝나게 (QA-008)
+        kwargs={
+            "row_factory": dict_row,
+            "autocommit": True,
+            "options": "-c statement_timeout=5000 -c lock_timeout=2000",
+        },
     )
     await pg.open(wait=True, timeout=30)
     # 연결이 모자라면 오류 대신 잠시 대기 (부하 측정에서 MaxConnectionsError 로 500 이 나던 문제)
