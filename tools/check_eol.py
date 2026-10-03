@@ -51,7 +51,7 @@ def cycle_info(product: str, cycle: str) -> dict:
 
 def main() -> int:
     today = dt.date.today()
-    rows, failed, warned = [], 0, 0
+    rows, failed, warned, unknown = [], 0, 0, 0
     checks: list[tuple[str, str, str]] = []
     for ref in sorted(images()):
         name, tag = ref.rsplit(":", 1)
@@ -66,9 +66,9 @@ def main() -> int:
     for ref, product, cycle in checks:
         try:
             info = cycle_info(product, cycle)
-        except Exception as e:  # noqa: BLE001 — 조회 실패는 실패로 숨기지 않고 표에 남긴다
+        except Exception as e:  # noqa: BLE001 — 조회 실패도 실패로 (점검을 못 했는데 초록불이면 안 된다)
             rows.append((ref, f"{product} {cycle}", "조회 실패", type(e).__name__))
-            warned += 1
+            unknown += 1
             continue
         eol = info.get("eol")
         if eol in (False, None):
@@ -91,8 +91,11 @@ def main() -> int:
     print(report)
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
         Path(summary).write_text("## 지원 종료(EOL) 점검\n\n" + report + "\n")
-    print(f"\n지원 종료 {failed}건, {WARN_DAYS}일 안 종료·조회 실패 {warned}건", file=sys.stderr)
-    return 1 if failed else 0
+    if not checks:  # 규칙과 맞는 이미지가 하나도 없으면 아무것도 점검하지 않은 것
+        print("점검 대상 이미지를 찾지 못했습니다 (docker-compose.yml·Dockerfile 형식 변경?)", file=sys.stderr)
+        unknown += 1
+    print(f"\n지원 종료 {failed}건, {WARN_DAYS}일 안 종료 {warned}건, 조회 실패 {unknown}건", file=sys.stderr)
+    return 1 if failed or unknown else 0
 
 
 if __name__ == "__main__":
