@@ -16,6 +16,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 from prometheus_client import REGISTRY, CollectorRegistry, multiprocess, start_http_server
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -43,6 +45,11 @@ from .features.usage.router import router as usage_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("aptlake.api")
+SWAGGER_UI = "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.33.1"
+SWAGGER_UI_SRI = {
+    "swagger-ui-bundle.js": "sha384-ZPehFMQommnnuaZ4rpxgkgTT2DKFVp4hZC/7pLit+9Lek9T1YGSo23eHFbvNkXkw",
+    "swagger-ui.css": "sha384-Ov4/wv3j2bmct8cDc5X4ngJZohVPzEmc6uDPH8WeljUxO5vtoykvMEfbu9Vh6RaW",
+}
 
 
 def _build(name: str, internal: bool) -> FastAPI:
@@ -87,7 +94,7 @@ def _build(name: str, internal: bool) -> FastAPI:
         "오류는 RFC 9457 Problem Details.",
         lifespan=lifespan,
         default_response_class=OrjsonResponse,
-        docs_url="/docs",
+        docs_url=None,  # 아래 /docs — 외부 스크립트를 버전 고정 + SRI 로 (QA-004)
         redoc_url=None,
     )
     app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
@@ -96,6 +103,23 @@ def _build(name: str, internal: bool) -> FastAPI:
     for exc_type, handler in TRANSIENT_HANDLERS:  # DB·캐시 일시 장애 → 503 + Retry-After (500 은 버그에만)
         app.add_exception_handler(exc_type, handler)
     app.add_exception_handler(Exception, unhandled_handler)
+
+    @app.get("/docs", include_in_schema=False)
+    async def docs() -> HTMLResponse:
+        # 같은 출처에서 실행되는 외부 스크립트 — 웹 BFF 가 같은 출처 요청에 웹 키를 붙이므로 버전을 고정하고
+        # 무결성(SRI)을 검사한다. 버전을 올리면 해시도 같이 바꾼다 (QA-004)
+        body = get_swagger_ui_html(
+            openapi_url=app.openapi_url or "/openapi.json",
+            title=f"{app.title} - Swagger UI",
+            swagger_js_url=f"{SWAGGER_UI}/swagger-ui-bundle.js",
+            swagger_css_url=f"{SWAGGER_UI}/swagger-ui.css",
+        ).body
+        html = bytes(body).decode()
+        for name, digest in SWAGGER_UI_SRI.items():
+            html = html.replace(
+                f'{SWAGGER_UI}/{name}"', f'{SWAGGER_UI}/{name}" integrity="{digest}" crossorigin="anonymous"'
+            )
+        return HTMLResponse(html)
 
     @app.get("/healthz", include_in_schema=False)
     async def healthz() -> dict:

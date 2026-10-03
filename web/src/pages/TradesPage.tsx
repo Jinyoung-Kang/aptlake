@@ -59,6 +59,7 @@ export default function TradesPage({ route }: { route: Route }) {
   const today = isoDate(new Date());
   const { rows, summary, cursor, error: err, loading, more, selected: sel, setSelected: setSel } = useTradesPager(query);
   const region = byCode.get(sgg);
+  const pending = loading || (!summary && !err);  // 첫 결과·오류 전 = 불러오는 중과 같게 그린다
 
   return (
     <>
@@ -70,24 +71,27 @@ export default function TradesPage({ route }: { route: Route }) {
       </div>
       <div className="toolbar">
         <RegionPicker value={sgg} onChange={(c) => setParams(route, { sgg: c })} />
-        {avail && <DateRangePicker from={from} to={to} min={`${avail.from}-01`} max={maxPickDate(avail, today)}
-                                   maxDays={366 * 5} onChange={(a, b) => setParams(route, { from: a, to: b })} />}
+        {/* 조회 가능 범위가 오기 전에도 같은 자리에 그린다 (그동안은 고른 기간이 곧 범위) — 늦게 나타나면 아래가 밀린다 (QA-013) */}
+        <DateRangePicker from={from} to={to} min={avail ? `${avail.from}-01` : from} max={avail ? maxPickDate(avail, today) : to}
+                         maxDays={366 * 5} onChange={(a, b) => setParams(route, { from: a, to: b })} />
         <Group label="전용면적" className="chips">
           {AREA_BANDS.map((a) => <button key={a.key} type="button" className="chip" aria-pressed={a.key === area} onClick={() => setParams(route, { area: a.key })}>{sqm(a.label)}</button>)}
         </Group>
         <Switch checked={cancel} onChange={(v) => setParams(route, { cancel: v ? "1" : "0" })} label="해제 거래 포함" />
       </div>
-      {summary && (
-        <div className="kpis">
-          <Kpi k="조회 조건 전체" v={num(summary.count)} unit="건" d={cancel ? `이 중 해제 ${num(summary.cancelled)}건` : "해제 제외"} />
-          <Kpi k="m²당 중위가" v={num(summary.medianPpm2)} unit="만원/m²" d="해제·이상치 제외" />
-          <Kpi k="중위 거래가" v={manwon(summary.medianPrice)} unit="원" d="해제 제외" />
+      {/* 첫 결과(또는 오류)가 오기 전에도 같은 자리를 둔다 — 요약이 늦게 끼어들면 아래 표가 통째로 밀린다 (레이아웃 이동, QA-013).
+          기간이 URL 에 없으면 조회 가능 범위가 올 때까지 불러오기가 시작되지 않으므로 '불러오는 중'만으로는 부족했다 */}
+      {(summary || pending) && (
+        <div className="kpis" aria-busy={!summary}>
+          <Kpi k="조회 조건 전체" v={summary ? num(summary.count) : "…"} unit="건" d={cancel ? `이 중 해제 ${summary ? num(summary.cancelled) : "…"}건` : "해제 제외"} />
+          <Kpi k="m²당 중위가" v={summary ? num(summary.medianPpm2) : "…"} unit="만원/m²" d="해제·이상치 제외" />
+          <Kpi k="중위 거래가" v={summary ? manwon(summary.medianPrice) : "…"} unit="원" d="해제 제외" />
         </div>
       )}
       <ErrorBox error={err} />
       <div className={sel ? "layout" : ""}>
         <div>
-          {loading && rows.length === 0 ? <Skeleton h={320} /> : (
+          {pending && rows.length === 0 ? <Skeleton h={320} /> : (
             <DataTable
               rows={rows}
               rowKey={(t) => t.tradeId}

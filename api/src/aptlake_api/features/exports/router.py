@@ -19,7 +19,7 @@ router = APIRouter(prefix="/v1")
 
 
 class ExportRequest(BaseModel):
-    sggCd: str | None = Field(default=None, pattern=r"^\d{5}$")  # noqa: N815
+    sggCd: str | None = Field(default=None, pattern=r"^[0-9]{5}$")  # noqa: N815
     from_: dt.date = Field(alias="from")
     to: dt.date
     includeCancelled: bool = False  # noqa: N815

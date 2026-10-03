@@ -56,3 +56,29 @@ describe("화면 특성 (서버 골든 응답으로 그린 결과)", () => {
     await act(async () => root.unmount());
   });
 });
+
+describe("QA-014 보이는 글자와 접근 가능한 이름 (WCAG 2.5.3 Label in Name)", () => {
+  // Lighthouse·axe 처럼: 보이는 글자(aria-hidden 제외)를 이어 붙여 공백만 하나로 정리한 뒤, 이름에 그대로 들어 있어야 한다.
+  // (처음 수정은 'AptLake' 와 '아파트 실거래 데이터' 를 따로 봐서, 공백 없이 붙은 'AptLake아파트…' 를 놓쳤다 — 독립 검토)
+  const norm = (t: string) => t.replace(/\s+/g, " ").trim();
+  const visible = (el: Element): string =>
+    [...el.childNodes].map((n) => (n.nodeType === 3 ? n.textContent ?? "" : (n as Element).getAttribute?.("aria-hidden") === "true" ? "" : visible(n as Element))).join("");
+  it.each([["로고 링크", "a.brand"], ["테마 버튼", "button.theme-btn"]])("%s", async (_name, sel) => {
+    const { root, el } = await renderApp("#/market");
+    const node = el.querySelector(sel) as Element;
+    const name = norm(node.getAttribute("aria-label") ?? visible(node));
+    expect(name).toContain(norm(visible(node)));
+    await act(async () => root.unmount());
+  });
+});
+
+describe("QA-013 거래 목록: 첫 결과가 오기 전에도 요약 줄·표 자리를 둔다 (레이아웃 이동)", () => {
+  it("조회 가능 범위(시세 띠)가 오기 전 — 요약 줄 자리가 있고 빈 표가 먼저 그려지지 않는다", async () => {
+    const served = globalThis.fetch as unknown as (input: string) => Promise<Response>;
+    vi.stubGlobal("fetch", vi.fn((input: string) => (String(input).includes("/v1/market/ticker") ? new Promise<Response>(() => {}) : served(input))));
+    const { root, el } = await renderApp("#/trades?sgg=41135");
+    expect(el.querySelector(".kpis")).not.toBeNull();
+    expect(el.querySelector("table.t")).toBeNull();
+    await act(async () => root.unmount());
+  });
+});

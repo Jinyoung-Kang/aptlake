@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiError, api, errorText, fetchRetry } from "../api/client";
+import { ApiError, api, apiSend, errorText, fetchRetry } from "../api/client";
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
@@ -58,5 +58,39 @@ describe("조회 캐시와 오류", () => {
     expect(errorText(new ApiError({ status: 400, code: "INVALID_RANGE", title: "Invalid Range", detail: "to 는 from 이후" })))
       .toBe("Invalid Range — to 는 from 이후 (INVALID_RANGE)");
     expect(errorText(new DOMException("x", "AbortError"))).toBe("");
+  });
+});
+
+describe("QA-012 같은 조회를 동시에 부르면 요청은 한 번", () => {
+  it("응답이 오기 전 같은 경로를 두 번 부르면 fetch 는 한 번이고 둘 다 같은 결과를 받는다", async () => {
+    let resolve!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => { resolve = r; }));
+    const a = api<{ v: number }>("/v1/qa012/same");
+    const b = api<{ v: number }>("/v1/qa012/same");
+    resolve(json(200, { v: 1 }));
+    expect(await a).toEqual({ v: 1 });
+    expect(await b).toEqual({ v: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("한 호출자가 취소해도 같은 요청을 기다리는 다른 호출자는 결과를 받는다", async () => {
+    let resolve!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => { resolve = r; }));
+    const ctrl = new AbortController();
+    const a = api("/v1/qa012/abort", { signal: ctrl.signal });
+    const b = api<{ v: number }>("/v1/qa012/abort");
+    ctrl.abort();
+    resolve(json(200, { v: 2 }));
+    await expect(a).rejects.toThrow();
+    expect(await b).toEqual({ v: 2 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("QA-001 쓰기 요청은 사용자가 넣은 운영자 키를 그 요청에만 붙인다", () => {
+  it("apiSend 에 키를 주면 X-API-Key 로 보낸다", async () => {
+    fetchMock.mockResolvedValueOnce(json(200, { cleared: null }));
+    await apiSend("DELETE", "/v1/ops/errors/clear", "al_live_TESTTESTTEST.secret");
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect((init.headers as Record<string, string>)["X-API-Key"]).toBe("al_live_TESTTESTTEST.secret");
   });
 });

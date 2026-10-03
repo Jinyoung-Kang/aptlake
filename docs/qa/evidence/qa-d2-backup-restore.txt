@@ -1,0 +1,22 @@
+$ FORCE=1 tools/backup.sh   (프로젝트 aptlake-qa)
+ERROR:  relation "runs" does not exist
+LINE 1: SELECT count(*) FROM runs WHERE status IN ('QUEUED','NOT_STA...
+                             ^
+postgres: 320K
+ Container aptlake-qa-minio-init-run-62c85a6bfe74 Creating 
+ Container aptlake-qa-minio-init-run-62c85a6bfe74 Created 
+minio:  40K → /private/tmp/claude-501/-Users-jinyoung-Projects-aptlake/0b9faf31-9f46-4785-941e-1b8b3a1a7ab9/scratchpad/qa/qa-backups/minio (증분)
+완료: /private/tmp/claude-501/-Users-jinyoung-Projects-aptlake/0b9faf31-9f46-4785-941e-1b8b3a1a7ab9/scratchpad/qa/qa-backups/pg/20261004-002438 — 확인: make backup-verify
+exit=0
+$ tools/backup_verify.sh
+복원본 ↔ 백업 시점 값 (/private/tmp/claude-501/-Users-jinyoung-Projects-aptlake/0b9faf31-9f46-4785-941e-1b8b3a1a7ab9/scratchpad/qa/qa-backups/pg/20261004-002438/):
+  OK   aptlake: SELECT count(*) FROM api.client = 8
+  OK   aptlake: SELECT count(*) FROM api.api_key = 8
+  OK   aptlake: SELECT count(*) FROM ops.ingest_partition = 17664
+  OK   aptlake: SELECT version FROM ops.dataset_version ORDER BY published_at DESC LIMIT 1 = gold@2026-10-02.40819
+  OK   lakekeeper: SELECT count(*) FROM tabular = 0
+  OK   clickhouse: usage_event.native rows = 15
+  OK   minio raw: 백업 시점 객체 5 개 모두 사본에 있음
+  OK   minio lake: 백업 시점 객체 5 개 모두 사본에 있음
+백업 복원 확인 통과
+exit=0

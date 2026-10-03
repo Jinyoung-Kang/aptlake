@@ -27,7 +27,12 @@ async def open_resources(s: Settings) -> Resources:
         min_size=2,
         max_size=10,
         open=False,
-        kwargs={"row_factory": dict_row, "autocommit": True},
+        # 질의·잠금 대기 상한 — 긴 트랜잭션이 잠금을 쥐어도 요청이 기한 없이 쌓이지 않고 503 으로 끝나게 (QA-008)
+        kwargs={
+            "row_factory": dict_row,
+            "autocommit": True,
+            "options": "-c statement_timeout=5000 -c lock_timeout=2000",
+        },
     )
     await pg.open(wait=True, timeout=30)
     # 연결이 모자라면 오류 대신 잠시 대기 (부하 측정에서 MaxConnectionsError 로 500 이 나던 문제)
@@ -48,6 +53,9 @@ async def open_resources(s: Settings) -> Resources:
         database="aptlake",
         autogenerate_session_id=False,
         compress=False,
+        # 응답 없는 서버를 기본 300초까지 기다리지 않게 — 서버 쪽 질의 상한(max_execution_time 5초) + 여유 (QA-007)
+        connect_timeout=3,
+        send_receive_timeout=10,
     )
     ch_usage = await clickhouse_connect.get_async_client(
         host=s.ch_host,
@@ -56,6 +64,8 @@ async def open_resources(s: Settings) -> Resources:
         password=s.ch_usage_password.get_secret_value(),
         database="aptlake",
         autogenerate_session_id=False,
+        connect_timeout=3,
+        send_receive_timeout=10,
     )
     return Resources(pg, r, ch, ch_usage)
 

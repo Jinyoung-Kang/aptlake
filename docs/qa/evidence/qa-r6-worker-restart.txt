@@ -1,0 +1,4 @@
+--- R6: 전국 전체 내보내기 시작 2초 뒤 api-internal 재시작
+재시작 직전 상태: running
+재시작 15초 뒤: running None None
+새 내보내기 접수 (클라이언트 한도 2): 202

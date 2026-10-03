@@ -1,0 +1,8 @@
+[빈 키] 내 키 사용량 조회 키는 이 화면 메모리에만 있고 저장하지 않습니다. | 
+[형식이 틀린 키] 내 키 사용량 조회 Unauthorized — API 키 형식이 올바르지 않습니다. (INVALID_API_KEY) 키는 이 화면 메모리에만 있고 저장하지 않습니다. | 401 /v1/me/usage?days=30 key=있음
+[QA free 키] 내 키 사용량 조회 플랜 free 분당 60 · 일 50,000행 30일 요청 4 오류 2건 키는 이 화면 메모리에만 있고 저장하지 않습니다. | 200 /v1/me/usage?days=30 key=있음
+[QA pro 키] 내 키 사용량 조회 플랜 pro 분당 600 · 일 2,000,000행 30일 요청 29 오류 13건 키는 이 화면 메모리에만 있고 저장하지 않습니다. | 200 /v1/me/usage?days=30 key=있음
+콘솔 오류: [
+  'Failed to load resource: the server responded with a status of 401 (Unauthorized)'
+]
+다시 들어온 뒤 입력란: 값 남음 · localStorage 키 흔적: 없음

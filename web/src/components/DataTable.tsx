@@ -33,7 +33,8 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, selectedKey, i
     });
   }, [rows, columns, sort]);
   return (
-    <div className="table-wrap" style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}>
+    // biome-ignore lint/a11y/noNoninteractiveTabindex: 스크롤 영역은 키보드로도 넘길 수 있어야 한다 (WCAG 2.1.1, axe scrollable-region-focusable, QA-011)
+    <section className="table-wrap" tabIndex={0} aria-label={caption ?? "표"} style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}>
       <table className="t">
         {caption ? <caption className="sr-only">{caption}</caption> : null}
         <thead>
@@ -77,6 +78,6 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, selectedKey, i
         </tbody>
       </table>
       {foot ? <div className="table-foot">{foot}</div> : null}
-    </div>
+    </section>
   );
 }

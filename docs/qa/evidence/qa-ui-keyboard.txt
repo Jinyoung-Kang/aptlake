@@ -1,0 +1,11 @@
+검색 → ↓ → Enter: {
+  '후보': [
+    'QA1단지제주특별자치도 QA2구 QA1동 · 1981년',
+    'QA1단지경상남도 QA6구 QA1동 · 1981년 · ',
+    'QA1단지인천광역시 QA2구 QA1동 · 1981년 ·'
+  ],
+  '이동한_주소': '#/complex/c_e78497d2416d9fcf7be8'
+}
+지역 선택 Enter 로 열림: true null · Esc 뒤 팝업: false · 초점: BODY.
+지역 선택 Tab×3 → 초점: QA2구대구광역시 · 27130 → Enter 뒤 주소: #/trades?sgg=27130
+이전 달 Enter: #/region/11110?tab=distribution → #/region/11110?tab=distribution&ym=2026-06

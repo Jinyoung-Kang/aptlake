@@ -130,13 +130,15 @@ export default function OpsPage({ route }: { route: Route }) {
           {errs.data?.cleared && <Switch checked={showCleared} onChange={(v) => setParams(route, { old: v ? "1" : null })} label="비우기 이전 보기" />}
           <div className="tools-right">
             {clear.confirming ? (
-              <Group label="로그 비우기 확인" className="confirm">
-                <span className="small">지금까지의 로그를 숨길까요?</span>
-                <button type="button" className="btn danger" onClick={() => clear.setCleared(true)}>비우기</button>
-                <button type="button" className="btn" onClick={() => clear.setConfirming(false)}>취소</button>
+              <Group label={clear.confirming === "clear" ? "로그 비우기 확인" : "되돌리기 확인"} className="confirm">
+                <span className="small">{clear.confirming === "clear" ? "지금까지의 로그를 숨길까요?" : "비우기 이전 항목을 다시 보일까요?"}</span>
+                <input className="text-input" type="password" autoComplete="off" placeholder="운영자 키 (ops 권한)" aria-label="운영자 키 (ops 권한, 메모리에만 보관)"
+                       value={clear.key} onChange={(e) => clear.setKey(e.target.value)} />
+                <button type="button" className="btn danger" disabled={!clear.key.trim()} onClick={clear.run}>{clear.confirming === "clear" ? "비우기" : "되돌리기"}</button>
+                <button type="button" className="btn" onClick={() => clear.setConfirming(null)}>취소</button>
               </Group>
             ) : (
-              <button type="button" className="btn" onClick={() => clear.setConfirming(true)} title="원본 기록은 지우지 않고, 지금 이전 항목을 화면에서 숨깁니다">로그 비우기</button>
+              <button type="button" className="btn" onClick={() => clear.setConfirming("clear")} title="원본 기록은 지우지 않고, 지금 이전 항목을 화면에서 숨깁니다 — 운영자 키 필요">로그 비우기</button>
             )}
             <button type="button" className="btn" onClick={() => open.set(open.size ? [] : entries.map((e) => e.id))}>{open.size ? "모두 접기" : "모두 펼치기"}</button>
             <CopyButton text={allText} label={`전체 복사 (${entries.length})`} className="btn primary" disabled={errs.stale || !entries.length} />
@@ -148,7 +150,7 @@ export default function OpsPage({ route }: { route: Route }) {
         {errs.data?.cleared && (
           <div className="banner">
             <span><b>{kst(errs.data.cleared.at)}</b>에 로그를 비웠습니다 — 그 이전 항목은 숨김 (원본 기록은 보존). 이후 새로 생긴 오류만 표시합니다.</span>
-            <button type="button" className="btn ghost" onClick={() => clear.setCleared(false)}>되돌리기</button>
+            <button type="button" className="btn ghost" onClick={() => clear.setConfirming("restore")}>되돌리기</button>
           </div>
         )}
         {errs.data?.notes.filter((n) => !n.startsWith("비우기 이전")).map((n) => <p key={n} className="note">{n}</p>)}
@@ -170,7 +172,7 @@ export default function OpsPage({ route }: { route: Route }) {
                   </button>
                   <CopyButton text={() => entryText(e)} label="복사" className="btn ghost" />
                 </div>
-                {open.has(e.id) && e.detail ? <pre className="log-detail" id={`log-detail-${i}`}>{e.detail}</pre> : null}
+                {open.has(e.id) && e.detail ? <pre /* biome-ignore lint/a11y/noNoninteractiveTabindex: 스크롤 영역은 키보드로도 넘길 수 있어야 한다 (WCAG 2.1.1, axe scrollable-region-focusable, QA-011) */ tabIndex={0} className="log-detail" id={`log-detail-${i}`}>{e.detail}</pre> : null}
               </li>
             ))}
           </ul>

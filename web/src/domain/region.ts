@@ -16,7 +16,11 @@ export function regionPeriod(params: URLSearchParams, avail: Available | null) {
   const to = params.get("to") ?? max;
   const from = params.get("from") ?? (max ? clamp(ymAdd(max, -(DEFAULT_SPAN - 1))) : "");
   const ym = params.get("ym") ?? avail?.default ?? "";
-  const fetchFrom = from && min ? clamp(ymAdd(from, -12)) : from;
+  // 전년 대비 계산용으로 12개월 더 당겨 받되, 받는 기간이 웹 플랜 상한을 넘지 않게 (넘으면 422 — QA-015).
+  // 고른 기간이 상한에 가까우면 앞쪽 달의 전년 대비는 비어 보인다.
+  const earliest = to ? ymAdd(to, -(WEB_MAX_MONTHS - 1)) : "";
+  const wanted = from && min ? clamp(ymAdd(from, -12)) : from;
+  const fetchFrom = wanted && earliest && wanted < earliest ? (from < earliest ? from : earliest) : wanted;
   return { min, max, from, to, ym, fetchFrom };
 }
 

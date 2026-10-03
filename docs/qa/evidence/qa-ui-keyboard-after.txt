@@ -1,0 +1,3 @@
+지역 선택 Enter 로 열림: true null · Esc 뒤 팝업: false · 초점: BUTTON.btn
+지역 선택 Tab×3 → 초점: QA2구대구광역시 · 27130 → Enter 뒤 주소: #/trades?sgg=27130
+이전 달 Enter: #/region/11110?tab=distribution → #/region/11110?tab=distribution&ym=2026-06

@@ -19,7 +19,7 @@ router = APIRouter(prefix="/v1")
 @router.get("/index", summary="자체 지수 시계열 + R-ONE 대비 검증 지표")
 async def price_index(
     request: Request,
-    regionId: Annotated[str, Query(pattern=r"^\d{2}$", description="시도 2자리, 전국 00")],  # noqa: N803
+    regionId: Annotated[str, Query(pattern=r"^[0-9]{2}$", description="시도 2자리, 전국 00")],  # noqa: N803
     method: Annotated[str, Query(pattern=r"^HEDONIC_TD_v1$")] = service.METHOD,
     p: Principal = require_scope("read"),
 ) -> Response:

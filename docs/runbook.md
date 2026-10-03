@@ -27,9 +27,12 @@ curl -X POST -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/partitions/41
 ## 수집 상태 · 오류 로그 보기
 - 웹 **수집 상태** 메뉴: 작업 큐(진행·대기 — 실행 중 먼저, 대기는 요청 순 = 큐에서 나갈 순서), 최근 48시간, 스케줄·센서의 다음 실행.
 - **로그 비우기**: 확인을 마친 로그는 [로그 비우기]로 숨긴다(원본 기록은 그대로, 감사 로그에 남음). 되돌리기·'비우기 이전 보기'로 다시 볼 수 있다.
+  비우기·되돌리기는 **운영자 키(`ops` 권한)**를 확인 줄에 넣어야 한다 — 공개 웹의 키는 보기(`ops_read`)만 한다 (QA-001). 키는 그 화면 상태에만 두고 그 요청에만 붙는다.
 - 오류 로그: 기간(24시간·7일·30일)·출처로 거르고, **전체 복사** 또는 **.txt 저장** → 그대로 이슈·메신저에 붙여 넣을 수 있는 형식. 이후 성공으로 복구된 실패는 '해결된 항목 포함'을 켜야 보인다.
 - 같은 내용 API: `GET /v1/ops/status`, `GET /v1/ops/errors?hours=168&source=pipeline&includeResolved=true`
-  — **`ops` 스코프 키**가 필요하다 (익명·일반 데이터 키는 403). 운영자 키 발급: 키 발급 요청 본문에 `{"scopes":["read","ops"]}`
+  — **`ops` 또는 `ops_read` 스코프 키**가 필요하다 (익명·일반 데이터 키는 403). 비우기·되돌리기(`POST`·`DELETE /v1/ops/errors/clear`)는 `ops` 만.
+  운영자 키 발급: 키 발급 요청 본문에 `{"scopes":["read","ops"]}`, 보기만 하는 키는 `["read","ops_read"]`.
+  권한을 바꾼 뒤(배포·재발급) Redis 키 캐시가 최대 30초 남아 있을 수 있다.
 - Dagster 가 꺼져 있으면(`make serve`) 파이프라인 부분만 '연결 안 됨'으로 나오고 나머지(운영 DB·API 오류)는 그대로 보인다.
 
 ## 화면에 오류가 뜰 때 (먼저 API 연결 테스트)
@@ -48,6 +51,7 @@ docker compose logs api | grep <추적 ID 앞 12자>
 ## 웹 전용 키(BFF) 순환
 - `.env` 의 `WEB_API_KEY` 값을 지우고 `make init` → 새 키 생성. `docker compose up -d db-migrate web` → 새 키 등록, 이전 키 폐기(감사 로그 `web_key.ensure`).
 - 웹 키는 nginx 컨테이너 환경 변수에만 있고 브라우저·번들에는 없다.
+- 웹 키 권한은 `read` + `ops_read` (provision 의 `WEB_SCOPES`). db-migrate 가 돌 때마다 다시 쓰므로 DB 에서 직접 바꾸지 않는다.
 
 ## 지도 경계 갱신
 - 매월 `monthly_regions` 스케줄이 시군구 목록과 함께 다시 받는다. 수동: Dagster 에서 `refresh_regions` 작업 실행.
@@ -118,6 +122,23 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
   3. MinIO: `docker compose run --rm --no-deps -v "$PWD/backups/minio:/backup" --entrypoint sh minio-init -c 'mc alias set local http://minio:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" && mc mirror /backup/raw local/raw && mc mirror /backup/lake local/lake'`
   4. `make up` → 서빙 DB 재발행: `docker compose exec -T postgres psql -U postgres -d aptlake -c "UPDATE ops.month_state SET needs_publish = true"` (센서가 원천 호출 없이 발행만 다시 함) + `make index`
   5. 사용량 기록: `docker compose exec -T clickhouse sh -c 'clickhouse-client --user "$CLICKHOUSE_USER" --password "$CLICKHOUSE_PASSWORD" -q "INSERT INTO aptlake.usage_event FORMAT Native"' < backups/pg/<시각>/usage_event.native`
+
+## 서빙 DB·운영 DB 가 느리거나 멈췄을 때
+- API 는 ClickHouse 응답을 최대 10초(연결 3초), PostgreSQL 질의 5초·잠금 대기 2초까지만 기다리고 503 + Retry-After 로 끝낸다 (QA-007·008).
+  연결 풀이 모두 매달려 있으면 빈 연결을 기다리는 시간이 더해져 한 요청이 15초 안팎 걸릴 수 있다. Redis 는 2초.
+- 긴 트랜잭션(수동 정리 작업 등)이 `ops`·`api` 표를 잠그면 그동안 수집 상태·관리 경로가 503 이다 — 데이터 경로는 키 캐시 덕에 영향이 없다.
+- 대량 내보내기(exporter 프로필)는 정렬이 150MB 를 넘으면 디스크로 나눠 정렬한다 (`max_bytes_before_external_sort`, 26.8 은 비율 설정을 0 으로 꺼야 적용, QA-006).
+
+## API 문서(/docs) 의 Swagger UI 버전 올리기
+- `api/src/aptlake_api/main.py` 의 `SWAGGER_UI` 버전과 `SWAGGER_UI_SRI` 해시를 같이 바꾼다 (해시가 틀리면 브라우저가 스크립트를 막아 화면이 빈다, QA-004):
+  `curl -s https://cdn.jsdelivr.net/npm/swagger-ui-dist@<버전>/swagger-ui-bundle.js | openssl dgst -sha384 -binary | openssl base64 -A` (css 도 같게)
+- 바꾼 뒤 `/docs` 를 브라우저로 열어 작업 목록이 보이고 콘솔 오류가 없는지 확인한다.
+
+## QA 스택 (운영과 분리된 시험 환경)
+- `qa/qa.sh up` — 운영과 볼륨·네트워크(172.30.71.0/24)·포트(+100)·이미지 태그가 겹치지 않는 서빙 계층 (웹 3710·API 8710). `qa/qa.sh destroy` 로 통째로 지운다.
+- 시험 데이터: `cd api && uv run python ../qa/seed/seed.py` (운영 규모 생성 데이터·조작 문자열), 시험 키: `qa/keys.sh` → `qa/.env.keys` (git 제외).
+- 점검 스크립트: `qa/probes/` (퍼징·값 대조·장애 주입·화면/접근성·Lighthouse·BFF 권한·복원 훈련), 부하: `qa/load/run_k6.sh`. 결과·방법은 `docs/qa/2026-10-qa-report.md`.
+- 운영 스택에는 시험 요청을 보내지 않는다. 레이크 통합 시험도 QA 레이크에서: `qa/qa.sh --profile lake up -d --wait lakekeeper lakekeeper-init trino` 뒤 `make test-integration` 과 같은 명령을 `qa/qa.sh --profile lake run ...` 으로.
 
 ## 지원 종료(EOL) 점검
 - `.github/workflows/eol.yml` 이 매주 endoflife.date 로 이미지의 지원 종료일을 본다 (`uv run --project api python tools/check_eol.py` 로 직접). 조회 실패도 실패로 표시한다.

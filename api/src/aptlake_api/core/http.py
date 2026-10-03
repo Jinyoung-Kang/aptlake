@@ -25,12 +25,16 @@ SCOPE_ATTR = "__aptlake_scope__"
 PUBLIC_UNSCOPED = {"/healthz", "/readyz", "/docs", "/openapi.json", "/docs/oauth2-redirect", "/redoc"}
 
 
-def require_scope(scope: str) -> Any:
+def require_scope(scope: str, *alternatives: str) -> Any:
+    """scope 또는 alternatives 중 하나가 있어야 한다 (예: 수집 상태 보기 = ops 또는 ops_read)."""
+    accepted = (scope, *alternatives)
+
     async def dep(request: Request) -> Principal:
         p = await resolve_principal(request)
         request.state.principal = p
-        if scope not in p.scopes:
-            raise ApiError(403, "SCOPE_REQUIRED", "Forbidden", f"'{scope}' 스코프가 필요합니다.")
+        if not any(s in p.scopes for s in accepted):
+            names = " 또는 ".join(f"'{s}'" for s in accepted)
+            raise ApiError(403, "SCOPE_REQUIRED", "Forbidden", f"{names} 스코프가 필요합니다.")
         await enforce_rate_limit(request, p)
         return p
 

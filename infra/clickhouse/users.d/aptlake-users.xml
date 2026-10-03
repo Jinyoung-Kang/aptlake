@@ -25,6 +25,11 @@
             <max_execution_time>120</max_execution_time>
             <max_memory_usage>400000000</max_memory_usage>
             <max_threads>2</max_threads>
+            <!-- 전체 정렬(ORDER BY deal_date, trade_id)이 메모리 상한에 닿기 전에 디스크로 나눠 정렬한다 —
+                 없으면 거래가 늘수록 내보낼 수 있는 기간이 줄다가 전체 기간이 MEMORY_LIMIT_EXCEEDED (QA-006).
+                 26.8 은 비율 설정(기본 0.5)이 있으면 바이트 값이 쓰이지 않아 비율을 끈다. 270만 행: 최대 216MB · 3.9초 -->
+            <max_bytes_before_external_sort>150000000</max_bytes_before_external_sort>
+            <max_bytes_ratio_before_external_sort>0</max_bytes_ratio_before_external_sort>
         </exporter>
         <publisher>
             <max_memory_usage>800000000</max_memory_usage>

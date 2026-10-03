@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from ...core.auth import Principal, client_ip
 from ...core.http import require_scope
+from ...core.params import YM_Q
 from ...core.responses import OrjsonResponse
 from ...core.settings import settings
 from . import service
@@ -38,7 +39,7 @@ async def create_client(request: Request, body: ClientIn, p: Principal = require
 
 
 class KeyIn(BaseModel):
-    scopes: list[Literal["read", "bulk", "admin", "ops"]] = Field(default=["read"], min_length=1)
+    scopes: list[Literal["read", "bulk", "admin", "ops", "ops_read"]] = Field(default=["read"], min_length=1)
     expiresInDays: int = Field(default=90, ge=1, le=365)  # noqa: N815
 
 
@@ -74,8 +75,8 @@ async def revoke_key(
 @router.post("/partitions/{sggCd}/{dealYm}/retry", status_code=202)
 async def retry_partition(
     request: Request,
-    sggCd: Annotated[str, Path(pattern=r"^\d{5}$")],  # noqa: N803
-    dealYm: Annotated[str, Path(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")],  # noqa: N803
+    sggCd: Annotated[str, Path(pattern=r"^[0-9]{5}$")],  # noqa: N803
+    dealYm: Annotated[str, Path(pattern=YM_Q)],  # noqa: N803
     p: Principal = require_scope("admin"),
 ) -> OrjsonResponse:
     out = await service.retry_partition(_repo(request), sggCd, dealYm, _actor(request, p))

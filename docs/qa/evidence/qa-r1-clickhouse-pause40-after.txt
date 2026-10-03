@@ -1,0 +1,13 @@
+== clickhouse 40초 멈춤 (요청 1223건, 20 rps)
+  전    months   {200: 47}  p50 5ms p95 7ms max 66ms
+  전    ops      {200: 31}  p50 27ms p95 33ms max 115ms
+  전    regions  {200: 36}  p50 6ms p95 7ms max 7ms
+  전    trades   {200: 42}  p50 6ms p95 7ms max 10ms
+  멈춤   months   {200: 191, 503: 1}  p50 7ms p95 6961ms max 10014ms
+  멈춤   ops      {200: 202}  p50 10016ms p95 14078ms max 16516ms
+  멈춤   regions  {200: 179, 503: 1}  p50 7ms p95 8520ms max 11193ms
+  멈춤   trades   {200: 202}  p50 8ms p95 7860ms max 11423ms
+  푼 뒤  months   {200: 82}  p50 10ms p95 809ms max 1798ms
+  푼 뒤  ops      {200: 77}  p50 28ms p95 1817ms max 2193ms
+  푼 뒤  regions  {200: 65}  p50 36ms p95 1667ms max 2378ms
+  푼 뒤  trades   {200: 67}  p50 19ms p95 105ms max 1621ms

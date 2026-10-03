@@ -1,0 +1,13 @@
+백업: qa/.backups-drill/pg/20261004-002438/
+  pg_restore aptlake: 성공
+  pg_restore lakekeeper: 성공
+  pg_restore dagster: 성공
+  OK   aptlake: SELECT count(*) FROM api.client = 8
+  OK   aptlake: SELECT count(*) FROM api.api_key = 8
+  OK   aptlake: SELECT count(*) FROM ops.ingest_partition = 17664
+  OK   aptlake: SELECT version FROM ops.dataset_version ORDER BY published_at DESC LIMIT 1 = gold@2026-10-02.40819
+  OK   lakekeeper: SELECT count(*) FROM tabular = 0
+  권한: api_app 키 읽기=8 · api_app 키 갱신=(0행 성공) · pipeline ops 쓰기=ok · api_app 키 삭제(권한 없어야)=ERROR:  permission denied for table api_key
+  MinIO raw: 백업 시점 5개 중 복원 후 없음 0
+  MinIO lake: 백업 시점 5개 중 복원 후 없음 0
+복원 훈련 통과

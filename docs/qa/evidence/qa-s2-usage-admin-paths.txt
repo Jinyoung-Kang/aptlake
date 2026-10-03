@@ -1,0 +1,29 @@
+me/usage PRO    -> {'clientId': '91692aee-20ea-4475-82b7-0d102f88be4e', 'plan': 'pro', 'limits': {'rpm': 600, 'dailyRows': 2000000}} rows 1
+me/usage PRO_B  -> {'clientId': '4e6b99e6-67cf-431d-a096-f107c07c771a', 'plan': 'pro', 'limits': {'rpm': 600, 'dailyRows': 2000000}} rows 1
+me/usage FREE   -> {'clientId': '63c0aac4-032e-4a06-92c1-bf8ec33f71d3', 'plan': 'free', 'limits': {'rpm': 60, 'dailyRows': 50000}} rows 1
+--- 관리 경로 변형 (BFF 3710 · 공개 API 8710), ADMIN 키
+http://127.0.0.1:3710    /v1/admin/clients            -> 404
+http://127.0.0.1:3710    //v1/admin/clients           -> 404
+http://127.0.0.1:3710    /v1//admin/clients           -> 404
+http://127.0.0.1:3710    /V1/admin/clients            -> 405
+http://127.0.0.1:3710    /v1/Admin/clients            -> 404
+http://127.0.0.1:3710    /v1/%61dmin/clients          -> 404
+http://127.0.0.1:3710    /v1/admin%2Fclients          -> 404
+http://127.0.0.1:3710    /v1/./admin/clients          -> 404
+http://127.0.0.1:3710    /v1/x/../admin/clients       -> 404
+http://127.0.0.1:3710    /v1/admin/clients/           -> 404
+http://127.0.0.1:8710    /v1/admin/clients            -> 404
+http://127.0.0.1:8710    //v1/admin/clients           -> 404
+http://127.0.0.1:8710    /v1//admin/clients           -> 404
+http://127.0.0.1:8710    /V1/admin/clients            -> 404
+http://127.0.0.1:8710    /v1/Admin/clients            -> 404
+http://127.0.0.1:8710    /v1/%61dmin/clients          -> 404
+http://127.0.0.1:8710    /v1/admin%2Fclients          -> 404
+http://127.0.0.1:8710    /v1/./admin/clients          -> 404
+http://127.0.0.1:8710    /v1/x/../admin/clients       -> 404
+http://127.0.0.1:8710    /v1/admin/clients/           -> 404
+--- 생성된 qa-bypass 클라이언트 수:
+ERROR:  trailing junk after numeric literal at or near "8826qa"
+LINE 1: SELECT count(*) FROM api.client WHERE name = 8826qa-bypass88...
+                                                     ^
+0

@@ -31,7 +31,9 @@ async def quality_grid(
     request: Request,
     from_: Annotated[str, Query(alias="from", pattern=YM_Q)],
     to: Annotated[str, Query(pattern=YM_Q)],
-    sido: Annotated[str | None, Query(pattern=r"^\d{2}$", description="시도 2자리 — 지정하면 그 시도 시군구만")] = None,
+    sido: Annotated[
+        str | None, Query(pattern=r"^[0-9]{2}$", description="시도 2자리 — 지정하면 그 시도 시군구만")
+    ] = None,
     p: Principal = require_scope("read"),
 ) -> Response:
     start, end = ym_to_date(from_), ym_to_date(to)

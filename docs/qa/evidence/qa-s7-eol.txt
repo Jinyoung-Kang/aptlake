@@ -1,0 +1,13 @@
+
+지원 종료 0건, 60일 안 종료 0건, 조회 실패 0건
+| 이미지 | 제품·주기 | 상태 | 지원 종료일 |
+|---|---|---|---|
+| `clickhouse/clickhouse-server:26.8` | clickhouse 26.8 | 지원 중 | 2027-08-27 |
+| `grafana/grafana:12.4.11` | grafana 12.4 | 지원 중 | 2027-05-24 |
+| `nginxinc/nginx-unprivileged:1.31-alpine` | nginx 1.31 | 지원 중 | 종료일 미정 |
+| `node:24-alpine` | nodejs 24 | 지원 중 | 2028-04-30 |
+| `postgres:16-alpine` | postgresql 16 | 지원 중 | 2028-11-09 |
+| `prom/prometheus:v3.13.4` | prometheus 3.13 | 지원 중 | 2027-07-31 |
+| `python:3.12-slim-trixie` | python 3.12 | 지원 중 | 2028-10-31 |
+| `python:3.12-slim-trixie` | debian 13 | 지원 중 | 2030-06-30 |
+| `redis:7.4-alpine` | redis 7.4 | 지원 중 | 2029-12-01 |

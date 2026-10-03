@@ -1,0 +1,7 @@
+GET /v1/ops/status → 200 (기대 200: 보기는 공개)
+GET /v1/ops/errors → 200 (기대 200: 보기는 공개)
+GET /v1/ops/connectivity → 200 (기대 200: 보기는 공개)
+POST /v1/ops/errors/clear → 200 (기대 403: 운영자 키 필요)
+DELETE /v1/ops/errors/clear → 200 (기대 403: 운영자 키 필요)
+교차 출처 POST → 403 (기대 403)
+exit=1

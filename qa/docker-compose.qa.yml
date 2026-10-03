@@ -1,0 +1,46 @@
+# QA 스택 (aptlake-qa) — 운영 스택(aptlake)과 볼륨·네트워크·포트·이미지 태그가 하나도 겹치지 않게 덮어쓴다.
+# 직접 쓰지 말고 qa/qa.sh 로 (프로젝트 이름 -p aptlake-qa · QA 전용 비밀값 qa/.env.qa 를 함께 넘긴다).
+#   - 볼륨·네트워크: 프로젝트 이름이 달라 aptlake-qa_* 로 따로 만들어진다
+#   - 서브넷: 운영 172.30.61.0/24 → 172.30.71.0/24 (웹 고정 IP·TRUSTED_PROXIES 도 같이)
+#   - 포트: 운영 + 100 (모두 127.0.0.1)
+#   - 이미지: aptlake-qa-*:local — QA 브랜치 코드로 빌드해도 운영 이미지(aptlake-*:local)를 덮어쓰지 않는다
+services:
+  postgres:
+    ports: !override ["127.0.0.1:5592:5432"]
+  minio:
+    ports: !override ["127.0.0.1:9700:9000", "127.0.0.1:9701:9001"]
+  clickhouse:
+    ports: !override ["127.0.0.1:8740:8123", "127.0.0.1:9740:9000"]
+  redis:
+    ports: !override ["127.0.0.1:6539:6379"]
+  db-migrate:
+    image: aptlake-qa-api:local
+  api:
+    image: aptlake-qa-api:local
+    ports: !override ["127.0.0.1:8710:8610"]
+    environment:
+      S3_PUBLIC_ENDPOINT: http://127.0.0.1:9700
+      TRUSTED_PROXIES: 172.30.71.250/32
+  api-internal:
+    image: aptlake-qa-api:local
+    ports: !override ["127.0.0.1:8711:8611"]
+    environment:
+      S3_PUBLIC_ENDPOINT: http://127.0.0.1:9700
+      TRUSTED_PROXIES: 172.30.71.250/32
+  web:
+    image: aptlake-qa-web:local
+    ports: !override ["127.0.0.1:3710:8080"]
+    networks:
+      default: { ipv4_address: 172.30.71.250 }
+  dagster:
+    image: aptlake-qa-pipeline:local
+    ports: !override ["127.0.0.1:3700:3000"]
+  prometheus:
+    ports: !override ["127.0.0.1:9790:9090"]
+  grafana:
+    ports: !override ["127.0.0.1:3720:3000"]
+
+networks:
+  default:
+    ipam:
+      config: !override [{ subnet: 172.30.71.0/24, ip_range: 172.30.71.0/25 }]

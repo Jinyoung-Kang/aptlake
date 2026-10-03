@@ -16,6 +16,8 @@ from .core import keys
 
 CLIENT = "web-ui"
 PLAN = "web"
+# 웹 화면은 데이터 조회(read)와 수집 상태 보기(ops_read)만 — 로그 비우기·되돌리기는 운영자 키(ops) (QA-001)
+WEB_SCOPES = ["read", "ops_read"]
 
 
 def main() -> int:
@@ -43,8 +45,7 @@ def main() -> int:
                VALUES (%s, %s, %s, %s, %s)
                ON CONFLICT (key_id) DO UPDATE SET secret_hmac = EXCLUDED.secret_hmac, scopes = EXCLUDED.scopes,
                  expires_at = EXCLUDED.expires_at, revoked_at = NULL""",
-            # 웹 화면은 데이터 조회(read)와 수집 상태 메뉴(ops)를 쓴다
-            (key_id, client_id, keys.hmac_secret(pepper, secret), ["read", "ops"], expires),
+            (key_id, client_id, keys.hmac_secret(pepper, secret), WEB_SCOPES, expires),
         )
         revoked = c.execute(
             """UPDATE api.api_key SET revoked_at = now()

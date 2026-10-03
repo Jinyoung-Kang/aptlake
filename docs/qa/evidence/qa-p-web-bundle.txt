@@ -1,0 +1,15 @@
+   675.9 KB  gz 222.8 KB  ./assets/Chart-uLpzzw7y.js
+   239.1 KB  gz  75.6 KB  ./assets/index-CHXd4iNz.js
+    24.7 KB  gz   5.8 KB  ./assets/index-5mTUXnlA.css
+    22.7 KB  gz   8.3 KB  ./assets/OpsPage-D0qMV--B.js
+    14.9 KB  gz   5.1 KB  ./assets/RegionPage-CA-qTGDe.js
+    11.4 KB  gz   4.5 KB  ./assets/TradesPage-C0RWrVAQ.js
+    10.9 KB  gz   4.4 KB  ./assets/MarketPage-BCXjmAKv.js
+     9.9 KB  gz   4.0 KB  ./assets/QualityPage-BfB5CcRq.js
+     7.7 KB  gz   3.2 KB  ./assets/IndexPage-BTb7Hns5.js
+     6.0 KB  gz   2.9 KB  ./assets/DeveloperPage-DXlA-0NC.js
+     4.3 KB  gz   1.6 KB  ./assets/MonthPicker-B7bqqu3D.js
+     4.2 KB  gz   2.0 KB  ./assets/ComplexPage-BmJfHnjL.js
+     3.0 KB  gz   1.3 KB  ./assets/RegionPicker-C7hTb1ZN.js
+     2.0 KB  gz   0.9 KB  ./assets/DataTable-c7npo5KX.js
+     0.5 KB  gz        -  ./assets/priceIndex-DahEd0aG.js

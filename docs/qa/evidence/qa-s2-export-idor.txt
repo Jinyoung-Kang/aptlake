@@ -1,0 +1,12 @@
+$ POST /v1/exports (PRO 키, 11110 2025년)
+{"jobId":"969cacd5-446d-419d-96c4-f6f937ffcc89","status":"queued"}
+
+jobId=969cacd5-446d-419d-96c4-f6f937ffcc89
+GET /v1/exports/{job} as PRO            -> {"jobId":"969cacd5-446d-419d-96c4-f6f937ffcc89","status":"done","rows":1670,"createdAt":"2026-10-03T15:08:18.237114+00:00","finishedAt":"2026-10-03T15:08:20.026549+00:00","downloadUrl":"http://127.0.0.1:9700/exports/91692aee-20ea-4475-82b7-0d102f88be4e/969cacd
+GET /v1/exports/{job} as PRO_B          -> {"type":"about:blank","title":"Not Found","status":404,"code":"EXPORT_NOT_FOUND","traceId":"8bc51e9c9d3d4af2a4fa45aedb85bff3"} [HTTP 404]
+GET /v1/exports/{job} as READ_ONLY_PRO  -> {"type":"about:blank","title":"Forbidden","status":403,"code":"SCOPE_REQUIRED","traceId":"999889aa2c804dde8c568064acebd76b","detail":"'bulk' 스코프가 필요합니다."} [HTTP 403]
+GET /v1/exports/{job} as FREE           -> {"type":"about:blank","title":"Forbidden","status":403,"code":"SCOPE_REQUIRED","traceId":"d1a38dd220814762ba591cef2080741a","detail":"'bulk' 스코프가 필요합니다."} [HTTP 403]
+GET /v1/exports/{job} as WEB            -> {"type":"about:blank","title":"Forbidden","status":403,"code":"SCOPE_REQUIRED","traceId":"7fdeb044b36c4aefaecba979f2a0589a","detail":"'bulk' 스코프가 필요합니다."} [HTTP 403]
+GET /v1/exports/{job} anonymous -> {"type":"about:blank","title":"Forbidden","status":403,"code":"SCOPE_REQUIRED","traceId":"8f6e14be336741009fe6329590add8b2","detail":"'bulk' 스코프가 필요합니다."} [HTTP 403]
+GET /v1/exports/00000000-0000-0000-0000-000000000000 as PRO -> {"type":"about:blank","title":"Not Found","status":404,"code":"EXPORT_NOT_FOUND","traceId":"13fbaf48ba1c462082a779f3ae4d9c53"} [HTTP 404]
+GET /v1/exports/not-a-uuid as PRO -> {"type":"about:blank","title":"Invalid Parameter","status":400,"code":"INVALID_PARAMETER","traceId":"173badf766b243d584cc79cb7f56ed7e","errors":[{"loc":["path","jobId"],"msg":"String should match patt

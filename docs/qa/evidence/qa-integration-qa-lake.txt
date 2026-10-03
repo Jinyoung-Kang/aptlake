@@ -1,0 +1,9 @@
+$ (QA 레이크) pytest -m integration tests/test_integration_silver.py
+ Volume aptlake-qa_dagster_home Created 
+..                                                                       [100%]
+=============================== warnings summary ===============================
+tests/test_integration_silver.py::test_scd2_lifecycle
+  /opt/venv/lib/python3.12/site-packages/pyiceberg/table/__init__.py:721: UserWarning: Delete operation did not match any records
+    self.delete(
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 passed, 1 warning in 29.21s

@@ -44,7 +44,7 @@ export default function RegionPicker({ value, onChange, align = "left" }: { valu
   };
 
   return (
-    <div className="pop-anchor" ref={ref}>
+    <div className="pop-anchor region-picker" ref={ref}>
       <button type="button" className="btn" aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}
               style={{ minWidth: 200, justifyContent: "space-between" }}>
         <span>

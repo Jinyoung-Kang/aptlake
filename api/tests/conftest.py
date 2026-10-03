@@ -76,7 +76,7 @@ def stack():
             "USAGE_FLUSH_INTERVAL_S": "0.2",
         }
         os.environ.update(env)
-        yield {"su": su, "ch": admin}
+        yield {"su": su, "ch": admin, "ch_container": ch}
 
 
 def _seed_clickhouse(c) -> None:

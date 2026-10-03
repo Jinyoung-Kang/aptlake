@@ -33,7 +33,7 @@ def _utcnow() -> dt.datetime:
 
 
 @router.get("/status", summary="수집 상태: 요약 · 작업 큐 · 스케줄/센서")
-async def status(request: Request, p: Principal = require_scope("ops")) -> Response:
+async def status(request: Request, p: Principal = require_scope("ops", "ops_read")) -> Response:
     async def compute():
         return await service.status(
             request.app.state.dagster,
@@ -53,7 +53,7 @@ async def errors(
     source: SOURCE = "all",
     includeResolved: bool = False,  # noqa: N803
     includeCleared: bool = False,  # noqa: N803 — '비우기' 이전 항목도 (흐리게) 보기
-    p: Principal = require_scope("ops"),
+    p: Principal = require_scope("ops", "ops_read"),
 ) -> Response:
     return await respond(
         request,
@@ -85,7 +85,7 @@ async def restore_errors(request: Request, p: Principal = require_scope("ops")) 
 @router.get(
     "/connectivity", summary="API 연결 점검: API 서버가 의존하는 구성요소의 응답 여부·지연, 원천 수집 최근 상태"
 )
-async def connectivity(request: Request, p: Principal = require_scope("ops")) -> Response:
+async def connectivity(request: Request, p: Principal = require_scope("ops", "ops_read")) -> Response:
     """구성요소마다 가장 가벼운 질의 한 번 (동시 실행, 각 2초 제한).
 
     외부 원천(국토부·V-World)은 **직접 호출하지 않는다** — 일일 호출 한도가 있는 키를 공개 화면의 버튼으로

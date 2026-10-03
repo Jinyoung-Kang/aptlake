@@ -1,0 +1,26 @@
+/v1/regions/11110/months?from=2025-01&to=2025-12               anon   -> 200 items=12
+/v1/regions/11110/months?from=2025-01&to=2026-01               anon   -> 422 RANGE_EXCEEDS_PLAN
+/v1/regions/11110/months?from=2024-01&to=2025-12               free   -> 200 items=24
+/v1/regions/11110/months?from=2024-01&to=2026-01               free   -> 422 RANGE_EXCEEDS_PLAN
+/v1/trades?sggCd=11110&from=2025-06-01&to=2025-06-30&limit=100 anon   -> 200 items=100
+/v1/trades?sggCd=11110&from=2025-06-01&to=2025-06-30&limit=101 anon   -> 422 PAGE_SIZE_EXCEEDS_PLAN
+/v1/trades?sggCd=11110&from=2025-06-01&to=2025-06-30&limit=200 free   -> 200 items=200
+/v1/trades?sggCd=11110&from=2025-06-01&to=2025-06-30&limit=201 free   -> 422 PAGE_SIZE_EXCEEDS_PLAN
+/v1/trades?sggCd=11110&from=2025-06-01&to=2025-06-30&limit=1000 pro    -> 200 items=241
+/v1/trades?sggCd=11110&from=2025-06-01&to=2025-06-30&limit=1001 pro    -> 400 INVALID_PARAMETER
+/v1/trades?sggCd=11110&from=2025-06-30&to=2025-06-01           pro    -> 400 INVALID_RANGE
+/v1/regions/11110/months?from=2025-12&to=2025-01               pro    -> 400 INVALID_RANGE
+/v1/regions/11110/months?from=2020-01&to=2020-12               pro    -> 200 items=0
+/v1/regions/99999/months?from=2025-01&to=2025-12               pro    -> 400 INVALID_REGION
+/v1/regions/11110/distribution?ym=2020-01                      pro    -> 200 ok
+/v1/regions/11110/distribution?ym=2026-12                      pro    -> 200 ok
+/v1/market/overview?ym=2020-01                                 pro    -> 422 MONTH_OUT_OF_RANGE
+/v1/regions/11110/complexes?from=2025-01&to=2025-12&limit=101  pro    -> 400 INVALID_PARAMETER
+/v1/regions/11110/complexes?from=2020-01&to=2026-12&limit=5    pro    -> 200 items=5
+/v1/trades/11110-202513-0000000000000000-0/history             pro    -> 400 INVALID_TRADE_ID
+/v1/trades/11110-202501-zzzz/history                           pro    -> 400 INVALID_TRADE_ID
+/v1/complexes/c_00000000000000000000                           pro    -> 404 COMPLEX_NOT_FOUND
+/v1/search?q=a                                                 pro    -> 200 ok
+/v1/search?q=가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가가 pro    -> 400 
+/v1/me/usage?days=91                                           pro    -> 400 INVALID_PARAMETER
+/v1/index?regionId=99                                          pro    -> 404 INDEX_NOT_FOUND
