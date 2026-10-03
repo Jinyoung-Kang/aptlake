@@ -109,6 +109,8 @@ body {
 }
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
+/* 글 속 링크는 색만으로 구분하지 않는다 — 밑줄 (WCAG 1.4.1, QA-010). 메뉴·버튼·표 행 링크는 모양으로 구분된다 */
+.crumb a, .footer-inner a, p a { text-decoration: underline; text-underline-offset: 2px; }
 button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .num, td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
