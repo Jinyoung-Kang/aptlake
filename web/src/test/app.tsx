@@ -75,6 +75,8 @@ export async function renderApp(hash: string): Promise<{ root: Root; el: HTMLEle
   document.body.replaceChildren(el);
   const root = createRoot(el);
   await act(async () => { root.render(<App />); });
+  // 페이지는 지연 로딩이다 — 모듈이 늦게 오면 고정 횟수만 기다린 스냅숏에 로딩 화면이 찍혔다 (모든 페이지에 page-head 가 있다)
+  for (let i = 0; i < 400 && !el.querySelector(".page-head"); i++) await settle(1);
   await settle();
   return { root, el };
 }
