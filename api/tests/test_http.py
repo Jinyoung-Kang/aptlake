@@ -420,7 +420,7 @@ async def test_stalled_export_job_is_failed_so_client_can_export_again(apps, sta
     """작업자가 도중에 재시작돼 running 으로 남은 작업은 실패로 정리한다 (동시 2개 한도에 영원히 잡히지 않게)."""
     import psycopg
 
-    from aptlake_api import exports
+    from aptlake_api.features.exports.repository import ExportRepository
 
     key, cid = await new_key(adm, admin_key, "pro", scopes=("read", "bulk"))
     kid = keys.parse(key)[0]
@@ -433,7 +433,7 @@ async def test_stalled_export_job_is_failed_so_client_can_export_again(apps, sta
             ).fetchone()[0]
             for ago in ("2 hours", "1 minute")
         )
-    assert await exports._fail_stalled(apps[1].state.res) >= 1
+    assert await ExportRepository(apps[1].state.res.pg).fail_stalled() >= 1
     with psycopg.connect(stack["su"], autocommit=True) as c:
         st = dict(c.execute("SELECT job_id, status FROM api.export_job WHERE job_id IN (%s, %s)", (old, fresh)))
     assert st == {old: "failed", fresh: "running"}  # 진행 중인 정상 작업은 건드리지 않는다

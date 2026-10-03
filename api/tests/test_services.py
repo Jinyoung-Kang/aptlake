@@ -145,3 +145,46 @@ def test_trade_id_and_page_size_rules():
     with pytest.raises(ApiError) as e:
         trades.check_page_size("free", 200, 201)
     assert e.value.status == 422
+
+
+# ───── 내보내기 ─────
+class FakeExports:
+    def __init__(self, room=True, job=None):
+        self.room, self.job, self.created = room, job, []
+
+    async def create_if_room(self, client_id, key_id, params_json, max_running):
+        self.created.append(max_running)
+        return "11111111-1111-1111-1111-111111111111" if self.room else None
+
+    async def get(self, job_id, client_id):
+        return self.job
+
+
+async def test_export_rules():
+    from aptlake_api.features.exports import service as exports
+
+    with pytest.raises(ApiError) as e:
+        exports.check_request(False, dt.date(2024, 1, 1), dt.date(2024, 1, 2))
+    assert e.value.code == "PLAN_NOT_ALLOWED"
+    with pytest.raises(ApiError) as e:
+        exports.check_request(True, dt.date(2024, 1, 2), dt.date(2024, 1, 1))
+    assert e.value.code == "INVALID_RANGE"
+    store = FakeExports(room=False)
+    with pytest.raises(ApiError) as e:
+        await exports.create(store, "c", "k", "{}")
+    assert e.value.status == 429 and store.created == [exports.MAX_RUNNING]
+
+    done = {
+        "job_id": "j",
+        "status": "done",
+        "rows": 5,
+        "error": None,
+        "object_key": "c/j.parquet",
+        "created_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
+        "finished_at": None,
+    }
+    out = await exports.status(FakeExports(job=done), "j", "c", presign=lambda k: f"https://s3/{k}", url_ttl_s=900)
+    assert out["downloadUrl"] == "https://s3/c/j.parquet" and out["expiresInSeconds"] == 900
+    with pytest.raises(ApiError) as e:
+        await exports.status(FakeExports(job=None), "j", "c", presign=str, url_ttl_s=900)
+    assert e.value.status == 404

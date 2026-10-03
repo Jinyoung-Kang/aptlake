@@ -18,7 +18,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from prometheus_client import REGISTRY, CollectorRegistry, multiprocess, start_http_server
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import exports, ops, routes_admin, routes_market, routes_ops, routes_public
+from . import ops, routes_admin, routes_market, routes_ops
 from .core.auth import _SLIDING, load_plans
 from .core.envelope import Envelope
 from .core.errors import TRANSIENT_HANDLERS, api_error_handler, http_handler, unhandled_handler, validation_handler
@@ -29,10 +29,13 @@ from .core.responses import OrjsonResponse
 from .core.settings import settings
 from .core.usage import UsageRecorder
 from .features.complexes.router import router as complexes_router
+from .features.exports import worker as export_worker
+from .features.exports.router import router as exports_router
 from .features.index.router import router as index_router
 from .features.quality.router import router as quality_router
 from .features.regions.router import router as regions_router
 from .features.trades.router import router as trades_router
+from .features.usage.router import router as usage_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("aptlake.api")
@@ -51,7 +54,7 @@ def _build(name: str, internal: bool) -> FastAPI:
         app.state.geo_cache = {}
         app.state.usage = UsageRecorder(res.ch_usage, s.usage_flush_interval_s, s.usage_flush_max)
         app.state.usage.start()
-        worker = exports.start(res) if internal else None
+        worker = export_worker.start(res) if internal else None
         # 지표: 워커가 여러 개면 multiprocess 모드로 모든 워커 값을 합쳐 한 포트에서 제공
         # (포트를 먼저 잡은 워커 하나가 서버 역할, 도커 네트워크 안에서만 — 호스트에 게시하지 않음)
         registry = REGISTRY
@@ -66,7 +69,7 @@ def _build(name: str, internal: bool) -> FastAPI:
             start_http_server(s.metrics_port, registry=registry)
         yield
         if worker:
-            await exports.stop(worker)
+            await export_worker.stop(worker)
         await app.state.usage.stop()
         await app.state.dagster.aclose()
         await close_resources(res)
@@ -113,9 +116,16 @@ def _build(name: str, internal: bool) -> FastAPI:
     if internal:
         app.include_router(routes_admin.router)
     else:
-        for feature in (regions_router, trades_router, complexes_router, index_router, quality_router):
+        for feature in (
+            regions_router,
+            trades_router,
+            complexes_router,
+            index_router,
+            quality_router,
+            usage_router,
+            exports_router,
+        ):
             app.include_router(feature)
-        app.include_router(routes_public.router)
         app.include_router(routes_market.router)
         app.include_router(routes_ops.router)
     # 큰 응답(경계 GeoJSON·수집 상태)은 압축. 비밀값이 섞이지 않는 응답이라 압축 부채널(BREACH) 우려 없음
