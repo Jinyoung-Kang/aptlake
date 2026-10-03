@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM ghcr.io/astral-sh/uv:0.12.19 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.23 AS uv
 
 # 빌드 단계: psycopg 의 C 구현을 시스템 libpq 에 대고 컴파일한다 (컴파일 도구는 최종 이미지에 남기지 않는다, QA-005)
 FROM python:3.12-slim-trixie AS build
