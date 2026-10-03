@@ -1,0 +1,27 @@
+점검한 화면 조합: 40 (화면 10 × 폭 2 × 테마 2)
+== axe WCAG 2.1 AA 위반 규칙: 2
+  link-in-text-block [serious] Links must be distinguishable without relying on color — 화면 40곳, 요소 64개
+     예: ['.crumb > a[href$="#/market"]', '.footer-inner > a[href$="docs"][target="_blank"][rel="noreferrer"]', 'a[href$="#/region/11110"]', 'a[href$="docs"]']
+     화면: ['#/complex/c_c7be522b831459963100 1280 dark', '#/complex/c_c7be522b831459963100 1280 light', '#/complex/c_c7be522b831459963100 375 dark', '#/complex/c_c7be522b831459963100 375 light', '#/dev 1280 dark', '#/dev 1280 light', '#/dev 375 dark', '#/dev 375 light']
+  scrollable-region-focusable [serious] Scrollable region must have keyboard access — 화면 40곳, 요소 56개
+     예: ['.table-wrap', '.ticker-inner', 'div:nth-child(2) > .code-block > pre', 'div:nth-child(3) > .code-block > pre']
+     화면: ['#/complex/c_c7be522b831459963100 1280 dark', '#/complex/c_c7be522b831459963100 1280 light', '#/complex/c_c7be522b831459963100 375 dark', '#/complex/c_c7be522b831459963100 375 light', '#/dev 1280 dark', '#/dev 1280 light', '#/dev 375 dark', '#/dev 375 light']
+== consoleErr: 0곳
+== failed: 0곳
+== duplicates: 40곳
+   ('#/market', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/region/11110', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/region/11110?tab=distribution', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/region/11110?tab=complexes', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/trades?sgg=11110', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/index', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/complex/c_c7be522b831459963100', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/quality', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/dev', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/ops', 1280, 'light', [['/v1/market/ticker', 2]])
+   ('#/market', 1280, 'dark', [['/v1/market/ticker', 2]])
+   ('#/region/11110', 1280, 'dark', [['/v1/market/ticker', 2]])
+   ('#/region/11110?tab=distribution', 1280, 'dark', [['/v1/market/ticker', 2]])
+   ('#/region/11110?tab=complexes', 1280, 'dark', [['/v1/market/ticker', 2]])
+== 가로 넘침: 없음
+== 화면별 API 요청 수(1280 밝게): {'#/market': 6, '#/region/11110': 4, '#/region/11110?tab=distribution': 5, '#/region/11110?tab=complexes': 5, '#/trades?sgg=11110': 4, '#/index': 5, '#/complex/c_c7be522b831459963100': 4, '#/quality': 5, '#/dev': 3, '#/ops': 5}

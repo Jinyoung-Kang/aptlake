@@ -60,3 +60,28 @@ describe("조회 캐시와 오류", () => {
     expect(errorText(new DOMException("x", "AbortError"))).toBe("");
   });
 });
+
+describe("QA-012 같은 조회를 동시에 부르면 요청은 한 번", () => {
+  it("응답이 오기 전 같은 경로를 두 번 부르면 fetch 는 한 번이고 둘 다 같은 결과를 받는다", async () => {
+    let resolve!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => { resolve = r; }));
+    const a = api<{ v: number }>("/v1/qa012/same");
+    const b = api<{ v: number }>("/v1/qa012/same");
+    resolve(json(200, { v: 1 }));
+    expect(await a).toEqual({ v: 1 });
+    expect(await b).toEqual({ v: 1 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+  it("한 호출자가 취소해도 같은 요청을 기다리는 다른 호출자는 결과를 받는다", async () => {
+    let resolve!: (r: Response) => void;
+    fetchMock.mockReturnValueOnce(new Promise<Response>((r) => { resolve = r; }));
+    const ctrl = new AbortController();
+    const a = api("/v1/qa012/abort", { signal: ctrl.signal });
+    const b = api<{ v: number }>("/v1/qa012/abort");
+    ctrl.abort();
+    resolve(json(200, { v: 2 }));
+    await expect(a).rejects.toThrow();
+    expect(await b).toEqual({ v: 2 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
