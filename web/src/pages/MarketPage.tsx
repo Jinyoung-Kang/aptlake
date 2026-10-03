@@ -7,6 +7,7 @@ import { MonthPicker } from "../components/MonthPicker";
 import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm, sqm, StatRow, Tabs } from "../components/ui";
 import { DASH, esc, num, ymLabel } from "../lib/format";
 import { mapPieces, METRICS, metricOf, metricValue, type Metric } from "../domain/market";
+import { representative } from "../domain/priceIndex";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
 import { paths } from "../api/endpoints";
@@ -126,7 +127,7 @@ export default function MarketPage({ route }: { route: Route }) {
   const [rankTab, setRankTab] = useState<"volume" | "gainers" | "losers">("volume");
   const nation = data?.nation;
   const natAll = idx.data?.items.find((x) => x.regionId === "00");
-  const natIdx = natAll ? (natAll.confirmed ?? natAll) : undefined;  // 대표값 = 확정된 최근 달
+  const natIdx = natAll ? representative(natAll) : undefined;  // 대표값 = 확정된 최근 달
 
   return (
     <>
