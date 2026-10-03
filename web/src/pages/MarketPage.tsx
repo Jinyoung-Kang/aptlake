@@ -6,31 +6,12 @@ import { DataTable } from "../components/DataTable";
 import { MonthPicker } from "../components/MonthPicker";
 import { Badge, Change, ErrorBox, Kpi, Segmented, Skeleton, Sparkline, Sqm, sqm, StatRow, Tabs } from "../components/ui";
 import { DASH, esc, num, ymLabel } from "../lib/format";
+import { mapPieces, METRICS, metricOf, metricValue, type Metric } from "../domain/market";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
 import { paths } from "../api/endpoints";
 
-type Metric = "median" | "medianYoY" | "trades" | "cancelRate";
-const METRICS: { value: Metric; label: string; unit: string; title: string }[] = [
-  { value: "median", label: "m²당 중위가", unit: "만원/m²", title: "해제·이상치 제외 m²당 거래가 중위수" },
-  { value: "medianYoY", label: "가격 변화(전년비)", unit: "%", title: "전년 같은 달 대비 중위수 변화율 — 두 달 모두 표본 30건 이상" },
-  { value: "trades", label: "거래량", unit: "건", title: "해제 제외 신고 건수" },
-  { value: "cancelRate", label: "해제율", unit: "%", title: "해제 건수 ÷ 신고 건수" },
-];
-
-let registered = "";
-
-function quantileBins(values: number[], n: number): number[] {
-  const v = [...values].sort((a, b) => a - b);
-  if (v.length < n) return [];
-  const edges: number[] = [];
-  for (let i = 1; i < n; i++) edges.push(v[Math.floor((i * v.length) / n)]);
-  return [...new Set(edges)];
-}
-
-function niceLabel(x: number, metric: Metric): string {
-  return metric === "trades" ? num(x) : metric === "median" ? num(x) : num(x, 1);
-}
+let registered = "";  // 등록한 경계(출처+개수) — 같은 경계를 다시 등록하지 않게
 
 const MAP_HOME = { zoom: 1.12, center: [127.8, 36.1] as [number, number] };
 const MAP_ZOOM = { min: 0.9, max: 12 };
@@ -59,37 +40,12 @@ function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: 
   const meta = METRICS.find((m) => m.value === metric)!;
 
   const build = (p: Palette) => {
-    const valOf = (s: SggSummary | undefined): number | null => {
-      if (!s) return null;
-      if (metric === "median") return s.lowSample ? null : s.median;
-      if (metric === "medianYoY") return s.medianYoY;
-      if (metric === "trades") return s.trades;
-      return s.trades + s.cancelled > 0 ? s.cancelRate : null;
-    };
     const series = geo.features.map((f) => {
       const code = f.properties.sggCd;
-      const v = valOf(values.get(code));
+      const v = metricValue(values.get(code), metric);
       return { name: code, value: v ?? "-" };
     });
-    let pieces: Record<string, unknown>[];
-    if (metric === "medianYoY") {
-      pieces = [
-        { lt: -5, label: "−5% 미만", color: p.div[0] }, { gte: -5, lt: -1, label: "−5 ~ −1%", color: p.div[1] },
-        { gte: -1, lte: 1, label: "−1 ~ +1%", color: p.div[2] }, { gt: 1, lte: 5, label: "+1 ~ +5%", color: p.div[3] },
-        { gt: 5, label: "+5% 초과", color: p.div[4] },
-      ];
-    } else {
-      const nums = series.map((s) => s.value).filter((v): v is number => typeof v === "number");
-      const edges = quantileBins(nums, 6);
-      const ramp = [p.seq[1], p.seq[2], p.seq[3], p.seq[4], p.seq[5], p.seq[7]];
-      const bounds = [Number.NEGATIVE_INFINITY, ...edges, Number.POSITIVE_INFINITY];
-      pieces = bounds.slice(0, -1).map((lo, i) => {
-        const hi = bounds[i + 1];
-        const label = lo === Number.NEGATIVE_INFINITY ? `${niceLabel(hi, metric)} 미만`
-          : hi === Number.POSITIVE_INFINITY ? `${niceLabel(lo, metric)} 이상` : `${niceLabel(lo, metric)} ~ ${niceLabel(hi, metric)}`;
-        return { ...(lo === Number.NEGATIVE_INFINITY ? {} : { gte: lo }), ...(hi === Number.POSITIVE_INFINITY ? {} : { lt: hi }), label, color: ramp[Math.min(i, ramp.length - 1)] };
-      });
-    }
+    const pieces = mapPieces(series.map((x) => x.value).filter((v): v is number => typeof v === "number"), metric, p);
     return {
       backgroundColor: "transparent",
       tooltip: {
@@ -162,7 +118,7 @@ function RankList({ rows, kind }: { rows: SggSummary[]; kind: "volume" | "gainer
 
 export default function MarketPage({ route }: { route: Route }) {
   const ym = route.params.get("ym");
-  const metric = (route.params.get("metric") as Metric) || "median";
+  const metric = metricOf(route.params.get("metric"));
   const { data, error, loading, stale, reload } = useApi<Overview>(paths.marketOverview(ym));
   const geo = useApi<GeoSgg>(paths.geoSgg());
   const idx = useApi<{ items: IndexSummaryItem[] }>(paths.indexSummary());
