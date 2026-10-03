@@ -8,7 +8,8 @@
 - **결함 16건**
   - 심각도별: 치명 0, 높음 1, 보통 10, 낮음 5
   - 처리: 14건은 실패 시험 → 근본 원인 수정 → 같은 시험 통과, 2건(QA-005·009)은 미수정 권고
-  - 보안 결함: 2건(QA-001·004) 수정, 1건(QA-005) 권고
+    - 출시 뒤 QA-005 를 후속으로 고쳤다(13장)
+  - 보안 결함: 2건(QA-001·004) 수정, 1건(QA-005) 권고 → 후속 수정
   - 독립 검토가 부분·미수정으로 찾아낸 QA-013·014 는 다시 열어 고쳤다(12장)
   - 데이터 손실·오염: 재현된 것 없음
 - **출시 판단**
@@ -59,7 +60,7 @@
 |---|---|---|---|---|
 | QA-001 | 높음 | 보안 | 공개 웹으로 누구나 오류 로그 비우기·되돌리기 (ops 권한 상승) | 수정 (사용자 결정) |
 | QA-002 | 보통 | 기능·신뢰성 | 범위 밖 연도(0000·9999-12) → 500, 같은 연결의 다음 요청도 끊김 | 수정 |
-| QA-005 | 보통 | 보안 | 이미지 안의 수정판 있는 HIGH·CRITICAL 취약점, CI 이미지 스캔 없음 | **미수정 (권고)** |
+| QA-005 | 보통 | 보안 | 이미지 안의 수정판 있는 HIGH·CRITICAL 취약점, CI 이미지 스캔 없음 | 후속 수정 (13장) |
 | QA-006 | 보통 | 기능 | 전국 전체 기간 대량 내보내기가 메모리 상한에서 실패 | 수정 |
 | QA-007 | 보통 | 신뢰성 | ClickHouse 무응답 시 시간 초과 없음 (기본 300초) | 수정 |
 | QA-008 | 보통 | 신뢰성 | PostgreSQL 잠금을 무기한 기다림 | 수정 |
@@ -127,7 +128,7 @@
 - **증거:** [qa-fuzz-api.jsonl](evidence/qa-fuzz-api.jsonl) (500 12건·끊김 3건) → [qa-fuzz-api-after-summary.txt](evidence/qa-fuzz-api-after-summary.txt) (5xx 0)
 - **시험:** `test_qa_002_*` 10건. 커밋: fd9204b → 7a78b21
 
-### QA-005 (보통, 보안) 이미지 안의 수정판 있는 HIGH·CRITICAL 취약점 — 미수정
+### QA-005 (보통, 보안) 이미지 안의 수정판 있는 HIGH·CRITICAL 취약점 — 후속 수정 (13장)
 - **재현:** `trivy image --severity HIGH,CRITICAL --ignore-unfixed` 를 QA·운영 이미지에 돌린다.
 - **실제:**
   - 자체 이미지(api·pipeline): CRITICAL 3·HIGH 6
@@ -139,7 +140,7 @@
 - **판단:** 네트워크로 닿는 경로는 확인하지 못했다. 예: pcre2 는 libselinux 용, gosu 는 기동 때만 쓴다. 그래도 수정판이 있어 보통으로 둔다.
 - **권고:** 기반 이미지 다이제스트 갱신, CI 에 이미지 Trivy 스캔(예외 목록 포함), `psycopg[c]`(Debian libpq) 검토, 서드파티 태그 갱신.
 - **증거:** [qa-s7-trivy-images.txt](evidence/qa-s7-trivy-images.txt), [qa-005-psycopg-bundled-libs.txt](evidence/qa-005-psycopg-bundled-libs.txt)
-- **시험:** 실패 시험 대신 위 Trivy 명령(이미지 스캔이라 단위 시험으로 만들지 않음).
+- **시험:** 실패 시험 대신 위 Trivy 명령(이미지 스캔이라 단위 시험으로 만들지 않음). 후속 수정에서 `tools/scan_images.sh` 와 CI 이미지 스캔으로 만들었다.
 
 ### QA-007 (보통, 신뢰성) ClickHouse 무응답 시 시간 초과 없음
 - **재현:** 20 rps 부하 중 `docker pause aptlake-qa-clickhouse-1` 15초.
@@ -308,7 +309,7 @@
   - 남은 미수정 2건: QA-005 는 닿는 경로가 확인되지 않은 패키지 취약점, QA-009 는 이미 공개된 성능 한계
 - **공개 인터넷 서비스: 조건부.**
   1. TLS 종단과 HSTS
-  2. QA-005 이미지 갱신과 CI 이미지 스캔
+  2. ~~QA-005 이미지 갱신과 CI 이미지 스캔~~ — 후속 수정(13장)
   3. 기대 부하가 약 120 RPS 를 넘으면 QA-009 해소: CPU 분리·증설, 같은 요청 합치기(A2) 등
 - **배포 절차** (운영 스택에는 하지 않았다):
   1. `docker compose up -d --build api api-internal web` 을 실행한다.
@@ -319,7 +320,7 @@
 
 ## 9. 수정 우선순위 제안 (남은 일)
 1. 이 브랜치 배포 (8장 절차).
-2. QA-005: 기반 이미지 다이제스트 갱신·재빌드, CI 에 이미지 Trivy 스캔 추가(닿지 않는 항목은 근거와 함께 예외), `psycopg[c]` 전환 검토.
+2. ~~QA-005: 기반 이미지 다이제스트 갱신·재빌드, CI 에 이미지 Trivy 스캔 추가(닿지 않는 항목은 근거와 함께 예외), `psycopg[c]` 전환 검토.~~ 후속 수정(13장).
 3. QA-009: 같은 요청 합치기(A2), ClickHouse CPU 분리, API 워커·VM CPU 조정 뒤 같은 시나리오로 재측정.
 4. 개선 제안 A3~A8 (아래).
 
@@ -356,3 +357,26 @@
 | QA-002 연결 끊김 인과·QA-008 풀 고갈은 정황·추정 | '정황'·'측정하지 않은 추정'으로 표시 |
 
 리뷰가 확인하지 못한 것: QA-005 Trivy 재스캔(도구 없음), QA-009 재측정(운영과 같은 VM).
+
+## 13. 후속 수정 — QA-005 (출시 뒤, 브랜치 `improve/qa-005-image-vulns`)
+결정과 대안은 [ADR-040](../decisions.md). 증거: [qa-005-scan-images.txt](evidence/qa-005-scan-images.txt), [qa-005-psycopg-impl-latency.txt](evidence/qa-005-psycopg-impl-latency.txt), [qa-005-pipeline-image-check.txt](evidence/qa-005-pipeline-image-check.txt).
+
+| 대상 | 수정 전 | 수정 | 수정 후 |
+|---|---|---|---|
+| api 이미지 | CRITICAL 3·HIGH 6 | 빌드 때 OS 보안 갱신 + `psycopg-c`(시스템 libpq) 다단계 빌드 | 0 |
+| pipeline 이미지 | CRITICAL 3·HIGH 6 | 같음 + psycopg2 소스 빌드(dagster-postgres) | 0 |
+| web 이미지 | HIGH 1 | 빌드 때 `apk upgrade` | 0 |
+| 서드파티 9종 | 예: trino 31·postgres 22·silo 10·grafana 5·redis 4·prometheus 2·clickhouse 1 | Grafana·Silo 패치 태그, 나머지는 이미지별 예외(이유·만료일) | 예외 뒤 0 |
+| CI | 소스 트리만 스캔 | 이미지 3종을 `--pull` 로 빌드해 스캔(커밋마다), 서드파티는 주 1회·compose PR | — |
+
+- **동작 확인 (QA 스택):**
+  - 레이크 통합 시험 2개 통과(새 파이프라인 이미지·새 Silo)
+  - dagster-postgres 실행 저장소 초기화(psycopg2), Dagster 정의 검증
+  - 대량 내보내기(새 Silo): 716행 Parquet, 서명 URL 다운로드 200
+  - Grafana 12.4.12 프로비저닝(대시보드 2·데이터 소스 1)
+- **성능 (PG 를 많이 쓰는 경로 p50, 120회):** binary 3.6 · C 3.5~3.9 · 순수 파이썬 6.0 ms(품질 격자). 순수 파이썬은 1~6 ms 느려 쓰지 않았다.
+- **예외 파일 검증:** 예외를 빼면 실패한다(Redis 4·Trino 31건). 만료일이 지난 예외는 적용되지 않는다. CI 와 같은 amd64 에서도 경로가 맞는다.
+- **확인하지 못한 것:**
+  - 운영 스택 재배포 뒤 스캔: 배포는 사용자가 한다.
+  - amd64 에서의 psycopg-c 빌드: CI 실행으로 확인한다.
+

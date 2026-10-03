@@ -1,0 +1,13 @@
+# grafana/grafana:12.4.12 의 남은 HIGH·CRITICAL 예외 (QA-005) — tools/scan_images.sh third-party 가 읽는다.
+# 새 태그로 올리면 다시 스캔해 사라진 항목은 지우고, 만료일이 지나면 다시 판단한다 (지나면 점검이 실패한다).
+#
+# Grafana 에 묶인 Tempo 라이브러리의 결함이다. Tempo 데이터 소스를 두지 않는다(프로비저닝은 Prometheus 하나, infra/grafana).
+vulnerabilities:
+  - id: CVE-2026-21728
+    paths: ["usr/share/grafana/bin/grafana"]
+    expired_at: 2026-12-31
+    statement: Tempo 데이터 소스 없음 (Tempo 질의 경로 미사용)
+  - id: CVE-2026-28377
+    paths: ["usr/share/grafana/bin/grafana"]
+    expired_at: 2026-12-31
+    statement: Tempo 서버·S3 SSE-C 미사용

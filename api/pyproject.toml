@@ -8,7 +8,12 @@ dependencies = [
     "uvicorn[standard]>=0.37",
     "pydantic>=2.11",
     "pydantic-settings>=2.10",
-    "psycopg[binary,pool]>=3.2",
+    # 리눅스(컨테이너·CI)는 C 구현을 Debian 이 보안 업데이트하는 시스템 libpq 에 대고 빌드한다 — binary 휠은 AlmaLinux 8 의
+    # 오래된 pcre2·지원 끝난 OpenSSL 1.1.1 을 묶어 온다 (QA-005). 순수 파이썬 구현은 PG 경로가 1~6 ms 느려 쓰지 않는다.
+    # 맥 개발 환경은 시스템 libpq 가 없어 binary 휠
+    "psycopg[pool]>=3.2",
+    "psycopg-c>=3.2; sys_platform == 'linux'",
+    "psycopg-binary>=3.2; sys_platform == 'darwin'",
     "redis>=6",
     "clickhouse-connect[async]>=0.8",
     "prometheus-client>=0.23",

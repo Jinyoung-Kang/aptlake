@@ -1,0 +1,9 @@
+# clickhouse/clickhouse-server:26.8 의 남은 HIGH·CRITICAL 예외 (QA-005) — tools/scan_images.sh third-party 가 읽는다.
+# 새 태그로 올리면 다시 스캔해 사라진 항목은 지우고, 만료일이 지나면 다시 판단한다 (지나면 점검이 실패한다).
+#
+# Ubuntu 의 libssl3 DTLS 재전송 결함이다. clickhouse 실행 파일은 OS libssl 을 링크하지 않고(ldd 로 확인),
+# 이 서버는 TLS 포트도 열지 않는다(https_port·tcp_port_secure 미설정). DTLS 는 쓰지 않는다.
+vulnerabilities:
+  - id: CVE-2026-84782
+    expired_at: 2026-12-31
+    statement: DTLS 미사용, clickhouse 실행 파일은 OS libssl 을 링크하지 않는다

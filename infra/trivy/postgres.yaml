@@ -1,0 +1,94 @@
+# postgres:16-alpine 의 남은 HIGH·CRITICAL 예외 (QA-005) — tools/scan_images.sh third-party 가 읽는다.
+# 새 태그로 올리면 다시 스캔해 사라진 항목은 지우고, 만료일이 지나면 다시 판단한다 (지나면 점검이 실패한다).
+#
+# 모두 gosu 에 정적 링크된 Go 표준 라이브러리(1.24.6)다. gosu 는 컨테이너 기동 때 postgres 사용자로 권한을 낮추고 exec 할 뿐
+# TLS·URL·메일·XML·HTTP 를 다루지 않아 닿는 경로가 없다. 공식 이미지가 gosu 를 다시 빌드하면 사라진다.
+vulnerabilities:
+  - id: CVE-2025-61726
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2025-61729
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2025-68121
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-25679
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-27145
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-32280
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-32281
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-32283
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-33811
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-33814
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-33818
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-39820
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-39821
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-39822
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-39836
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-42499
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-42504
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-56853
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-56858
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-56859
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-56860
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-56862
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-12-31
+    statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다

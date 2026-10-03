@@ -144,5 +144,20 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
 - `.github/workflows/eol.yml` 이 매주 endoflife.date 로 이미지의 지원 종료일을 본다 (`uv run --project api python tools/check_eol.py` 로 직접). 조회 실패도 실패로 표시한다.
 - GitHub 는 60일 동안 커밋이 없는 공개 저장소의 예약 워크플로를 자동으로 끈다 — 오래 손대지 않았다면 Actions 탭에서 다시 켠다.
 
+## 이미지 취약점 점검 (QA-005)
+- `make scan-images` (= `tools/scan_images.sh`) — Trivy 로 HIGH·CRITICAL 중 수정판이 있는 것만 본다.
+  - 자체 이미지(`aptlake-*:local`)는 예외 없이 0건이어야 한다. CI `images` 작업이 커밋마다 같은 기준으로 본다.
+  - 서드파티 이미지(compose 의 고정 태그)는 `infra/trivy/<이미지>.yaml` 의 예외를 뺀다. 예외마다 닿지 않는 이유와 만료일이 있다.
+    `.github/workflows/images.yml` 이 주 1회와 compose 이미지를 바꾸는 PR 에서 돈다.
+- 자체 이미지가 실패하면 기반 이미지와 OS 패키지를 새로 받아 다시 빌드한다. 빌드 캐시에 남은 `apt-get upgrade` 층은 새 보안 갱신을 받지 않으므로 `--no-cache` 를 붙인다.
+  - API·웹: `docker compose build --pull --no-cache api web && docker compose up -d api api-internal web`
+  - 파이프라인: `docker compose --profile lake build --pull --no-cache dagster` 뒤 `make pipeline-redeploy` (진행 중 실행을 기다려 교체)
+- 서드파티가 실패하면:
+  1. 같은 줄의 새 패치 태그가 있으면 올리고 QA 스택에서 확인한다. 지원 기간이 긴 줄(LTS)을 벗어나지 않는다 (예: Prometheus 3.13).
+  2. 새 태그가 없거나 고쳐지지 않으면 닿는 경로를 확인한다. 닿지 않으면 근거를 적어 예외에 더하고, 닿으면 우회책(설정·망 분리)을 먼저 둔다.
+  3. 만료일이 지난 예외는 새 태그로 다시 스캔해 사라진 항목을 지우고, 남은 항목은 다시 판단해 만료일을 늦춘다.
+- psycopg: 리눅스(컨테이너·CI)는 C 구현을 시스템 libpq 에 대고 빌드한다(빌드에 `gcc`·`libpq-dev`, 실행에 `libpq5`). 맥 개발 환경은 binary 휠.
+  `psycopg-binary` 휠은 AlmaLinux 8 의 pcre2 10.32·지원이 끝난 OpenSSL 1.1.1 을 묶어 온다.
+
 ## 초기화
 `make clean` — 모든 볼륨 삭제 (raw 버킷 Object Lock 도 볼륨과 함께 사라짐).

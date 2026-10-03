@@ -1,0 +1,18 @@
+$ (QA 레이크, 새 파이프라인 이미지) pytest -m integration
+/opt/venv/bin/python: No module named pip
+/opt/venv/bin/python: No module named pytest
+$ dagster-postgres(psycopg2) 실행 저장소 초기화 (QA dagster DB)
+run storage: PostgresRunStorage · runs: 0
+sqlalchemy dialect driver: psycopg2
+$ (QA 레이크, 새 파이프라인 이미지) pytest -m integration tests/test_integration_silver.py
+..                                                                       [100%]
+2 passed in 33.23s
+[32m2026-10-03 18:48:01 +0000[0m - dagster - [34mINFO[0m - Validation successful for code location aptlake_pipeline.definitions.
+[32m2026-10-03 18:48:01 +0000[0m - dagster - [34mINFO[0m - All code locations passed validation.
+
+$ (QA 레이크, Silo RELEASE.2026-09-16 로 교체 뒤) pytest -m integration tests/test_integration_silver.py
+..                                                                       [100%]
+2 passed in 37.94s
+
+$ (QA 서빙, Silo RELEASE.2026-09-16) 대량 내보내기 11110 2025-01~06: 작업 생성 → done 716행 → 서명 URL 다운로드 200, 60,219 바이트, 파일 머리 PAR1
+$ (QA 관측) prometheus 3.13.4 유지(LTS) · grafana 12.4.12: /api/health ok, 대시보드 2·데이터 소스 1 프로비저닝 그대로

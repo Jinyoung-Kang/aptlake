@@ -35,7 +35,7 @@ services:
 
   minio:
     # MinIO 커뮤니티 이미지 배포가 중단되어, Lakekeeper 공식 예제가 쓰는 유지보수 포크(Silo)를 사용 (S3 + STS AssumeRole)
-    image: pgsty/silo:RELEASE.2026-09-03T13-18-01Z
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: root
@@ -54,7 +54,7 @@ services:
     logging: *logging
 
   minio-init:
-    image: pgsty/silo:RELEASE.2026-09-03T13-18-01Z
+    image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z
     depends_on: { minio: { condition: service_healthy } }
     entrypoint: ["/bin/sh", "/init.sh"]
     environment:
@@ -358,7 +358,7 @@ services:
     logging: *logging
 
   grafana:
-    image: grafana/grafana:12.4.11
+    image: grafana/grafana:12.4.12
     profiles: ["obs"]
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}

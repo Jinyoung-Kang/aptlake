@@ -1,0 +1,23 @@
+# psycopg 구현별 PG 경로 지연 (QA 스택, 같은 데이터·같은 이미지에서 구현만 바꿔 빌드, 경로마다 120회)
+# qa/probes/pg_path_latency.py <구현>  — binary: psycopg-binary 3.3.6 휠 · c: psycopg-c(시스템 libpq, Debian 13) · python: 순수 파이썬 + 시스템 libpq
+
+binary   quality/partitions (PG 격자 1.7만 행 중 시도·기간)        p50    3.6 ms · p95    6.0 ms
+binary   quality/partitions/{sgg}/{ym} (PG 상세)            p50    2.8 ms · p95    4.5 ms
+binary   ops/errors (PG 로그 + ClickHouse)                  p50   21.7 ms · p95   40.7 ms
+binary   me/usage (키 조회 + ClickHouse)                     p50   15.6 ms · p95   19.9 ms
+
+c        quality/partitions (PG 격자 1.7만 행 중 시도·기간)        p50    3.9 ms · p95    6.6 ms
+c        quality/partitions/{sgg}/{ym} (PG 상세)            p50    2.7 ms · p95    5.2 ms
+c        ops/errors (PG 로그 + ClickHouse)                  p50   22.0 ms · p95   50.8 ms
+c        me/usage (키 조회 + ClickHouse)                     p50   16.2 ms · p95   21.4 ms
+
+python   quality/partitions (PG 격자 1.7만 행 중 시도·기간)        p50    6.0 ms · p95   10.9 ms
+python   quality/partitions/{sgg}/{ym} (PG 상세)            p50    3.8 ms · p95    6.9 ms
+python   ops/errors (PG 로그 + ClickHouse)                  p50   27.2 ms · p95   67.9 ms
+python   me/usage (키 조회 + ClickHouse)                     p50   16.4 ms · p95   21.0 ms
+
+# 이번 실행 (최종 이미지 = c)
+c-final  quality/partitions (PG 격자 1.7만 행 중 시도·기간)        p50    3.5 ms · p95    5.0 ms
+c-final  quality/partitions/{sgg}/{ym} (PG 상세)            p50    2.5 ms · p95    5.1 ms
+c-final  ops/errors (PG 로그 + ClickHouse)                  p50   20.8 ms · p95   30.4 ms
+c-final  me/usage (키 조회 + ClickHouse)                     p50   16.3 ms · p95   31.1 ms

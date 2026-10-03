@@ -266,5 +266,38 @@
   - 접근 가능한 이름은 보이는 글자를 그대로(이어 붙인 문자열 그대로) 담는다. 시험도 감사 도구와 같은 방식으로 검사한다.
   - 팝업을 Esc 로 닫으면 연 버튼으로 초점을 돌린다.
 - **고치지 않은 것:**
-  - QA-005: 이미지 안의 수정판 있는 HIGH·CRITICAL 취약점(Debian pcre2, `psycopg-binary` 휠이 묶어 온 pcre2 10.32·OpenSSL 1.1.1k, 서드파티 이미지)과 CI 의 이미지 스캔 부재. 기반 이미지 갱신·Trivy 이미지 스캔·`psycopg[c]` 검토를 권고한다.
+  - QA-005: 이미지 안의 수정판 있는 HIGH·CRITICAL 취약점(Debian pcre2, `psycopg-binary` 휠이 묶어 온 pcre2 10.32·OpenSSL 1.1.1k, 서드파티 이미지)과 CI 의 이미지 스캔 부재. 기반 이미지 갱신·Trivy 이미지 스캔·`psycopg[c]` 검토를 권고했다 → 후속으로 고쳤다(ADR-040).
   - QA-009: NFR-04 성능 목표 미달. 가상 머신 CPU 를 k6·API·ClickHouse 가 나눠 쓰는 환경에서 측정 수치로 기록했다.
+
+## ADR-040 이미지 취약점: 자체 이미지는 0건을 강제, 서드파티는 이유·만료일이 있는 예외로 (QA-005)
+- **문제:** 자체 이미지 3종에 수정판이 있는 HIGH·CRITICAL 이 있었다(api·pipeline 각 CRITICAL 3·HIGH 6, web HIGH 1). CI 는 소스 트리만 스캔해 이미지 안의 OS 패키지와 휠에 묶여 온 라이브러리를 보지 못했다.
+  - 원인 하나는 기반 이미지가 다시 빌드되기 전에 나온 Debian·Alpine 보안 갱신(pcre2)이다.
+  - 다른 하나는 `psycopg-binary` 휠이다. 최신(3.3.6)도 AlmaLinux 8 의 pcre2 10.32 와 지원이 끝난 OpenSSL 1.1.1k 를 묶어 온다.
+- **결정 — 자체 이미지:**
+  - 빌드 때 `apt-get upgrade`·`apk upgrade` 로 OS 보안 갱신을 적용한다.
+  - psycopg 는 리눅스에서 C 구현(`psycopg-c`)을 Debian 이 보안 갱신하는 시스템 libpq 에 대고 빌드한다. 컴파일 도구는 빌드 단계에만 두고 실행 이미지에는 `libpq5` 만 넣는다(다단계 빌드).
+  - 파이프라인의 dagster-postgres 가 쓰는 psycopg2 도 같은 이유로 소스 빌드다(`psycopg2-binary` 는 맥에서만).
+  - 맥 개발 환경은 시스템 libpq 가 없어 binary 휠을 쓴다(플랫폼 표지로 나눔).
+  - CI `images` 작업이 `docker build --pull` 뒤 Trivy 로 이미지를 스캔하고 수정판 있는 HIGH·CRITICAL 이 하나라도 있으면 실패한다. 예외는 두지 않는다.
+- **결정 — 서드파티 이미지:**
+  - 같은 줄의 패치 태그로 올린다: Grafana 12.4.11 → 12.4.12, Silo RELEASE.2026-09-03 → 2026-09-16.
+  - Prometheus 는 3.13 LTS(2027-07 지원 종료)에 둔다. 수정판이 있는 3.15 는 2026-11 에 지원이 끝나 ADR-035 의 LTS 원칙과 맞지 않는다.
+  - 새 태그가 없거나 최신에도 남는 항목은 이미지별 예외 파일(`infra/trivy/<이미지>.yaml`)에 둔다. 항목마다 닿지 않는 이유와 만료일(2026-12-31)을 적는다.
+    - Trino 483(최신)의 31건: 카탈로그로 만들지 않는 플러그인(ranger·delta-lake·clickhouse·cassandra), 기동용 launcher, 내부망의 신뢰 클라이언트만 닿는 Jackson 서비스 거부.
+    - postgres 의 gosu: 기동 때 권한만 낮춘다.
+    - Redis·ClickHouse 의 OpenSSL: QUIC·DTLS 를 쓰지 않는다. ClickHouse 실행 파일은 OS libssl 을 링크하지 않는다.
+    - Grafana 의 Tempo: Tempo 데이터 소스가 없다.
+    - Prometheus 의 gRPC: xDS 서버를 열지 않는다.
+  - `.github/workflows/images.yml` 이 주 1회와 compose 이미지를 바꾸는 PR(Dependabot 포함)에서 스캔한다. 새 항목이 생기거나 만료일이 지나면 실패한다.
+  - 파일 경로가 있는 항목(라이브러리·실행 파일)은 경로까지 좁혀, 같은 CVE 가 다른 파일에 생기면 잡히게 했다. 예외를 빼면 실패하고(Redis 4·Trino 31건) 만료된 예외는 적용되지 않는 것을 확인했다.
+- **대안과 기각:**
+  - 순수 파이썬 psycopg: PG 를 많이 쓰는 경로가 1~6 ms 느려(p50 3.6 → 6.0 ms) 쓰지 않는다. C 구현은 binary 와 같은 수준이다(3.5~3.9 ms — 같은 C 구현을 두 번 잰 차이가 binary 와의 차이보다 크다).
+  - 서드파티 이미지를 감싸 다시 빌드(`FROM redis` + `apk upgrade`): 남은 항목이 모두 닿지 않는 경로라, 관리할 이미지만 늘어 하지 않았다.
+  - Trino 에서 쓰지 않는 플러그인을 지운 이미지: 공격 면은 줄지만 같은 이유로 두었다. 새 릴리스에서 남은 항목이 닿는 경로로 바뀌면 다시 본다.
+- **결과:** 자체 이미지 9·9·1건 → 0·0·0건, 서드파티 9종 예외 뒤 0건(증거: [qa-005-scan-images.txt](qa/evidence/qa-005-scan-images.txt)). 확인한 동작은 다음과 같다.
+  - 레이크 통합 시험 2개(QA 레이크, 새 Silo)
+  - dagster-postgres 실행 저장소 초기화
+  - 대량 내보내기(새 Silo)
+  - Grafana 프로비저닝
+  - PG 경로 지연: [qa-005-psycopg-impl-latency.txt](qa/evidence/qa-005-psycopg-impl-latency.txt)
+

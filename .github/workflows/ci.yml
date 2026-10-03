@@ -22,6 +22,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: 시스템 libpq (psycopg C 구현·psycopg2 를 시스템 libpq 에 대고 소스 빌드 — QA-005)
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends libpq-dev
       - run: uv sync --frozen
       - run: uv run ruff check src tests && uv run ruff format --check src tests
       - run: uv run mypy src
@@ -38,6 +40,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: 시스템 libpq (psycopg C 구현·psycopg2 를 시스템 libpq 에 대고 소스 빌드 — QA-005)
+        run: sudo apt-get update -q && sudo apt-get install -y -q --no-install-recommends libpq-dev
       - run: uv sync --frozen
       - run: uv run ruff check src tests && uv run ruff format --check src tests
       - run: uv run mypy src
@@ -71,8 +75,12 @@ jobs:
       matrix: { context: [api, pipeline, web] }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: docker build (${{ matrix.context }})
-        run: docker build -t aptlake-${{ matrix.context }}:ci ${{ matrix.context }}
+      - name: docker build (${{ matrix.context }}) — 기반 이미지는 매번 새로 받는다
+        run: docker build --pull -t aptlake-${{ matrix.context }}:ci ${{ matrix.context }}
+      # 소스 트리 검사(security 작업)는 이미지 안의 OS 패키지·휠에 묶여 온 라이브러리를 보지 못한다 (QA-005)
+      - name: 이미지 취약점 (HIGH·CRITICAL 중 수정판이 있는 것이 하나라도 있으면 실패)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with: { scan-type: image, image-ref: "aptlake-${{ matrix.context }}:ci", severity: "HIGH,CRITICAL", ignore-unfixed: true, exit-code: "1" }
 
   security:
     runs-on: ubuntu-latest

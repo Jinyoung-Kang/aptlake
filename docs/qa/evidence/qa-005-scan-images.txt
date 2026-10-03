@@ -1,0 +1,44 @@
+# tools/scan_images.sh 결과 (2026-10-04, Trivy 0.67.2, HIGH·CRITICAL 중 수정판 있는 것)
+
+$ tools/scan_images.sh own   # 수정 전: 운영 이미지(main 426c20f 빌드)
+✗ aptlake-api:local — 9건
+  HIGH CVE-2026-103111 libpcre2-8-0 10.46-1~deb13u2 → 10.46-1~deb13u3
+  CRITICAL CVE-2022-1586 pcre2 10.32-3.el8_6 → 10.40-1
+  CRITICAL CVE-2022-1587 pcre2 10.32-3.el8_6 → 10.40-1
+  CRITICAL CVE-2025-58050 pcre2 10.32-3.el8_6 → 10.46-1~deb13u1
+  HIGH CVE-2019-20454 pcre2 10.32-3.el8_6 → 10.34-1
+  HIGH CVE-2026-103111 pcre2 10.32-3.el8_6 → 10.46-1~deb13u3
+  HIGH CVE-2026-86145 pcre2 10.32-3.el8_6 → 10.46-1~deb13u2
+  HIGH CVE-2026-89157 pcre2 10.32-3.el8_6 → 10.46-1~deb13u2
+  HIGH CVE-2026-89161 pcre2 10.32-3.el8_6 → 10.46-1~deb13u2
+✗ aptlake-pipeline:local — 9건
+  HIGH CVE-2026-103111 libpcre2-8-0 10.46-1~deb13u2 → 10.46-1~deb13u3
+  CRITICAL CVE-2022-1586 pcre2 10.32-3.el8_6 → 10.40-1
+  CRITICAL CVE-2022-1587 pcre2 10.32-3.el8_6 → 10.40-1
+  CRITICAL CVE-2025-58050 pcre2 10.32-3.el8_6 → 10.46-1~deb13u1
+  HIGH CVE-2019-20454 pcre2 10.32-3.el8_6 → 10.34-1
+  HIGH CVE-2026-103111 pcre2 10.32-3.el8_6 → 10.46-1~deb13u3
+  HIGH CVE-2026-86145 pcre2 10.32-3.el8_6 → 10.46-1~deb13u2
+  HIGH CVE-2026-89157 pcre2 10.32-3.el8_6 → 10.46-1~deb13u2
+  HIGH CVE-2026-89161 pcre2 10.32-3.el8_6 → 10.46-1~deb13u2
+✗ aptlake-web:local — 1건
+  HIGH CVE-2026-103111 pcre2 10.48-r0 → 10.49-r0
+exit=1
+
+$ IMAGE_PREFIX=aptlake-qa tools/scan_images.sh own   # 수정 후: 이 브랜치 빌드
+✓ aptlake-qa-api:local — 0건
+✓ aptlake-qa-pipeline:local — 0건
+✓ aptlake-qa-web:local — 0건
+exit=0
+
+$ tools/scan_images.sh third-party   # infra/trivy/<이미지>.yaml 예외 적용
+✓ clickhouse/clickhouse-server:26.8 — 0건
+✓ curlimages/curl:8.22.0 — 0건
+✓ grafana/grafana:12.4.12 — 0건
+✓ pgsty/silo:RELEASE.2026-09-16T00-00-00Z — 0건
+✓ postgres:16-alpine — 0건
+✓ prom/prometheus:v3.13.4 — 0건
+✓ quay.io/lakekeeper/catalog:v0.13.6 — 0건
+✓ redis:7.4-alpine — 0건
+✓ trinodb/trino:483 — 0건
+exit=0
