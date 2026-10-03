@@ -1,0 +1,11 @@
+$ curl -s -X POST -H "Sec-Fetch-Site: same-origin" http://127.0.0.1:3710/v1/ops/errors/clear   # 키 없음
+{"cleared":{"at":"2026-10-03T15:07:30.433075+00:00"}}
+-> HTTP 200
+$ curl -s -H "Sec-Fetch-Site: same-origin" "http://127.0.0.1:3710/v1/ops/errors?hours=720" | 항목 수
+entries 10 counts {'quality': 10} cleared {'at': '2026-10-03T15:07:30.433075+00:00', 'by': 'web:72be137be80824fd'}
+$ psql: SELECT actor, action, target, client_ip, detail FROM api.audit_log ORDER BY audit_id DESC LIMIT 2
+web:72be137be80824fd|ops.errors.clear|ops.errors||{}
+GAHJSXTCBNUJ|key.create|YVYCP35NG3J8|172.30.71.1|{"client": "b19c1496-3477-4d7e-9b5d-c295c0492de2", "scopes": ["read"]}
+$ curl -s -X DELETE -H "Sec-Fetch-Site: same-origin" http://127.0.0.1:3710/v1/ops/errors/clear   # 되돌리기
+{"cleared":null}
+-> HTTP 200

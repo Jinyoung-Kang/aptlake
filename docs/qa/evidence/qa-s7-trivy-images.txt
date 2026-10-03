@@ -1,0 +1,93 @@
+=== aptlake-qa-api:local
+  HIGH/CRITICAL(수정판 있음): {'HIGH': 6, 'CRITICAL': 3}
+    CRITICAL pcre2 10.32-3.el8_6 10.40-1 CVE-2022-1586 aptlake-qa-api:local (debian 13.7)
+    CRITICAL pcre2 10.32-3.el8_6 10.40-1 CVE-2022-1587 aptlake-qa-api:local (debian 13.7)
+    CRITICAL pcre2 10.32-3.el8_6 10.46-1~deb13u1 CVE-2025-58050 aptlake-qa-api:local (debian 13.7)
+    HIGH libpcre2-8-0 10.46-1~deb13u2 10.46-1~deb13u3 CVE-2026-103111 aptlake-qa-api:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.34-1 CVE-2019-20454 aptlake-qa-api:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.46-1~deb13u2 CVE-2026-86145 aptlake-qa-api:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.46-1~deb13u2 CVE-2026-89157 aptlake-qa-api:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.46-1~deb13u2 CVE-2026-89161 aptlake-qa-api:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.46-1~deb13u3 CVE-2026-103111 aptlake-qa-api:local (debian 13.7)
+=== aptlake-qa-web:local
+  HIGH/CRITICAL(수정판 있음): {'HIGH': 1}
+    HIGH pcre2 10.48-r0 10.49-r0 CVE-2026-103111 aptlake-qa-web:local (alpine 3.24.2)
+=== aptlake-pipeline:local
+  HIGH/CRITICAL(수정판 있음): {'HIGH': 6, 'CRITICAL': 3}
+    CRITICAL pcre2 10.32-3.el8_6 10.40-1 CVE-2022-1586 aptlake-pipeline:local (debian 13.7)
+    CRITICAL pcre2 10.32-3.el8_6 10.40-1 CVE-2022-1587 aptlake-pipeline:local (debian 13.7)
+    CRITICAL pcre2 10.32-3.el8_6 10.46-1~deb13u1 CVE-2025-58050 aptlake-pipeline:local (debian 13.7)
+    HIGH libpcre2-8-0 10.46-1~deb13u2 10.46-1~deb13u3 CVE-2026-103111 aptlake-pipeline:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.34-1 CVE-2019-20454 aptlake-pipeline:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.46-1~deb13u2 CVE-2026-86145 aptlake-pipeline:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.46-1~deb13u2 CVE-2026-89157 aptlake-pipeline:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.46-1~deb13u2 CVE-2026-89161 aptlake-pipeline:local (debian 13.7)
+    HIGH pcre2 10.32-3.el8_6 10.46-1~deb13u3 CVE-2026-103111 aptlake-pipeline:local (debian 13.7)
+=== clickhouse/clickhouse-server:26.8
+  HIGH/CRITICAL(수정판 있음): {'HIGH': 1}
+    HIGH libssl3 3.0.2-0ubuntu1.29 3.0.2-0ubuntu1.30 CVE-2026-84782 clickhouse/clickhouse-server:26.8 (ubunt
+=== trinodb/trino:483
+  HIGH/CRITICAL(수정판 있음): {'HIGH': 30, 'CRITICAL': 1}
+    CRITICAL io.netty:netty-handler 4.2.16.Final 4.2.17.Final, 4.1.137.Final CVE-2026-75595 Java
+    HIGH com.fasterxml.jackson.core:jackson-core 2.22.1 2.18.11, 2.21.7, 2.22.3 CVE-2026-89407 Java
+    HIGH com.fasterxml.jackson.core:jackson-core 2.22.1 2.21.7, 2.22.3, 2.18.11 CVE-2026-89425 Java
+    HIGH com.fasterxml.jackson.core:jackson-databind 2.22.1 2.18.10, 2.21.6, 2.22.2 CVE-2026-68497 Java
+    HIGH com.fasterxml.jackson.core:jackson-databind 2.22.1 2.18.11, 2.21.7, 2.22.3 CVE-2026-91776 Java
+    HIGH com.fasterxml.jackson.core:jackson-databind 2.22.1 2.21.7, 2.18.11, 2.22.3 CVE-2026-91777 Java
+    HIGH golang.org/x/text v0.33.0 0.39.0 CVE-2026-56852 usr/lib/trino/bin/linux-arm64/launcher
+    HIGH io.netty:netty-transport-sctp 4.2.16.Final 4.2.17.Final, 4.1.137.Final CVE-2026-59902 Java
+    HIGH org.apache.httpcomponents.core5:httpcore5 5.3.4 5.4.3, 5.5-beta2 CVE-2026-54399 Java
+    HIGH org.apache.httpcomponents.core5:httpcore5-h2 5.3.4 5.4.3, 5.5-beta2 CVE-2026-54428 Java
+    HIGH org.apache.thrift:libthrift 0.23.0 0.24.0 CVE-2026-43871 Java
+    HIGH org.eclipse.jetty:jetty-http 11.0.26 12.1.7, 12.0.33, 11.0.29, 10.0.28, 9.4.60 CVE-2026-2332 Java
+    HIGH stdlib v1.26.4 1.25.12, 1.26.5, 1.27.0-rc.2 CVE-2026-39822 usr/lib/trino/bin/linux-arm64/launcher
+    HIGH stdlib v1.26.4 1.25.13, 1.26.6, 1.27.0-rc.3 CVE-2026-33818 usr/lib/trino/bin/linux-arm64/launcher
+    HIGH stdlib v1.26.4 1.25.13, 1.26.6, 1.27.0-rc.3 CVE-2026-39821 usr/lib/trino/bin/linux-arm64/launcher
+=== postgres:16-alpine
+  HIGH/CRITICAL(수정판 있음): {'CRITICAL': 1, 'HIGH': 21}
+    CRITICAL stdlib v1.24.6 1.24.13, 1.25.7, 1.26.0-rc.3 CVE-2025-68121 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.24.11, 1.25.5 CVE-2025-61729 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.24.12, 1.25.6 CVE-2025-61726 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.10, 1.26.3 CVE-2026-33811 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.10, 1.26.3 CVE-2026-33814 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.10, 1.26.3 CVE-2026-39820 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.10, 1.26.3 CVE-2026-39836 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.10, 1.26.3 CVE-2026-42499 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.11, 1.26.4 CVE-2026-27145 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.11, 1.26.4 CVE-2026-42504 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.12, 1.26.5, 1.27.0-rc.2 CVE-2026-39822 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.13, 1.26.6, 1.27.0-rc.3 CVE-2026-33818 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.13, 1.26.6, 1.27.0-rc.3 CVE-2026-39821 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.13, 1.26.6, 1.27.0-rc.3 CVE-2026-56853 usr/local/bin/gosu
+    HIGH stdlib v1.24.6 1.25.13, 1.26.6, 1.27.0-rc.3 CVE-2026-56858 usr/local/bin/gosu
+=== redis:7.4-alpine
+  HIGH/CRITICAL(수정판 있음): {'HIGH': 4}
+    HIGH libcrypto3 3.3.7-r1 3.3.7-r2 CVE-2026-75804 redis:7.4-alpine (alpine 3.21.8)
+    HIGH libcrypto3 3.3.7-r1 3.3.7-r2 CVE-2026-84782 redis:7.4-alpine (alpine 3.21.8)
+    HIGH libssl3 3.3.7-r1 3.3.7-r2 CVE-2026-75804 redis:7.4-alpine (alpine 3.21.8)
+    HIGH libssl3 3.3.7-r1 3.3.7-r2 CVE-2026-84782 redis:7.4-alpine (alpine 3.21.8)
+=== pgsty/silo:RELEASE.2026-09-03T13-18-01Z
+  HIGH/CRITICAL(수정판 있음): {'CRITICAL': 3, 'HIGH': 7}
+    CRITICAL github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-77405 usr/bin/silo
+    CRITICAL github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-77408 usr/bin/silo
+    CRITICAL github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-77411 usr/bin/silo
+    HIGH github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-77403 usr/bin/silo
+    HIGH github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-77404 usr/bin/silo
+    HIGH github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-77406 usr/bin/silo
+    HIGH github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-77407 usr/bin/silo
+    HIGH github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-77410 usr/bin/silo
+    HIGH github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-77412 usr/bin/silo
+    HIGH github.com/rabbitmq/amqp091-go v1.10.0 1.13.0 CVE-2026-79921 usr/bin/silo
+=== quay.io/lakekeeper/catalog:v0.13.6
+  HIGH/CRITICAL(수정판 있음): 0
+=== grafana/grafana:12.4.11
+  HIGH/CRITICAL(수정판 있음): {'HIGH': 5}
+    HIGH github.com/apache/thrift v0.23.1-0.20260429145742-d2acd3c49e58 0.24.0 CVE-2026-43871 usr/share/grafana/bin/grafana
+    HIGH github.com/grafana/tempo v1.5.1-0.20260427112133-525d1bab07e0 2.10.3 CVE-2026-28377 usr/share/grafana/bin/grafana
+    HIGH github.com/grafana/tempo v1.5.1-0.20260427112133-525d1bab07e0 2.8.4, 2.9.2, 2.10.2 CVE-2026-21728 usr/share/grafana/bin/grafana
+    HIGH libcrypto3 3.5.7-r0 3.5.8-r0 CVE-2026-14456 grafana/grafana:12.4.11 (alpine 3.24.1)
+    HIGH libssl3 3.5.7-r0 3.5.8-r0 CVE-2026-14456 grafana/grafana:12.4.11 (alpine 3.24.1)
+=== prom/prometheus:v3.13.4
+  HIGH/CRITICAL(수정판 있음): {'HIGH': 2}
+    HIGH google.golang.org/grpc v1.83.1 1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, 1.85.0-dev.0.20260825072537-93e31b48545e CVE-2026-84445 bin/prometheus
+    HIGH google.golang.org/grpc v1.83.1 1.82.2, 1.83.2, 1.84.0-dev.0.20260825144003-d5a41119e0e3, 1.85.0-dev.0.20260825072537-93e31b48545e CVE-2026-84445 bin/promtool

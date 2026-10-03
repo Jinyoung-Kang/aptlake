@@ -1,0 +1,13 @@
+--- trades sggCd 전각 vs 정상
+0 {'count': 0, 'cancelled': 0, 'medianPpm2': None, 'medianPrice': None}
+
+5 {'count': 241, 'cancelled': 0, 'medianPpm2': 2045.6, 'medianPrice': 191676}
+
+--- months to=9999-12
+21 {'dataAsOf': '2026-10-02T00:00:00+00:00', 'datasetVersion': 'gold@2026-10-02.1', 'region': {'sggCd': '11110', 'name': 'QA종로구', 'fullName': '서울특별시 QA종로구'}, 'notes': ['거래 건수는 해제 거래를 제외한 현재 신고 건수, 분위수는 해제·면적 0·월 전국 상하위 0.1% 제외.', '표본 5건 미만이면 분위수는 null, lowSample=true.', '계약월 �
+--- search % / _ / zzz / QA1
+q=%25      2 ['dataAsOf', 'datasetVersion', 'complexes']
+q=_        1 ['dataAsOf', 'datasetVersion', 'complexes']
+q=zzzz     0 ['dataAsOf', 'datasetVersion', 'complexes']
+q=QA1      15 ['dataAsOf', 'datasetVersion', 'complexes']
+q=%25QA%25 0 ['dataAsOf', 'datasetVersion', 'complexes']

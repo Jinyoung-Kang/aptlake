@@ -1,0 +1,8 @@
+$ curl -s http://127.0.0.1:3710/v1/ops/errors   # 헤더 없음 (curl 기본)
+{"type":"about:blank","title":"Forbidden","status":403,"code":"SCOPE_REQUIRED","traceId":"bd0947db9d6b80b51227bf78a28ee667","detail":"'ops' 스코프가 필요합니다."}
+-> HTTP 403
+
+$ curl -s -H "Sec-Fetch-Site: same-origin" http://127.0.0.1:3710/v1/ops/errors
+{"dataAsOf":"2026-10-04T00:00:00+00:00","datasetVersion":"gold@2026-10-04.1","window":{"hours":720,"since":"2026-09-03T15:06:53.324923+00:00"},"counts":{"quality":10,"ingest":200},"entries":[{"id":"dq:10","at":"2026-10-04T00:00:00+00:00","level":"WARN","source":"quality","where":"silver.apt_trade · 202104","message":"품질 검사 실패: row_count_drop","detail":"{\n  \"now\": 3,\n  \"note\": \"<script>alert('qa-xss-1')</script>\",\n  \"prev\": 120\n}","ref":null,"resolved":false,"cleared":false},{"id":"dq:11","at":"2026-10-04T00:00:00+00:00","level":"ERROR","source":"quality","where":"silver.apt_trade · 202104","message":"품질 검사 실패: duplicate_keys (차단 — 하위 반영 멈춤)","detail":"{\n  \"now\": 3,\n  \"note\": \"<script>alert('qa-xss-1')</script>\",\n  \"prev\": 120\n}","ref":null,"resolved":false,"cleared":false},{"id":"dq:39","at":"2026-10-04T00:00:00+00:00","
+$ curl -s -H "Sec-Fetch-Site: same-origin" http://127.0.0.1:3710/v1/ops/connectivity
+{"dataAsOf":"2026-10-04T00:00:00+00:00","datasetVersion":"gold@2026-10-04.1","checkedAt":"2026-10-03T15:06:53.482933+00:00","ok":true,"items":[{"key":"postgres","name":"운영 DB · PostgreSQL","role":"API 키·플랜·수집 상태","ok":true,"latencyMs":1.2,"note":null,"error":null},{"key":"redis","name":"캐시 · Redis","role":"요청 한도·결과 캐시·키 캐시","ok":true,"latencyMs":1.4,"note":"발행 버전 gold@2026-10-04.1","error":null},{"key":"clickhouse","name":"서빙 DB · ClickHouse","role":"거래·통계 조회","ok":true,"latencyMs":21.6,"note":"최근 계약월 2026-09
