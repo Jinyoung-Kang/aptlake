@@ -120,10 +120,16 @@ async def respond(
     # 캐시 값 = "<행 수>\n<본문>" 한 키 (왕복 1회)
     cached: str | None = await r.get(ck)
     if cached is None:
-        payload, rows = await compute()
-        body = orjson.dumps({"dataAsOf": asof or None, "datasetVersion": ver, **payload})
-        await r.set(ck, f"{rows}\n".encode() + body, ex=settings().result_cache_ttl_s)
-        request.state.cache = "miss"
+
+        async def produce() -> tuple[int, bytes]:
+            payload, rows = await compute()
+            body = orjson.dumps({"dataAsOf": asof or None, "datasetVersion": ver, **payload})
+            await r.set(ck, f"{rows}\n".encode() + body, ex=settings().result_cache_ttl_s)
+            return rows, body
+
+        # 같은 키를 이미 계산 중이면 그 결과를 기다린다 (캐시가 빈 순간 몰린 같은 요청이 각자 질의하지 않게, QA-009)
+        (rows, body), leader = await request.app.state.flight.do(ck, produce)
+        request.state.cache = "miss" if leader else "shared"
     else:
         head, _, text = cached.partition("\n")
         rows, body = int(head), text.encode()

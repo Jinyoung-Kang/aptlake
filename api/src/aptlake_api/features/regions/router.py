@@ -20,8 +20,8 @@ from .repository import RegionRepository
 router = APIRouter(prefix="/v1")
 
 
-def _repo(request: Request) -> RegionRepository:
-    return RegionRepository(request.app.state.res.ch)
+def _repo(request: Request, dataset_version: str | None = None) -> RegionRepository:
+    return RegionRepository(request.app.state.res.ch, dataset_version)
 
 
 @router.get("/regions", summary="시군구 목록·코드")
@@ -41,8 +41,8 @@ async def region_months(
     check_range(p.plan.plan_id, p.plan.max_range_months, start, end)
 
     async def compute():
-        repo = _repo(request)
         ver, _ = await request.app.state.dsv.get(request)
+        repo = _repo(request, ver)
         names = await repo.by_code(ver)
         return await service.region_months(
             repo,

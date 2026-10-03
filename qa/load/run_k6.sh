@@ -4,14 +4,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 NAME="$1"; SCRIPT="$2"; shift 2
-OUT="${QA_LOAD_OUT:-docs/qa/evidence/load}"; mkdir -p "$OUT"
+OUT="${QA_LOAD_OUT:-docs/qa/evidence/load}"; mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)  # 절대 경로도 받는다 (k6 볼륨 마운트)
 KEY="$(sed -n 's/^QA_LOADTEST=//p' qa/.env.keys)"
 qa/qa.sh exec -T redis sh -c 'redis-cli --user api --pass "$REDIS_API_PASSWORD" --no-auth-warning --scan --pattern "al:cache:*" | xargs -r redis-cli --user api --pass "$REDIS_API_PASSWORD" --no-auth-warning del' >/dev/null
 SRC=loadtest; [ "$SCRIPT" = mixed.js ] && SRC=qa/load
 START=$(date -u +%s)
 envs=(-e APTLAKE_KEY="$KEY" -e BASE=http://api:8610 -e DURATION="${DURATION:-60s}")
 for kv in "$@"; do envs+=(-e "$kv"); done
-docker run --rm --network aptlake-qa_default "${envs[@]}" -v "$PWD/$SRC:/scripts:ro" -v "$PWD/$OUT:/out" \
+docker run --rm --network aptlake-qa_default "${envs[@]}" -v "$PWD/$SRC:/scripts:ro" -v "$OUT:/out" \
   grafana/k6:1.3.0 run --quiet --summary-export="/out/$NAME.json" "/scripts/$SCRIPT" >/dev/null 2>&1 || true
 python3 - "$OUT/$NAME.json" "$NAME" <<'PY'
 import json, sys

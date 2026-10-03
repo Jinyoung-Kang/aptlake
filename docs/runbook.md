@@ -139,6 +139,11 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
 - 시험 데이터: `cd api && uv run python ../qa/seed/seed.py` (운영 규모 생성 데이터·조작 문자열), 시험 키: `qa/keys.sh` → `qa/.env.keys` (git 제외).
 - 점검 스크립트: `qa/probes/` (퍼징·값 대조·장애 주입·화면/접근성·Lighthouse·BFF 권한·복원 훈련), 부하: `qa/load/run_k6.sh`. 결과·방법은 `docs/qa/2026-10-qa-report.md`.
 - 운영 스택에는 시험 요청을 보내지 않는다. 레이크 통합 시험도 QA 레이크에서: `qa/qa.sh --profile lake up -d --wait lakekeeper lakekeeper-init trino` 뒤 `make test-integration` 과 같은 명령을 `qa/qa.sh --profile lake run ...` 으로.
+- 부하 측정(QA-009): 끝단 지연(p95)은 기계 상태에 크게 흔들린다. 한 번의 수치로 판단하지 않는다.
+  - 비교는 수정 전·후 이미지를 번갈아(B·A·B·A…) 같은 조건으로 여러 번 잰다.
+  - 도커 데스크톱 VM 에서 dockerd 가 약 10초마다 CPU 를 크게 쓰고(부하 없을 때도), 그 초에 요청이 1초 안팎 밀린다. 초 단위로 볼 때는 그 초를 따로 표시한다.
+  - 호스트(macOS) 부하 평균도 같이 적는다 (`sysctl -n vm.loadavg`). 다른 프로젝트 컨테이너가 돌면 결과가 달라진다.
+  - 같은 요청 몰림: `cd api && uv run python ../qa/probes/stampede.py` — 캐시를 비우고 같은 요청 50건을 동시에 보내 ClickHouse 질의 수를 센다. 기대값은 워커 수 × 요청 1건의 질의 수 이하다.
 
 ## 지원 종료(EOL) 점검
 - `.github/workflows/eol.yml` 이 매주 endoflife.date 로 이미지의 지원 종료일을 본다 (`uv run --project api python tools/check_eol.py` 로 직접). 조회 실패도 실패로 표시한다.

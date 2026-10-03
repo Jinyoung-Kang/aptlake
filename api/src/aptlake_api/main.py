@@ -29,6 +29,7 @@ from .core.problems import ApiError
 from .core.resources import close_resources, open_resources
 from .core.responses import OrjsonResponse
 from .core.settings import settings
+from .core.singleflight import SingleFlight
 from .core.usage import UsageRecorder
 from .features.admin.router import router as admin_router
 from .features.complexes.router import router as complexes_router
@@ -61,6 +62,7 @@ def _build(name: str, internal: bool) -> FastAPI:
         app.state.plans = await load_plans(res)
         app.state.sliding = res.redis.register_script(_SLIDING)
         app.state.dsv = DatasetVersion()
+        app.state.flight = SingleFlight()
         app.state.dagster = DagsterClient(s.dagster_graphql_url)
         app.state.geo_cache = {}
         app.state.geo_lock = asyncio.Lock()

@@ -138,3 +138,109 @@ def test_qa_001_web_bff_key_gets_read_only_ops():
     from aptlake_api import provision
 
     assert provision.WEB_SCOPES == ["read", "ops_read"]
+
+
+async def _drop_cached(apps, route: str) -> None:
+    r = apps[0].state.res.redis
+    keys = [k async for k in r.scan_iter(f"al:cache:*:{route}:*")]
+    if keys:
+        await r.delete(*keys)
+
+
+# QA-009 (개선 제안 A2): 캐시가 빈 순간 같은 요청이 몰리면 요청마다 따로 계산했다
+#         (QA 스택: 분포 50건 동시 → ClickHouse 질의 250회). 발행 직후 캐시 키가 바뀌는 순간 부하가 몰린다.
+async def test_qa_009_concurrent_identical_requests_compute_once(pub, adm, admin_key, apps, monkeypatch):
+    from aptlake_api.features.regions import service
+
+    calls = 0
+    orig = service.distribution
+
+    async def counting(*a, **k):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.2)  # 계산이 끝나기 전에 나머지 요청이 도착하게
+        return await orig(*a, **k)
+
+    monkeypatch.setattr(service, "distribution", counting)
+    key, _ = await new_key(adm, admin_key, "pro")  # 분당 600회 — 30건 동시가 한도(429)에 가려지지 않게
+    await _drop_cached(apps, "distribution")  # respond() 에 넘기는 경로 이름
+    rs = await asyncio.gather(
+        *[
+            pub.get("/v1/regions/41135/distribution", params={"ym": "2024-07"}, headers={"X-API-Key": key})
+            for _ in range(30)
+        ]
+    )
+    assert [r.status_code for r in rs] == [200] * 30
+    assert len({r.content for r in rs}) == 1
+    assert calls == 1, f"같은 요청 30건이 {calls}번 계산됨"
+
+
+# QA-009: 기간만 다른 월별 요청이 매번 ClickHouse 를 불렀다. 지역 하나의 월 계열은 수십 행이고 발행 때만 바뀌는데,
+#         부하 측정의 무작위 12개월 구간(시군구 256 × 24)은 결과 캐시에 거의 맞지 않아 질의의 절반이 이 경로였다.
+async def test_qa_009_months_windows_share_one_series_query(pub, adm, admin_key, apps, monkeypatch):
+    seen = _spy_region_month_queries(apps, monkeypatch)
+    key, _ = await new_key(adm, admin_key, "pro")
+    await _drop_cached(apps, "region_months")
+    windows = (("2024-01", "2024-06"), ("2024-03", "2024-12"), ("2024-05", "2024-05"), ("2023-11", "2024-02"))
+    got = []
+    for a, b in windows:
+        r = await pub.get("/v1/regions/41135/months", params={"from": a, "to": b}, headers={"X-API-Key": key})
+        assert r.status_code == 200, r.text[:200]
+        got.append([(i["dealYm"], i["trades"], i["medianPricePerM2"]) for i in r.json()["items"]])
+    seeded = {f"2024-{m:02d}": (95 + m, 1500 + m) for m in range(1, 13)}  # conftest 의 region_month
+    assert got == [[(ym, *seeded[ym]) for ym in sorted(seeded) if a <= ym <= b] for a, b in windows]
+    assert len(seen) <= 1, f"기간만 다른 요청 4건에 region_month 질의 {len(seen)}회"
+
+
+def _spy_region_month_queries(apps, monkeypatch) -> list[str]:
+    """API 의 ClickHouse 클라이언트로 나간 region_month 질의를 모은다 (어느 저장소 함수를 거치든)."""
+    ch, seen = apps[0].state.res.ch, []
+    orig = ch.query
+
+    async def spy(sql, *a, **k):
+        if "FROM region_month" in sql:
+            seen.append(sql)
+        return await orig(sql, *a, **k)
+
+    monkeypatch.setattr(ch, "query", spy)
+    return seen
+
+
+# QA-009 회귀 방지: 계열 캐시는 데이터셋 버전이 바뀌면 다시 읽는다 (발행 뒤 옛 값을 내주지 않게).
+#         버전이 바뀐 직후 기간이 다른 요청이 몰려도 표 읽기는 한 번이다
+async def test_qa_009_months_series_cache_follows_dataset_version(pub, adm, admin_key, apps, monkeypatch):
+    seen = _spy_region_month_queries(apps, monkeypatch)
+    key, _ = await new_key(adm, admin_key, "pro")
+    r = apps[0].state.res.redis
+    windows = [(f"2024-{m:02d}", f"2024-{n:02d}") for m, n in ((1, 3), (2, 4), (3, 5), (4, 6), (1, 12), (6, 9))]
+    try:
+        for ver in ("gold@test.qa009a", "gold@test.qa009b"):
+            await r.set("al:ds:ver", ver)
+            await asyncio.sleep(1.1)  # 프로세스 안 데이터셋 버전 캐시(1초)
+            before = len(seen)
+            rs = await asyncio.gather(
+                *[
+                    pub.get("/v1/regions/41135/months", params={"from": a, "to": b}, headers={"X-API-Key": key})
+                    for a, b in windows * 2
+                ]
+            )
+            assert all(x.status_code == 200 and x.headers["X-Dataset-Version"] == ver for x in rs)
+            assert len(seen) == before + 1, f"버전이 바뀐 뒤 계열 읽기 {len(seen) - before}회 (기대 1회)"
+    finally:
+        await r.set("al:ds:ver", "gold@test.1")
+        await asyncio.sleep(1.1)
+
+
+# QA-009 회귀 방지: 버전이 그대로여도 TTL 이 지나면 다시 읽는다 — 발행이 표를 바꾼 뒤 버전 기록이 실패해도
+#         옛 값이 결과 캐시 TTL 보다 오래 남지 않게 (계열 캐시를 두기 전의 상한과 같게)
+async def test_qa_009_months_series_cache_expires(pub, adm, admin_key, apps, monkeypatch):
+    from aptlake_api.features.regions import repository
+
+    seen = _spy_region_month_queries(apps, monkeypatch)
+    key, _ = await new_key(adm, admin_key, "pro")
+    await _drop_cached(apps, "region_months")
+    monkeypatch.setattr(repository, "SERIES_TTL_S", -1)  # 늘 지난 것으로
+    for a, b in (("2024-01", "2024-02"), ("2024-03", "2024-04")):
+        r = await pub.get("/v1/regions/41135/months", params={"from": a, "to": b}, headers={"X-API-Key": key})
+        assert r.status_code == 200
+    assert len(seen) == 2, f"TTL 이 지났는데 다시 읽지 않음 ({len(seen)}회)"

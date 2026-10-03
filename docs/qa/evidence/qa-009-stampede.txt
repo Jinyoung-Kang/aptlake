@@ -1,0 +1,22 @@
+# qa/probes/stampede.py — 결과 캐시를 비우고 같은 요청 50건 동시, ClickHouse 질의 수 (QA 스택, API 워커 4)
+
+## 수정 전 (main d0558ab 의 API)
+/v1/regions/11110/distribution?ym=2025-06 × 50: 상태 [200] · 본문 1종 · X-Cache {'miss': 50} · ClickHouse 질의 250회 · 전체 776 ms
+/v1/regions/11110/distribution?ym=2025-06 × 50: 상태 [200] · 본문 1종 · X-Cache {'miss': 50} · ClickHouse 질의 250회 · 전체 1002 ms
+/v1/regions/11110/distribution?ym=2025-06 × 50: 상태 [200] · 본문 1종 · X-Cache {'miss': 50} · ClickHouse 질의 250회 · 전체 561 ms
+/v1/regions/11110/months?from=2025-01&to=2025-12 × 50: 상태 [200] · 본문 1종 · X-Cache {'miss': 19, 'hit': 31} · ClickHouse 질의 19회 · 전체 133 ms
+/v1/regions/11110/months?from=2025-01&to=2025-12 × 50: 상태 [200] · 본문 1종 · X-Cache {'miss': 22, 'hit': 28} · ClickHouse 질의 22회 · 전체 128 ms
+
+## 수정 후 (이 브랜치 최종 코드 — single-flight + 월 계열 캐시)
+/v1/regions/11110/distribution?ym=2025-06 × 50: 상태 [200] · 본문 1종 · X-Cache {'shared': 46, 'miss': 4} · ClickHouse 질의 20회 · 전체 504 ms
+/v1/regions/11110/distribution?ym=2025-06 × 50: 상태 [200] · 본문 1종 · X-Cache {'miss': 4, 'shared': 46} · ClickHouse 질의 20회 · 전체 358 ms
+/v1/regions/11110/distribution?ym=2025-06 × 50: 상태 [200] · 본문 1종 · X-Cache {'miss': 4, 'shared': 46} · ClickHouse 질의 20회 · 전체 202 ms
+/v1/regions/11110/months?from=2025-01&to=2025-12 × 50: 상태 [200] · 본문 1종 · X-Cache {'miss': 1, 'hit': 43, 'shared': 6} · ClickHouse 질의 0회 · 전체 133 ms
+/v1/regions/11110/months?from=2025-01&to=2025-12 × 50: 상태 [200] · 본문 1종 · X-Cache {'hit': 47, 'miss': 1, 'shared': 2} · ClickHouse 질의 0회 · 전체 184 ms
+
+# 분포 요청 1건 = 질의 5회 → 수정 전 50 × 5 = 250, 수정 후 워커 4 × 5 = 20 이하 (X-Cache: shared 는 기다려 받은 응답)
+# months 0회: 앞선 측정으로 워커마다 계열 캐시가 차 있던 상태 (찬 상태는 아래)
+
+## 발행 직후와 같은 찬 캐시 (API 새로 띄운 직후), months 400건 동시 — 시군구·기간 무작위
+- 고치기 전(교차 측정 때 코드): 회당 region_month 질의 5~7회 — 표 읽기가 끝난 직후, 결과를 넣기 전에 들어온 요청이 다시 읽었다
+- 고친 뒤(읽는 태스크 안에서 캐시를 채움): region_month 질의 4회 = 워커 4 × 1, 상태 200 만

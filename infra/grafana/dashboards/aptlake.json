@@ -336,7 +336,7 @@
    },
    "targets": [
     {
-     "expr": "sum(rate(aptlake_http_requests_total{cache=\"hit\"}[5m])) / clamp_min(sum(rate(aptlake_http_requests_total{cache=~\"hit|miss\"}[5m])), 1e-9)",
+     "expr": "sum(rate(aptlake_http_requests_total{cache=\"hit\"}[5m])) / clamp_min(sum(rate(aptlake_http_requests_total{cache=~\"hit|miss|shared\"}[5m])), 1e-9)",
      "legendFormat": "cache hit ratio",
      "refId": "A"
     },
