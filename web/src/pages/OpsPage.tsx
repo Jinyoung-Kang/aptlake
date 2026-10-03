@@ -170,7 +170,7 @@ export default function OpsPage({ route }: { route: Route }) {
                   </button>
                   <CopyButton text={() => entryText(e)} label="복사" className="btn ghost" />
                 </div>
-                {open.has(e.id) && e.detail ? <pre tabIndex={0} className="log-detail" id={`log-detail-${i}`}>{e.detail}</pre> : null}
+                {open.has(e.id) && e.detail ? <pre /* biome-ignore lint/a11y/noNoninteractiveTabindex: 스크롤 영역은 키보드로도 넘길 수 있어야 한다 (WCAG 2.1.1, axe scrollable-region-focusable, QA-011) */ tabIndex={0} className="log-detail" id={`log-detail-${i}`}>{e.detail}</pre> : null}
               </li>
             ))}
           </ul>

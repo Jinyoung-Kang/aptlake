@@ -75,7 +75,8 @@ function Ticker() {
   if (!data?.items.length) return null;
   return (
     <section className="ticker" aria-label="주요 지표">
-      <div className="ticker-inner" tabIndex={0} role="region" aria-label="시장 지표 띠 (좌우 스크롤)">
+      {/* biome-ignore lint/a11y/noNoninteractiveTabindex: 스크롤 영역은 키보드로도 넘길 수 있어야 한다 (WCAG 2.1.1, axe scrollable-region-focusable, QA-011) */}
+      <section className="ticker-inner" tabIndex={0} aria-label="시장 지표 띠 (좌우 스크롤)">
         {data.items.map((t) => (
           <div className="tick" key={t.key} title={t.changeBasis ?? undefined}>
             <span className="l">{sqm(t.label.replace(/(\d{4})-(\d{2})/, "$1.$2"))}</span>
@@ -84,7 +85,7 @@ function Ticker() {
             {t.provisional ? <span className="muted small">잠정</span> : null}
           </div>
         ))}
-      </div>
+      </section>
     </section>
   );
 }

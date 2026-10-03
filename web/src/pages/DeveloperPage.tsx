@@ -50,7 +50,7 @@ export default function DeveloperPage() {
           <section className="section">
             <div className="section-head"><h2>인증</h2></div>
             <p style={{ marginTop: 0 }}>요청 헤더에 키를 넣습니다. 키는 발급할 때 한 번만 보이고, 서버는 원문 대신 HMAC 만 저장합니다.</p>
-            <div className="code-block"><pre tabIndex={0} className="code">X-API-Key: al_live_&lt;keyId 12자&gt;.&lt;secret&gt;</pre></div>
+            <div className="code-block"><pre /* biome-ignore lint/a11y/noNoninteractiveTabindex: 스크롤 영역은 키보드로도 넘길 수 있어야 한다 (WCAG 2.1.1, axe scrollable-region-focusable, QA-011) */ tabIndex={0} className="code">X-API-Key: al_live_&lt;keyId 12자&gt;.&lt;secret&gt;</pre></div>
             <p className="note">키가 없으면 anonymous 플랜(IP 기준)입니다. 한도를 넘으면 429 와 Retry-After, 모든 오류는 RFC 9457 Problem Details(code·traceId 포함).
               응답 헤더 X-Dataset-Version · X-Data-As-Of 로 어떤 발행본인지 알 수 있고, 같은 버전이면 ETag 로 304 를 받습니다.</p>
           </section>
@@ -61,7 +61,7 @@ export default function DeveloperPage() {
               return (
                 <div key={e.path} style={{ marginBottom: 12 }}>
                   <div style={{ fontWeight: 700 }}>{e.title} <span className="muted small">{sqm(e.desc)}</span></div>
-                  <div className="code-block"><pre tabIndex={0} className="code">{cmd}</pre><CopyButton text={cmd} className="btn copy" /></div>
+                  <div className="code-block"><pre /* biome-ignore lint/a11y/noNoninteractiveTabindex: 스크롤 영역은 키보드로도 넘길 수 있어야 한다 (WCAG 2.1.1, axe scrollable-region-focusable, QA-011) */ tabIndex={0} className="code">{cmd}</pre><CopyButton text={cmd} className="btn copy" /></div>
                 </div>
               );
             })}
