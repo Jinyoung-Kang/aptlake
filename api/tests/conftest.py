@@ -28,13 +28,17 @@ def stack():
     with (
         PostgresContainer("postgres:16-alpine", username="postgres", password=PW, dbname="aptlake") as pg,
         RedisContainer("redis:7.4-alpine") as rd,
-        ClickHouseContainer("clickhouse/clickhouse-server:25.8", username="admin", password=PW)
+        ClickHouseContainer("clickhouse/clickhouse-server:26.8", username="admin", password=PW)
         .with_env("CLICKHOUSE_READER_PASSWORD", PW)
         .with_env("CLICKHOUSE_USAGE_PASSWORD", PW)
         .with_env("CLICKHOUSE_PUBLISHER_PASSWORD", PW)
         .with_env("CLICKHOUSE_EXPORT_PASSWORD", PW)
         .with_volume_mapping(
             str(ROOT / "infra/clickhouse/users.d/aptlake-users.xml"), "/etc/clickhouse-server/users.d/aptlake-users.xml"
+        )
+        # 운영과 같은 서버 설정 — 엔진 버전을 올렸을 때 없어진 설정 이름이 여기서 먼저 걸린다 (26.8 업그레이드 때 놓쳤던 것)
+        .with_volume_mapping(
+            str(ROOT / "infra/clickhouse/config.d/aptlake.xml"), "/etc/clickhouse-server/config.d/aptlake.xml"
         ) as ch,
     ):
         pg_host, pg_port = pg.get_container_host_ip(), pg.get_exposed_port(5432)
