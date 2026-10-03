@@ -96,7 +96,7 @@ export function Shell({ path, meta, children }: { path: string; meta: { version?
     <>
       <header className="header">
         <div className="topbar">
-          <a className="brand" href={href("/market")} aria-label="AptLake 홈"><span className="mark" aria-hidden="true" />AptLake<span className="sub">아파트 실거래 데이터</span></a>
+          <a className="brand" href={href("/market")} aria-label="AptLake 아파트 실거래 데이터 · 홈"><span className="mark" aria-hidden="true" />AptLake<span className="sub">아파트 실거래 데이터</span></a>
           <SearchBox />
           <div className="right">
             <span className="meta-chip" title="데이터셋 버전 · 원천 관측 시각">{meta.version ?? "–"} · 원천 {kst(meta.asOf ?? null, false)}</span>
