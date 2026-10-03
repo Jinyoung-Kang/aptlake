@@ -108,7 +108,7 @@ audit: ## 의존성 취약점 검사 (pip-audit · npm audit)
 loadtest: ## k6 부하 측정 — 도커 네트워크 안에서 api:8610 직접 (수집 센서는 잠시 끄고 재는 것을 권장)
 	@test -n "$$APTLAKE_KEY" || (echo "APTLAKE_KEY 필요: export APTLAKE_KEY=\$$(make -s loadtest-key)" && exit 1)
 	mkdir -p loadtest/results
-	docker run --rm -i --network aptlake_default -e APTLAKE_KEY -e BASE=http://api:8610 \
+	docker run --rm -i --network aptlake_default -e APTLAKE_KEY -e BASE=$${BASE:-http://api:8610} -e RATE_MONTHS -e RATE_TRADES -e DURATION \
 	  -v "$$PWD/loadtest:/scripts" grafana/k6:1.3.0 run --summary-export=/scripts/results/summary.json /scripts/api.js
 
 web-dev: ## 웹 개발 서버 (http://127.0.0.1:3611, API 프록시)
