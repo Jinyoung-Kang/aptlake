@@ -47,10 +47,10 @@ case "$r3" in ok) ;; *) fail=1 ;; esac
 case "$r4" in *"permission denied"*) ;; *) fail=1 ;; esac
 
 docker run -d --rm --name "$S3" --network "$NET" -e MINIO_ROOT_USER=root -e MINIO_ROOT_PASSWORD="$(val MINIO_ROOT_PASSWORD)" \
-  pgsty/silo:RELEASE.2026-09-03T13-18-01Z server /data >/dev/null
+  pgsty/silo:RELEASE.2026-09-16T00-00-00Z server /data >/dev/null
 for b in raw lake; do
   got="$(docker run --rm --network "$NET" -v "$BK/minio/$b:/backup/$b:ro" -e P="$(val MINIO_ROOT_PASSWORD)" --entrypoint sh \
-    pgsty/silo:RELEASE.2026-09-03T13-18-01Z -c "until mc alias set d http://$S3:9000 root \"\$P\" >/dev/null 2>&1; do sleep 1; done;
+    pgsty/silo:RELEASE.2026-09-16T00-00-00Z -c "until mc alias set d http://$S3:9000 root \"\$P\" >/dev/null 2>&1; do sleep 1; done;
       mc mb -p d/$b >/dev/null; mc mirror -q /backup/$b d/$b >/dev/null; mc ls -r d/$b" | awk '{print $NF}' | sort)"  # 이미지에 awk 없음
   missing="$(comm -23 "$LAST/minio-$b.txt" <(echo "$got") | wc -l | tr -d ' ')"
   echo "  MinIO $b: 백업 시점 $(wc -l < "$LAST/minio-$b.txt" | tr -d ' ')개 중 복원 후 없음 $missing"
