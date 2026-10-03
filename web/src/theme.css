@@ -141,7 +141,8 @@ button { font: inherit; color: inherit; }
 .nav a[aria-current="page"] { border-bottom-color: var(--accent); color: var(--accent); }
 
 .ticker { background: var(--bg-sub); border-bottom: 1px solid var(--border); }
-.ticker-inner { max-width: 1280px; margin: 0 auto; padding: 7px 24px; display: flex; gap: 26px; overflow-x: auto; scrollbar-width: none; font-size: 13px; }
+.ticker-inner { max-width: 1280px; margin: 0 auto; padding: 7px 24px; display: flex; gap: 26px; overflow-x: auto; scrollbar-width: none; font-size: 13px;
+  min-height: 34px; }  /* 지표가 오기 전에도 같은 높이 (QA-013) */
 .ticker-inner::-webkit-scrollbar { display: none; }
 .tick { display: flex; align-items: baseline; gap: 7px; white-space: nowrap; }
 .tick .l { color: var(--text-2); }
@@ -160,6 +161,8 @@ button { font: inherit; color: inherit; }
 
 /* ───────── 본문 ───────── */
 .container { max-width: 1280px; margin: 0 auto; padding: 18px 24px 56px; }
+/* 본문이 처음엔 짧다가 데이터와 함께 길어져도 첫 화면 안의 바닥글이 밀리지 않게 (레이아웃 이동, QA-013) */
+main.container { min-height: 100vh; }
 .page-head { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 20px; margin-bottom: 14px; }
 .page-head h1 { font-size: 26px; line-height: 1.2; margin: 0; letter-spacing: -0.02em; }
 .crumb { font-size: 13px; color: var(--text-3); margin-bottom: 4px; }
@@ -239,6 +242,8 @@ button { font: inherit; color: inherit; }
 .text-input { height: 32px; border: 1px solid var(--border-strong); border-radius: var(--radius); padding: 0 10px; background: var(--surface); color: var(--text); font: inherit; font-size: 13px; }
 .text-input:focus { outline: none; border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
 .toolbar { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; margin-bottom: 12px; }
+/* 좁은 화면에서 지역 선택기는 한 줄을 다 쓴다 — 시군구 이름이 늦게 와서 폭이 바뀌어도 옆 칸이 다음 줄로 넘어가 밀리지 않게 (QA-013) */
+@media (max-width: 640px) { .toolbar > .region-picker, .toolbar > .region-picker > .btn { width: 100%; } }
 
 /* 팝오버 (지역·기간 선택) */
 .pop-anchor { position: relative; display: inline-block; }

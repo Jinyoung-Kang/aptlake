@@ -72,12 +72,12 @@ function SearchBox() {
 
 function Ticker() {
   const { data } = useApi<{ month: string; items: TickerItem[] }>(paths.ticker());
-  if (!data?.items.length) return null;
+  // 데이터가 오기 전에도 같은 높이의 자리를 그린다 — 늦게 끼워 넣으면 아래 본문 전체가 밀린다 (레이아웃 이동, QA-013)
   return (
-    <section className="ticker" aria-label="주요 지표">
+    <section className="ticker" aria-label="주요 지표" aria-busy={!data}>
       {/* biome-ignore lint/a11y/noNoninteractiveTabindex: 스크롤 영역은 키보드로도 넘길 수 있어야 한다 (WCAG 2.1.1, axe scrollable-region-focusable, QA-011) */}
       <section className="ticker-inner" tabIndex={0} aria-label="시장 지표 띠 (좌우 스크롤)">
-        {data.items.map((t) => (
+        {(data?.items ?? []).map((t) => (
           <div className="tick" key={t.key} title={t.changeBasis ?? undefined}>
             <span className="l">{sqm(t.label.replace(/(\d{4})-(\d{2})/, "$1.$2"))}</span>
             <span className="v">{t.value == null ? "–" : num(t.value, t.unit === "%" ? 1 : t.key.startsWith("index") ? 1 : 0)}{t.unit && t.unit !== "건" ? sqm(t.unit) : ""}</span>

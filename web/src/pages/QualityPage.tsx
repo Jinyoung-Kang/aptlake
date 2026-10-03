@@ -45,6 +45,8 @@ function PartitionDetail({ sgg, ym }: { sgg: string; ym: string }) {
   );
 }
 
+const SUMMARY_KPIS = ["최근 원천 수집", "데이터셋 버전", "반영 완료 파티션 (시군구×월)", "현재 실패 중인 검사"];
+
 export default function QualityPage({ route }: { route: Route }) {
   const { sidos, byCode, sidoName } = useRegions();
   const now = ymOf(new Date());
@@ -110,7 +112,12 @@ export default function QualityPage({ route }: { route: Route }) {
                d={<>{num(merged)} / {num(total)} · 격리 {num(s.partitions.QUARANTINED ?? 0)} · 재시도 {num(s.partitions.RETRY ?? 0)}<div className="progress"><span style={{ width: `${pct}%` }} /></div></>} />
           <Kpi k="현재 실패 중인 검사" v={num((s.failedChecks7d ?? []).filter((f) => !f.resolved).length)} unit="건" d="최근 7일, 이후 통과한 검사는 제외" />
         </div>
-      ) : summary.loading ? <Skeleton h={90} /> : null}
+      ) : summary.loading ? (
+        // 같은 구조의 칸으로 자리를 둔다 — 높이를 정한 골격은 좁은 화면에서 칸이 쌓일 때 높이가 달라 아래가 밀렸다 (QA-013)
+        <div className="kpis" aria-busy="true">
+          {SUMMARY_KPIS.map((k) => <Kpi key={k} k={k} v="…" d="…" />)}
+        </div>
+      ) : null}
 
       <section className="section">
         <div className="section-head">

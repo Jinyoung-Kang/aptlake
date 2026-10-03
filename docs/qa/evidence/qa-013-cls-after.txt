@@ -1,0 +1,12 @@
+화면 | 성능 | 접근성 | 모범 사례 | FCP | LCP | TBT | CLS
+desktop_complex_c_c7be522b831459963100 | 100 | 100 | 100 | 0.5 s | 0.6 s | 0 ms | 0.003
+desktop_market | 99 | 100 | 100 | 0.6 s | 0.8 s | 0 ms | 0.003
+desktop_quality | 100 | 100 | 100 | 0.5 s | 0.7 s | 0 ms | 0.017
+desktop_region_11110 | 100 | 100 | 100 | 0.5 s | 0.7 s | 0 ms | 0.010
+desktop_trades_sgg_11110 | 100 | 100 | 100 | 0.4 s | 0.5 s | 0 ms | 0.036
+mobile_complex_c_c7be522b831459963100 | 93 | 100 | 100 | 2.1 s | 2.9 s | 40 ms | 0.000
+mobile_market | 89 | 100 | 100 | 2.2 s | 3.3 s | 110 ms | 0.000
+mobile_quality | 92 | 100 | 100 | 2.1 s | 3.1 s | 40 ms | 0.024
+mobile_region_11110 | 91 | 100 | 100 | 2.2 s | 3.1 s | 40 ms | 0.017
+mobile_trades_sgg_11110 | 99 | 100 | 100 | 1.5 s | 1.7 s | 0 ms | 0.003
+CLS > 0.1: 0개 []
