@@ -72,7 +72,10 @@ CREATE TABLE IF NOT EXISTS aptlake.trade_current
     valid_from       DateTime64(3, 'UTC'),
     missing_since    Nullable(DateTime64(3, 'UTC')),
     INDEX idx_complex complex_key TYPE bloom_filter GRANULARITY 4
-) ENGINE = MergeTree PARTITION BY toYYYYMM(deal_date) ORDER BY (sgg_cd, deal_date, trade_id);
+-- 인덱스 입도 1024 (ADR-038): 질의 대부분이 (시군구, 한 달) ≈ 150행인데 기본 8192행 그래뉼이면 한 번에 1.7만 행을 읽는다.
+-- 블룸 필터(GRANULARITY 4)도 4096행 단위로 좁아져 단지 질의가 덜 읽는다. 기존 8192 표는 ../migrate/ 로 바꾼다.
+) ENGINE = MergeTree PARTITION BY toYYYYMM(deal_date) ORDER BY (sgg_cd, deal_date, trade_id)
+  SETTINGS index_granularity = 1024;
 
 CREATE TABLE IF NOT EXISTS aptlake.trade_version
 (
