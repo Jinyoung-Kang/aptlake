@@ -22,6 +22,7 @@ import orjson
 from fastapi import Request
 
 from . import keys
+from .clock import kst_today
 from .problems import ApiError
 from .resources import Resources
 from .settings import Settings, settings
@@ -202,7 +203,6 @@ async def resolve_principal(request: Request) -> Principal:
 
 
 async def enforce_rate_limit(request: Request, p: Principal) -> None:
-    res: Resources = request.app.state.res
     now = time.time()
     minute = int(now // 60)
     frac = (now % 60) / 60
@@ -226,12 +226,10 @@ async def enforce_rate_limit(request: Request, p: Principal) -> None:
             f"{p.plan.plan_id} 플랜 분당 {p.plan.rpm}회 초과",
             headers={**p.limit_headers, "Retry-After": str(max(int(reset - now), 1))},
         )
-    del res
 
 
 def _rows_key(p: Principal) -> str:
-    day = dt.datetime.now(tz=dt.timezone(dt.timedelta(hours=9))).date().isoformat()
-    return f"al:rows:{p.subject}:{day}"
+    return f"al:rows:{p.subject}:{kst_today().isoformat()}"  # 한도는 한국 날짜 기준으로 하루
 
 
 def remaining_rows(p: Principal) -> int:
