@@ -77,7 +77,7 @@ def seed_clickhouse(c, regs, months: int) -> None:
     # 거래: (시군구, 월)마다 20~289건, 단지 180개/시군구. h 는 행마다의 결정적 난수
     c.command(f"""
     INSERT INTO aptlake.trade_current
-    WITH cityHash64(sgg, ym, k) AS h, h % 180 AS cx,
+    WITH cityHash64(sgg, ym, k) AS h, cityHash64(sgg, ym, k, 'complex') % 180 AS cx,  -- 단지는 따로 뽑는다 (h 의 나머지와 얽히면 해제가 특정 단지에 몰림)
          toDecimal64(arrayElement([39.9, 49.5, 59.97, 74.8, 84.98, 101.2, 114.5, 134.8, 165.3], 1 + h % 9), 4) AS a0,
          if(h % 4999 = 0, toDecimal64(0, 4), a0) AS area,
          (300 + cityHash64(sgg) % 2500) * (1 + mi * 0.004) * (0.8 + (intDiv(h, 7) % 400) / 1000) AS base,
