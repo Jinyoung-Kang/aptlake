@@ -479,16 +479,15 @@ def iceberg_maintenance(context: AssetExecutionContext) -> MaterializeResult:
 
 month_pipeline = define_asset_job(
     "month_pipeline",
-    selection=AssetSelection.keys(
+    selection=AssetSelection.assets(
         AssetKey(["bronze", "rtms_raw"]), SILVER_KEY, AssetKey(["serving", "clickhouse_month"])
     )
-    | AssetSelection.assets(gold_monthly),
-    partitions_def=monthly,
+    | AssetSelection.assets(gold_monthly),  # 파티션(월)은 선택한 자산에서 정해진다
 )
 dims_and_index = define_asset_job(
     "dims_and_index",
     selection=AssetSelection.assets(gold_dimensions)
-    | AssetSelection.keys(
+    | AssetSelection.assets(
         AssetKey(["serving", "clickhouse_dimensions"]),
         AssetKey(["gold", "index_reference"]),
         AssetKey(["gold", "price_index"]),
@@ -496,10 +495,10 @@ dims_and_index = define_asset_job(
 )
 regions_job = define_asset_job(
     "refresh_regions",
-    selection=AssetSelection.keys(AssetKey(["silver", "region"]), AssetKey(["silver", "region_boundary"])),
+    selection=AssetSelection.assets(AssetKey(["silver", "region"]), AssetKey(["silver", "region_boundary"])),
 )
 maintenance_job = define_asset_job(
-    "iceberg_maintenance", selection=AssetSelection.keys(AssetKey(["ops", "iceberg_maintenance"]))
+    "iceberg_maintenance", selection=AssetSelection.assets(AssetKey(["ops", "iceberg_maintenance"]))
 )
 
 
