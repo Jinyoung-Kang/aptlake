@@ -7,10 +7,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 NAME="$1"; shift
+[[ "$NAME" =~ ^[A-Za-z0-9_-]+$ ]] || { echo "이름은 영문·숫자·_·- 만" >&2; exit 2; }
 OUT="${QA_LOAD_OUT:-${TMPDIR:-/tmp}/aptlake-qa-timeline}"; mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
 KEY="$(sed -n 's/^QA_LOADTEST=//p' qa/.env.keys)"
-docker rm -f qa-timeline-k6 qa-timeline-cg >/dev/null 2>&1 || true
-docker run -d --name qa-timeline-cg --cgroupns host -v /sys/fs/cgroup:/cg:ro alpine:3.22 sh -c '
+cleanup() { docker rm -f qa-timeline-k6 qa-timeline-cg >/dev/null 2>&1 || true; }
+cleanup
+trap cleanup EXIT  # 중간에 끊겨도 부하(k6)와 표본 컨테이너를 남기지 않는다
+docker run -d --name qa-timeline-cg --cgroupns host -v /sys/fs/cgroup:/cg:ro alpine:3.22.6 sh -c '
   i=0; while [ $i -lt 78 ]; do t=$(date +%s)
     for d in /cg /cg/restricted /cg/docker/*; do echo "C $t ${d##*/} $(sed -n "s/^usage_usec //p" $d/cpu.stat)"; done
     i=$((i+1)); sleep 1; done' >/dev/null
@@ -21,8 +24,9 @@ for kv in "$@"; do envs+=(-e "$kv"); done
 docker run -d --name qa-timeline-k6 --network aptlake-qa_default "${envs[@]}" -v "$PWD/loadtest:/scripts:ro" -v "$OUT:/out" \
   grafana/k6:1.3.0 run --quiet --out "csv=/out/$NAME.csv" /scripts/api.js >/dev/null
 docker ps --no-trunc --format '{{.ID}} {{.Names}}' > "$OUT/$NAME.ids"
-docker wait qa-timeline-k6 >/dev/null; docker rm qa-timeline-k6 >/dev/null
-docker wait qa-timeline-cg >/dev/null; docker logs qa-timeline-cg > "$OUT/$NAME.cg" 2>/dev/null; docker rm qa-timeline-cg >/dev/null
+docker wait qa-timeline-k6 >/dev/null
+docker wait qa-timeline-cg >/dev/null; docker logs qa-timeline-cg > "$OUT/$NAME.cg" 2>/dev/null
+cleanup
 gzip -f "$OUT/$NAME.csv"
 python3 - "$OUT" "$NAME" <<'PY'
 import collections, csv, gzip, sys
@@ -48,7 +52,8 @@ for sc, d in by.items():
     calm = [x for t, vs in d.items() if t not in spike and t - 1 not in spike and t - t0 >= 3 for x in vs]
     late = [x for t, vs in d.items() if t - t0 >= 30 for x in vs]
     print(f"{name} {sc:6} 전체 {q(allv)} | 첫 3초·dockerd 급증 제외 {q(calm)} | 30초 이후 {q(late)}")
-a, b = ts[4], ts[-4]
+load = sorted({t for d in by.values() for t in d})  # k6 요청이 있던 초 — 평균은 부하 구간만
+a = max(t for t in ts if t <= load[0]); b = min(t for t in ts if t >= load[-1])
 ids = {v: k for k, v in names.items()}
 row = [f"VM {pct(a, b, 'cg'):.0f}", f"dockerd {pct(a, b, 'restricted'):.0f}"]
 for c in ("clickhouse", "api", "redis"):

@@ -3,6 +3,7 @@
   cd api && uv run python ../qa/probes/stampede.py [--n 50] [--path /v1/regions/11110/distribution?ym=2025-06]
 
 QA 스택 전용 (키는 qa/.env.keys, ClickHouse 관리 비밀번호는 qa/.env.qa — 값은 출력하지 않는다).
+질의 수는 그 시간 동안 api_reader 의 질의를 모두 센다 — 다른 요청(부하 측정 등)과 겹치지 않게 돌린다.
 워커가 여러 개면 워커마다 따로 합치므로 '질의 수 ≤ 워커 수 × 요청 1건의 질의 수'가 기대값이다.
 """
 
@@ -21,7 +22,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def env(path: str) -> dict[str, str]:
-    return dict(x.split("=", 1) for x in (ROOT / path).read_text().splitlines() if "=" in x and not x.startswith("#"))
+    pairs = (x.split("=", 1) for x in (ROOT / path).read_text().splitlines() if "=" in x and not x.startswith("#"))
+    return {k: v.strip().strip("'\"") for k, v in pairs}
 
 
 async def main() -> None:
@@ -38,7 +40,8 @@ async def main() -> None:
         'redis-cli --user api --pass "$REDIS_API_PASSWORD" --no-auth-warning --scan --pattern "al:cache:*" '
         '| xargs -r redis-cli --user api --pass "$REDIS_API_PASSWORD" --no-auth-warning del'
     )
-    subprocess.run([str(ROOT / "qa/qa.sh"), "exec", "-T", "redis", "sh", "-c", flush], check=True, capture_output=True)
+    cmd = [str(ROOT / "qa/qa.sh"), "exec", "-T", "redis", "sh", "-c", flush]
+    await asyncio.to_thread(subprocess.run, cmd, check=True, capture_output=True)
     start = time.time()
     async with httpx.AsyncClient(base_url=a.base, timeout=30, headers={"X-API-Key": keys["QA_LOADTEST"]}) as c:
         t = time.perf_counter()
