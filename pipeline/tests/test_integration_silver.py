@@ -71,8 +71,8 @@ def _cleanup():
     with ops_db.conn() as c:
         c.execute("DELETE FROM ops.ingest_partition WHERE sgg_cd = %s", (SGG,))
         c.execute("DELETE FROM ops.dq_result WHERE partition = %s", (YM,))
-        # pipeline 역할에는 month_state 삭제 권한이 없다(최소 권한) → 발행 대기만 끈다 (센서·수집 상태 집계에서 빠짐)
-        c.execute("UPDATE ops.month_state SET needs_publish = false WHERE deal_ym = %s", (YM,))
+        # pipeline 역할에는 month_state 삭제 권한이 없다(최소 권한) → 합성 달만 지우는 함수로 (V007)
+        c.execute("SELECT ops.forget_synthetic_month(%s)", (YM,))
 
 
 _seq = {"n": 0}
