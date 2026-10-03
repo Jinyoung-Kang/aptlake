@@ -5,7 +5,8 @@
 region_month 는 연 단위 파티션이다(ADR-037) — 그 해의 다른 달은 지금 서빙 중인 행을 그대로 스테이징에 옮기고
 발행하는 달만 새로 넣어, 그 해 파티션을 통째로 교체한다. 발행은 Dagster publish 풀(동시 1) 안에서만 돌아
 같은 해 두 달이 동시에 교체되지 않는다.
-하나라도 틀리면 예외 → 네 표 모두 이전 데이터 그대로 (표 사이 부분 발행 없음).
+하나라도 틀리면 예외 → 네 표 모두 이전 데이터 그대로 (표 사이 부분 발행 없음). 교체 직전에 스테이징 행 수를
+다시 세어, 대조 뒤 스테이징이 다시 만들어졌으면(서빙 표 이관 등) 하나도 교체하지 않는다.
 예전에는 표마다 적재·대조·교체를 차례로 해서, 세 번째 표 대조가 실패하면 앞의 두 표만 새 데이터가 되는 창이 있었다.
 차원·지수(소형): 새 테이블에 적재 → 대조 → EXCHANGE TABLES (원자적 교체).
 월·차원·지수 어느 발행이든 끝나면 데이터셋 버전을 올리고(ops.dataset_version + Redis), API 캐시 키·ETag 가
@@ -90,6 +91,23 @@ def _stage(
     return len(rows)
 
 
+def _verify_staged(client: Client, table: str, partition: str, n_rows: int) -> None:
+    """교체 직전: 스테이징이 대조 때 그대로인가. 그사이 스테이징이 빈 표로 다시 만들어지면(예: 수집 중 서빙 표 이관,
+    ADR-038) 그대로 교체할 경우 서빙에서 그 달(연 파티션이면 그 해)이 지워지고 발행은 성공으로 남는다."""
+    staging = f"{DB}.{table}_staging"
+    col = _part_col(table)
+    part = _partition(table, partition)
+    staged = _count(client, f"SELECT count() FROM {staging} WHERE toYYYYMM({col}) = {partition}")
+    if staged != n_rows:
+        raise ReconciliationError(f"{table} {partition}: 교체 직전 스테이징 {staged} != 대조 {n_rows}")
+    if part != partition:  # 연 파티션: 그 해 다른 달 복사분도 그대로인가 (서빙은 발행 풀 동시 1 이라 그대로)
+        rest = f"toYear({col}) = {part} AND toYYYYMM({col}) != {partition}"
+        kept = _count(client, f"SELECT count() FROM {staging} WHERE {rest}")
+        live = _count(client, f"SELECT count() FROM {DB}.{table} WHERE {rest}")
+        if kept != live:
+            raise ReconciliationError(f"{table} {part}: 교체 직전 같은 해 다른 달 {kept} != 서빙 {live}")
+
+
 def _swap(client: Client, table: str, partition: str, n_rows: int) -> None:
     staging = f"{DB}.{table}_staging"
     part = _partition(table, partition)
@@ -135,6 +153,8 @@ def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
     tables = ["region_month", "rollup_month", "trade_current", "trade_version"]
     try:
         _stage_month(client, deal_ym, dataset_ver, counts)
+        for t in tables:
+            _verify_staged(client, t, deal_ym, counts[t])
     except Exception:
         _drop_staged(client, tables, deal_ym)  # 대조 실패·적재 오류 → 네 표 모두 서빙은 이전 그대로
         raise

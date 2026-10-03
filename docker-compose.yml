@@ -172,6 +172,10 @@ services:
         ch --multiquery < /init/01-schema.sql &&
         if [ "$$(ch -q "SELECT partition_key FROM system.tables WHERE database = 'aptlake' AND name = 'region_month'")" = "toYYYYMM(month)" ]; then
           ch --multiquery < /migrate/region_month_yearly.sql && echo ch region_month → yearly partitions;
+        fi &&
+        if [ "$$(ch -q "SELECT extract(engine_full, 'index_granularity = ([0-9]+)') FROM system.tables WHERE database = 'aptlake' AND name = 'trade_current'")" != 1024 ]; then
+          if ch --multiquery < /migrate/trade_current_granularity.sql; then echo ch trade_current → index_granularity 1024;
+          else ch --multiquery < /init/01-schema.sql; exit 1; fi;
         fi && echo ch schema up to date
     environment:
       CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
