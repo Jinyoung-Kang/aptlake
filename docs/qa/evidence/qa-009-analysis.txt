@@ -2,7 +2,12 @@
 # 부하: k6 loadtest/api.js, 회마다 결과 캐시 비우고 60초. CPU 는 cgroup 사용량(100 = 코어 1개). 운영 스택 수집 실행 없음
 
 ## 1. 설정 실험 (200+100 RPS) — 모두 기준선 범위 안이라 채택하지 않음
-# e0·e4~e6 은 기준 설정 반복(e4~e6 은 진단 도구를 함께 돌림). e7 = ClickHouse cpuset 2-3·API 0-1, e8 = API cpu_shares 4096(나머지 1024)
+# 기준 설정(워커 4·연결 20·max_threads 2) 6회 = base_t300_1·2 + e0·e4~e6 (e4~e6 은 진단 도구를 함께 돌림)
+#   처리량 253.2~283.2 req/s · months p95 1,431~2,468 ms · trades p95 2,271~4,013 ms
+# e7 = ClickHouse cpuset 2-3·API 0-1, e8 = API cpu_shares 4096(나머지 1024). e7 처리량 286.2 는 기준 최대보다 3 높지만
+#   기준 회차끼리의 차이(30)보다 작고, 지연(p95)은 모두 기준 범위 안이다. API 워커 수는 바꿔 보지 않았다(아래 2장: 워커마다 CPU 22~25%)
+- base_t300_1 처리량 268.1 req/s · months p50 69 · p95 2066 | trades p50 110 · p95 3404
+- base_t300_2 처리량 253.2 req/s · 실패 0.0018 · 시작 못한 반복 2831 | cache_hit p50 9 · p95 490 | cache_miss p50 724 · p95 3639 | months p50 75 · p95 2468 | trades p50 110 · p95 4013
 # '실패' 는 익명 한도 시나리오의 429(의도된 거절)를 포함한다
 - e0_base workers=4 conn=20 max_threads=2 RATE_MONTHS=200 RATE_TRADES=100
 e0_base    처리량 283.2 req/s · 실패 0.0018 · 시작 못한 반복 959 | cache_hit p50 10 · p95 712 | cache_miss p50 484 · p95 2159 | months p50 72 · p95 1431 | trades p50 130 · p95 2271
@@ -45,3 +50,14 @@ e9_t120    처리량 119.1 req/s · 실패 0.0055 · 시작 못한 반복 46 | c
 
 ## 4. 200+100 RPS, 수정 전 (초 단위)
 - 앞 30초는 캐시 빈 직후 몰림(미적중 대기열), 30초 이후는 p50 10·23 ms 이지만 dockerd 급증 초를 빼도 p95 259·448 ms (실제 용량 부족)
+
+## 5. 수정 중간 단계 (기록)
+- 시군구마다 계열을 읽던 중간 구현(커밋하지 않음): API 를 새로 띄운 직후 200+100 RPS 회차의 region_month 질의 1,015회
+  (2회, 워커 4 × 시군구 약 254) → 표 전체를 버전당 한 번 읽도록 바꿈 (교차 측정의 A: 회당 5~7회)
+- 계열 캐시 메모리 (QA 데이터 17,664행, 시군구 256): 유지 약 4.1 MiB, 읽는 동안 최대 약 6.4 MiB — 워커마다
+
+## 6. 최종 코드 확인 (80+40 RPS, 1회, 2026-10-04 06:00 KST, API 새로 띄운 직후 — 월 계열 캐시도 빈 상태)
+- qa/load/timeline.sh t120_check: months p50 2 · p95 142 ms, trades p50 15 · p95 325 ms
+  - 첫 3초·dockerd 급증 초 제외: months p95 28 ms · trades p95 84 ms / 30초 이후: months p95 10 ms · trades p95 53 ms
+  - CPU(부하 구간): ClickHouse 47 · API 37 · Redis 5 · 운영 스택 합 34 % · ClickHouse 질의 3,322회 · CPU 21.1 s · region_month 4회
+
