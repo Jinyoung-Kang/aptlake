@@ -1,70 +1,31 @@
-import { useEffect, useMemo, useState } from "react";
-import { apiSend, errorText } from "../api/client";
+import { useMemo, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import ApiTest from "../components/ApiTest";
 import { DataTable } from "../components/DataTable";
 import { Badge, CopyButton, ErrorBox, Kpi, Segmented, Skeleton, Switch, Tabs } from "../components/ui";
-import { DASH, duration, kst, kstShort, num, relative, ymLabel } from "../lib/format";
+import { DASH, kst, kstShort, num, relative, ymLabel } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { paths } from "../api/endpoints";
-import type { LogEntry as Entry, OpsErrors, OpsJob as Job, OpsStatus } from "../api/types";
-
-/** 항목 상태 — 색만이 아니라 글자로도 구분 (미해결 / 이후 해결됨 / 비우기 이전) */
-function entryState(e: Entry): { label: string; tone: "bad" | "good" | undefined } {
-  if (e.cleared) return { label: "비우기 이전", tone: undefined };
-  if (e.resolved) return { label: "이후 해결됨", tone: "good" };
-  return { label: "미해결", tone: "bad" };
-}
-
-const STATUS: Record<string, { label: string; cls: string }> = {
-  QUEUED: { label: "대기", cls: "wait" }, NOT_STARTED: { label: "시작 전", cls: "wait" }, STARTING: { label: "시작 중", cls: "run" },
-  STARTED: { label: "실행 중", cls: "run" }, CANCELING: { label: "취소 중", cls: "wait" }, SUCCESS: { label: "성공", cls: "ok" },
-  FAILURE: { label: "실패", cls: "fail" }, CANCELED: { label: "취소", cls: "" },
-};
-const SRC: Record<string, string> = { pipeline: "파이프라인", ingest: "원천 수집", quality: "품질 검사", api: "API" };
-const PRIO: Record<string, "info" | "warn" | "good" | undefined> = { incremental: "info", retry: "warn", "publish-only": "good" };
+import type { OpsErrors, OpsJob, OpsStatus } from "../api/types";
+import { entryState, entryText, filterEntries, JOB_STATUS, jobDuration, LOG_SOURCES, logFileName, logText, pipelineSummary, PRIORITY_TONE, queueOrder, recentOrder, SOURCE_LABEL } from "../domain/ops";
+import { useLogClear } from "../hooks/useLogClear";
+import { useNow } from "../hooks/useNow";
+import { useToggleSet } from "../hooks/useToggleSet";
+import { saveText } from "../lib/download";
 
 function StatusCell({ s }: { s: string }) {
-  const st = STATUS[s] ?? { label: s, cls: "" };
+  const st = JOB_STATUS[s] ?? { label: s, cls: "" };
   return <span className={`status ${st.cls}`}><span className="dot" aria-hidden="true" />{st.label}</span>;
 }
 
-function jobDuration(j: Job, now: number): string {
-  if (j.durationS != null) return duration(j.durationS);
-  if (j.startedAt && !j.endedAt) return `${duration((now - new Date(j.startedAt).getTime()) / 1000)} 경과`;
-  if (!j.startedAt && j.requestedAt) return `대기 ${duration((now - new Date(j.requestedAt).getTime()) / 1000)}`;
-  return DASH;
-}
-
-export function entryText(e: Entry): string {
-  const head = `[${kst(e.at)} KST] ${e.level} [${SRC[e.source] ?? e.source}] [${entryState(e).label}] ${e.where}`;
-  const detail = e.detail && e.detail !== e.message ? `\n${e.detail.split("\n").map((l) => `    ${l}`).join("\n")}` : "";
-  return `${head}\n  ${e.message}${detail}`;
-}
-
-const RUNNING = new Set(["STARTING", "STARTED", "CANCELING"]);
-const ts = (x: string | null) => (x ? new Date(x).getTime() : Number.POSITIVE_INFINITY);
-/** 진행·대기: 실행 중(먼저 시작한 순) → 대기(요청 순 = 큐에서 나갈 순서). */
-function queueOrder(jobs: Job[]): Job[] {
-  return [...jobs].sort((a, b) => {
-    const ra = RUNNING.has(a.status) ? 0 : 1, rb = RUNNING.has(b.status) ? 0 : 1;
-    if (ra !== rb) return ra - rb;
-    return ra === 0 ? ts(a.startedAt) - ts(b.startedAt) : ts(a.requestedAt) - ts(b.requestedAt);
-  });
-}
-/** 최근: 끝난 시각 최신순. */
-function recentOrder(jobs: Job[]): Job[] {
-  return [...jobs].sort((a, b) => (b.endedAt ?? "").localeCompare(a.endedAt ?? ""));
-}
-
-function JobsTable({ jobs, now, empty }: { jobs: Job[]; now: number; empty: string }) {
+function JobsTable({ jobs, now, empty }: { jobs: OpsJob[]; now: number; empty: string }) {
   return (
     <DataTable rows={jobs} rowKey={(j) => j.runId} empty={empty} maxHeight={520}
       columns={[
         { key: "job", header: "작업", cell: (j) => (
           <span className="name">{j.jobLabel}{j.partition ? ` · ${ymLabel(`${j.partition.slice(0, 4)}-${j.partition.slice(4)}`)}` : ""}
             <span className="sub">
-              <Badge tone={PRIO[j.priority ?? ""]}>{j.priorityLabel}</Badge> {j.trigger} · <code title="Dagster 실행 ID">{j.runId.slice(0, 8)}</code>
+              <Badge tone={PRIORITY_TONE[j.priority ?? ""]}>{j.priorityLabel}</Badge> {j.trigger} · <code title="Dagster 실행 ID">{j.runId.slice(0, 8)}</code>
             </span>
           </span>
         ), sort: (j) => j.jobLabel },
@@ -84,51 +45,18 @@ export default function OpsPage({ route }: { route: Route }) {
   const resolved = route.params.get("resolved") === "1";
   const showCleared = route.params.get("old") === "1";
   const errs = useApi<OpsErrors>(paths.opsErrors(hours, resolved, showCleared), { refreshMs: auto ? 30_000 : undefined });
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [clearErr, setClearErr] = useState<string | null>(null);
-  const setCleared = async (clear: boolean) => {
-    setClearErr(null);
-    try {
-      await apiSend(clear ? "POST" : "DELETE", paths.opsErrorsClear());
-      setConfirmClear(false);
-      errs.reload();
-    } catch (e) {
-      setClearErr(errorText(e));
-    }
-  };
+  const clear = useLogClear(errs.reload);
   const [tab, setTab] = useState<"active" | "recent" | "schedules">("active");
   const [q, setQ] = useState("");
-  const [open, setOpen] = useState<Set<string>>(new Set());
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
+  const open = useToggleSet();
+  const now = useNow();
 
   const s = status.data;
   const b = s?.summary.budget;
-  const running = s?.jobs.active.filter((j) => j.status === "STARTED" || j.status === "STARTING").length ?? 0;
-  const queued = (s?.jobs.active.length ?? 0) - running;
-  const merged = s?.summary.partitions.MERGED ?? 0;
-  const total = s?.summary.totalPartitions ?? 0;
-
-  const entries = useMemo(() => {
-    const all = errs.data?.entries ?? [];
-    const term = q.trim().toLowerCase();
-    return all.filter((e) => (source === "all" || e.source === source) &&
-      (!term || `${e.where} ${e.message} ${e.detail}`.toLowerCase().includes(term)));
-  }, [errs.data, source, q]);
-  const allText = () => {
-    const head = `# AptLake 오류 로그 — 최근 ${Number(hours) >= 24 ? `${Number(hours) / 24}일` : `${hours}시간`}, 출처 ${source === "all" ? "전체" : SRC[source]}` +
-      `${q.trim() ? `, 검색 "${q.trim()}"` : ""}, ${entries.length}건 (생성 ${kst(new Date().toISOString())} KST)`;
-    return [head, ...entries.map(entryText)].join("\n\n");
-  };
-  const download = () => {
-    const blob = new Blob([allText() + "\n"], { type: "text/plain;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = `aptlake-errors-${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}.txt`;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  };
-  const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const { running, queued, mergedPct } = pipelineSummary(s);
+  const entries = useMemo(() => filterEntries(errs.data?.entries ?? [], source, q), [errs.data, source, q]);
+  const allText = () => logText(entries, { hours, source, q, nowIso: new Date().toISOString() });
+  const download = () => saveText(logFileName(new Date().toISOString()), `${allText()}\n`);
 
   return (
     <>
@@ -148,8 +76,8 @@ export default function OpsPage({ route }: { route: Route }) {
           <Kpi k={`오늘 원천 호출 (${b?.day ?? ""})`} v={`${num(b?.used)} / ${num(b?.cap)}`}
                d={<>{b?.exhaustedReason ? <Badge tone="warn" title={b.stopLabel ?? b.exhaustedReason}>{b.exhaustedReason.startsWith("KeyRejected") ? "인증키 거부 · 키 확인 필요" : "원천 한도 소진 · 자정 뒤 재개"}</Badge> : `일 한도 ${num(b?.limit)}의 80%`}
                    <div className={`progress ${b && b.used >= b.cap ? "warn" : ""}`}><span style={{ width: `${b ? Math.min(100, (b.used / b.cap) * 100) : 0}%` }} /></div></>} />
-          <Kpi k="수집 진행 (시군구×월)" v={`${num(total ? (merged / total) * 100 : 0, 1)}%`}
-               d={<>남은 {num(s.summary.backfillEstimate.remainingCalls)}개 · 추정 {s.summary.backfillEstimate.days ?? DASH}일<div className="progress"><span style={{ width: `${total ? (merged / total) * 100 : 0}%` }} /></div></>}
+          <Kpi k="수집 진행 (시군구×월)" v={`${num(mergedPct, 1)}%`}
+               d={<>남은 {num(s.summary.backfillEstimate.remainingCalls)}개 · 추정 {s.summary.backfillEstimate.days ?? DASH}일<div className="progress"><span style={{ width: `${mergedPct}%` }} /></div></>}
                title={`추정 근거: ${s.summary.backfillEstimate.basis}`} />
           <Kpi k="마지막 발행" v={<span style={{ fontSize: 16 }}>{s.summary.lastPublish?.version ?? DASH}</span>}
                d={`${relative(s.summary.lastPublish?.at)} · 발행 대기 ${num(s.summary.publishPending)}개월`} />
@@ -191,9 +119,9 @@ export default function OpsPage({ route }: { route: Route }) {
           <Segmented label="기간" value={hours} onChange={(v) => setParams(route, { hours: v })}
                      options={[{ value: "24", label: "24시간" }, { value: "168", label: "7일" }, { value: "720", label: "30일" }]} />
           <div className="chips" role="group" aria-label="출처">
-            {["all", "pipeline", "ingest", "quality", "api"].map((k) => (
+            {LOG_SOURCES.map((k) => (
               <button key={k} type="button" className="chip" aria-pressed={source === k} onClick={() => setParams(route, { source: k })}>
-                {k === "all" ? "전체" : SRC[k]}<span className="n">{k === "all" ? (errs.data?.entries.length ?? 0) : (errs.data?.counts[k] ?? 0)}</span>
+                {k === "all" ? "전체" : SOURCE_LABEL[k]}<span className="n">{k === "all" ? (errs.data?.entries.length ?? 0) : (errs.data?.counts[k] ?? 0)}</span>
               </button>
             ))}
           </div>
@@ -201,26 +129,26 @@ export default function OpsPage({ route }: { route: Route }) {
           <Switch checked={resolved} onChange={(v) => setParams(route, { resolved: v ? "1" : null })} label="해결된 항목 포함" />
           {errs.data?.cleared && <Switch checked={showCleared} onChange={(v) => setParams(route, { old: v ? "1" : null })} label="비우기 이전 보기" />}
           <div className="tools-right">
-            {confirmClear ? (
+            {clear.confirming ? (
               <span className="confirm" role="group" aria-label="로그 비우기 확인">
                 <span className="small">지금까지의 로그를 숨길까요?</span>
-                <button type="button" className="btn danger" onClick={() => setCleared(true)}>비우기</button>
-                <button type="button" className="btn" onClick={() => setConfirmClear(false)}>취소</button>
+                <button type="button" className="btn danger" onClick={() => clear.setCleared(true)}>비우기</button>
+                <button type="button" className="btn" onClick={() => clear.setConfirming(false)}>취소</button>
               </span>
             ) : (
-              <button type="button" className="btn" onClick={() => setConfirmClear(true)} title="원본 기록은 지우지 않고, 지금 이전 항목을 화면에서 숨깁니다">로그 비우기</button>
+              <button type="button" className="btn" onClick={() => clear.setConfirming(true)} title="원본 기록은 지우지 않고, 지금 이전 항목을 화면에서 숨깁니다">로그 비우기</button>
             )}
-            <button type="button" className="btn" onClick={() => setOpen(open.size ? new Set() : new Set(entries.map((e) => e.id)))}>{open.size ? "모두 접기" : "모두 펼치기"}</button>
+            <button type="button" className="btn" onClick={() => open.set(open.size ? [] : entries.map((e) => e.id))}>{open.size ? "모두 접기" : "모두 펼치기"}</button>
             <CopyButton text={allText} label={`전체 복사 (${entries.length})`} className="btn primary" disabled={errs.stale || !entries.length} />
             <button type="button" className="btn" onClick={download} disabled={errs.stale || !entries.length}>.txt 저장</button>
           </div>
         </div>
         <ErrorBox error={errs.error} onRetry={errs.reload} />
-        <ErrorBox error={clearErr} />
+        <ErrorBox error={clear.error} />
         {errs.data?.cleared && (
           <div className="banner">
             <span><b>{kst(errs.data.cleared.at)}</b>에 로그를 비웠습니다 — 그 이전 항목은 숨김 (원본 기록은 보존). 이후 새로 생긴 오류만 표시합니다.</span>
-            <button type="button" className="btn ghost" onClick={() => setCleared(false)}>되돌리기</button>
+            <button type="button" className="btn ghost" onClick={() => clear.setCleared(false)}>되돌리기</button>
           </div>
         )}
         {errs.data?.notes.filter((n) => !n.startsWith("비우기 이전")).map((n) => <p key={n} className="note">{n}</p>)}
@@ -231,10 +159,10 @@ export default function OpsPage({ route }: { route: Route }) {
           <div className="log" role="list">
             {entries.map((e) => (
               <div key={e.id} className={`log-row ${e.resolved || e.cleared ? "resolved" : ""}`} role="listitem">
-                <div className="log-head" onClick={() => toggle(e.id)} aria-expanded={open.has(e.id)}>
+                <div className="log-head" onClick={() => open.toggle(e.id)} aria-expanded={open.has(e.id)}>
                   <span className="at">{kst(e.at)}</span>
                   <span className={`lvl ${e.level}`}>{e.level}</span>
-                  <span className="src">{SRC[e.source] ?? e.source}</span>
+                  <span className="src">{SOURCE_LABEL[e.source] ?? e.source}</span>
                   <span className="msg"><Badge tone={entryState(e).tone}>{entryState(e).label}</Badge> {e.message}<span className="where">{e.where}</span></span>
                   <CopyButton text={() => entryText(e)} label="복사" className="btn ghost" />
                 </div>
