@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM ghcr.io/astral-sh/uv:0.12.19 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.23 AS uv
 
 # 빌드 단계: psycopg(C 구현)·psycopg2 를 시스템 libpq 에 대고 컴파일하고 dbt manifest 를 만든다
 # (컴파일 도구는 최종 이미지에 남기지 않는다, QA-005)
