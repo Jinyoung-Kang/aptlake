@@ -17,12 +17,12 @@ from .auth import Principal, enforce_rate_limit, resolve_principal
 from .clock import KST
 from .problems import ApiError
 from .settings import settings
+from .texts import DISCLAIMER  # noqa: F401 — 아직 옮기지 않은 라우트가 여기서 가져간다
 
 SCOPE_ATTR = "__aptlake_scope__"
 
 
 PUBLIC_UNSCOPED = {"/healthz", "/readyz", "/docs", "/openapi.json", "/docs/oauth2-redirect", "/redoc"}
-DISCLAIMER = "공개 신고 자료를 가공한 학습·포트폴리오용 데이터입니다. 공식 통계가 아니며 투자 판단 근거로 쓰지 마세요."
 
 
 def require_scope(scope: str) -> Any:

@@ -28,6 +28,7 @@ from .core.resources import close_resources, open_resources
 from .core.responses import OrjsonResponse
 from .core.settings import settings
 from .core.usage import UsageRecorder
+from .features.regions.router import router as regions_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("aptlake.api")
@@ -108,6 +109,7 @@ def _build(name: str, internal: bool) -> FastAPI:
     if internal:
         app.include_router(routes_admin.router)
     else:
+        app.include_router(regions_router)
         app.include_router(routes_public.router)
         app.include_router(routes_market.router)
         app.include_router(routes_ops.router)

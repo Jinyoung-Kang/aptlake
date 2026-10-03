@@ -46,101 +46,12 @@ def _check_range(p: Principal, start: dt.date, end: dt.date) -> None:
 _provisional = provisional  # KST 기준 (deps)
 
 
-_region_cache: dict[str, Any] = {"ver": None, "rows": {}}
-
-
-async def _regions(request: Request) -> dict[str, dict[str, Any]]:
-    """시군구 이름표는 작고 발행 시에만 바뀌므로 데이터셋 버전별로 프로세스 메모리에 둔다 (조회당 CH 질의 1회 절약)."""
-    ver, _ = await request.app.state.dsv.get(request)
-    if _region_cache["ver"] != ver or not _region_cache["rows"]:
-        rows = await _q(request, "SELECT sgg_cd, sido_cd, sido_nm, sgg_nm, full_nm FROM region ORDER BY sgg_cd", {})
-        _region_cache.update(ver=ver, rows={r["sgg_cd"]: r for r in rows})
-    return _region_cache["rows"]
-
-
 async def _q(request: Request, sql: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     res = await request.app.state.res.ch.query(sql, parameters=params)
     return list(res.named_results())
 
 
 # ───────────────────────── 지역 ─────────────────────────
-
-
-@router.get("/regions", summary="시군구 목록·코드")
-async def regions(request: Request, p: Principal = require_scope("read")) -> Response:
-    async def compute():
-        rows = await _q(request, "SELECT sgg_cd, sido_cd, sido_nm, sgg_nm, full_nm FROM region ORDER BY sgg_cd", {})
-        items = [
-            {
-                "sggCd": r["sgg_cd"],
-                "sidoCd": r["sido_cd"],
-                "sidoName": r["sido_nm"],
-                "name": r["sgg_nm"],
-                "fullName": r["full_nm"],
-            }
-            for r in rows
-        ]
-        # 참조 메타데이터는 일일 '데이터 행' 한도에 넣지 않는다
-        return {"items": items, "source": "행정안전부 법정동코드 (StanReginCd)"}, 0
-
-    return await respond(request, "regions", {}, compute)
-
-
-@router.get("/regions/{sggCd}/months", summary="월별 거래량·해제·㎡당 가격 분위수")
-async def region_months(
-    request: Request,
-    sggCd: SGG,  # noqa: N803
-    from_: Annotated[str, Query(alias="from", pattern=YM_Q)],
-    to: Annotated[str, Query(pattern=YM_Q)],
-    p: Principal = require_scope("read"),
-) -> Response:
-    start, end = _ym_to_date(from_), _ym_to_date(to)
-    _check_range(p, start, end)
-
-    async def compute():
-        reg = (await _regions(request)).get(sggCd)
-        if reg is None:
-            raise ApiError(400, "INVALID_REGION", "Invalid Region", f"알 수 없는 시군구 코드 {sggCd}")
-        rows = await _q(
-            request,
-            """
-            SELECT month, reported, trades, cancelled, priced, outliers, p25_ppm2, median_ppm2, p75_ppm2, low_sample
-            FROM region_month
-            WHERE sgg_cd = {sgg:String} AND month BETWEEN {a:Date} AND {b:Date}
-            ORDER BY month""",
-            {"sgg": sggCd, "a": start, "b": end},
-        )
-        items = []
-        for r in rows:
-            item = {
-                "dealYm": r["month"].strftime("%Y-%m"),
-                "reported": r["reported"],
-                "trades": r["trades"],
-                "cancelled": r["cancelled"],
-                "sampleSize": r["priced"],
-                "outliers": r["outliers"],
-                "p25PricePerM2": _round(r["p25_ppm2"]),
-                "medianPricePerM2": _round(r["median_ppm2"]),
-                "p75PricePerM2": _round(r["p75_ppm2"]),
-                "unit": "만원/㎡",
-            }
-            if r["low_sample"]:
-                item["lowSample"] = True
-            if _provisional(r["month"]):
-                item["provisional"] = True
-            items.append(item)
-        return {
-            "region": {"sggCd": sggCd, "name": reg["sgg_nm"], "fullName": reg["full_nm"]},
-            "items": items,
-            "notes": [
-                "거래 건수는 해제 거래를 제외한 현재 신고 건수, 분위수는 해제·면적 0·월 전국 상하위 0.1% 제외.",
-                "표본 5건 미만이면 분위수는 null, lowSample=true.",
-                f"계약월 말일 + {settings().provisional_days}일 전까지는 신고가 추가될 수 있어 provisional=true.",
-            ],
-            "disclaimer": DISCLAIMER,
-        }, 0  # 집계 응답: 요청 한도만 (행 한도는 거래 단위 레코드에만)
-
-    return await respond(request, "region_months", {"sgg": sggCd, "a": from_, "b": to}, compute)
 
 
 def _ts(v: dt.datetime | None) -> str | None:
