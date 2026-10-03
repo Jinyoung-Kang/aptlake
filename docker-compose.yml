@@ -107,8 +107,11 @@ services:
 
   # ───────────────────────── 질의·변환 (lake 프로필) ─────────────────────────
   trino:
-    image: trinodb/trino:476
+    image: trinodb/trino:483
     profiles: ["lake"]
+    environment:
+      # glibc 메모리 영역(arena)을 스레드마다 만들지 않게 — JVM 힙 밖 메모리(RSS)가 늘어 컨테이너 한도에 닿는 것을 막는다
+      MALLOC_ARENA_MAX: "2"
     volumes:
       - ./infra/trino/etc/config.properties:/etc/trino/config.properties:ro
       - ./infra/trino/etc/jvm.config:/etc/trino/jvm.config:ro
