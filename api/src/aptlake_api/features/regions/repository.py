@@ -7,6 +7,7 @@ from typing import Any
 
 from clickhouse_connect.driver.asyncclient import AsyncClient
 
+from ...core.singleflight import SingleFlight
 from .service import AREA_BANDS, FLOOR_BANDS
 
 Row = dict[str, Any]
@@ -16,6 +17,17 @@ WHERE = "sgg_cd = {s:String} AND deal_date BETWEEN {a:Date} AND {b:Date}"
 
 # 시군구 이름표는 작고 발행 시에만 바뀌므로 데이터셋 버전별로 프로세스 메모리에 둔다 (조회당 질의 1회 절약)
 _names: dict[str, Any] = {"ver": None, "rows": {}}
+
+# 월 계열(시군구 × 월, 운영 약 1.7만 행)도 발행 때만 바뀐다 → 데이터셋 버전이 바뀌면 표 전체를 한 번에 읽어 두고
+# 요청한 시군구·기간만 잘라 준다. 기간만 다른 요청이 질의를 다시 하지 않고(QA-009: 부하 측정에서 질의의 절반이 이 경로),
+# 발행 직후에도 시군구마다가 아니라 워커당 질의 1회다. 크기: 행당 튜플 하나 — 워커당 수 MB.
+MONTH_COLS = (
+    "month", "reported", "trades", "cancelled", "priced", "outliers", "p25_ppm2", "median_ppm2", "p75_ppm2", "low_sample",
+)  # fmt: skip
+MONTHS_SQL = f"SELECT {', '.join(MONTH_COLS)} FROM region_month WHERE sgg_cd = {{sgg:String}} ORDER BY month"
+ALL_MONTHS_SQL = f"SELECT sgg_cd, {', '.join(MONTH_COLS)} FROM region_month ORDER BY sgg_cd, month"
+_series: dict[str, Any] = {"ver": None, "rows": {}}
+_series_flight = SingleFlight()  # 버전이 바뀐 직후 몰린 요청도 표 읽기는 한 번
 
 
 def _band_expr(col: str, bands: list[tuple[int | None, int | None]], inclusive_upper: bool) -> str:
@@ -36,8 +48,9 @@ FLOOR_EXPR = _band_expr("floor", FLOOR_BANDS, inclusive_upper=True)
 
 
 class RegionRepository:
-    def __init__(self, ch: AsyncClient):
+    def __init__(self, ch: AsyncClient, dataset_version: str | None = None):
         self.ch = ch
+        self.ver = dataset_version  # 있으면 월 계열을 이 버전으로 캐시한다
 
     async def _q(self, sql: str, params: dict[str, Any] | None = None) -> list[Row]:
         return list((await self.ch.query(sql, parameters=params or {})).named_results())
@@ -51,14 +64,24 @@ class RegionRepository:
         return _names["rows"]
 
     async def months(self, sgg: str, a: dt.date, b: dt.date) -> list[Row]:
-        return await self._q(
-            """
-            SELECT month, reported, trades, cancelled, priced, outliers, p25_ppm2, median_ppm2, p75_ppm2, low_sample
-            FROM region_month
-            WHERE sgg_cd = {sgg:String} AND month BETWEEN {a:Date} AND {b:Date}
-            ORDER BY month""",
-            {"sgg": sgg, "a": a, "b": b},
-        )
+        return [dict(zip(MONTH_COLS, t, strict=True)) for t in await self._series(sgg) if a <= t[0] <= b]
+
+    async def _series(self, sgg: str) -> list[tuple]:
+        ver = self.ver
+        if ver is None:  # 버전을 모르면 캐시 없이 그 시군구만
+            return [tuple(r) for r in (await self.ch.query(MONTHS_SQL, parameters={"sgg": sgg})).result_rows]
+        if _series["ver"] != ver:
+            by_sgg, _ = await _series_flight.do(ver, self._all_series)
+            if _series["ver"] != ver:
+                _series.update(ver=ver, rows=by_sgg)
+            return by_sgg.get(sgg, [])
+        return _series["rows"].get(sgg, [])
+
+    async def _all_series(self) -> dict[str, list[tuple]]:
+        by_sgg: dict[str, list[tuple]] = {}
+        for r in (await self.ch.query(ALL_MONTHS_SQL)).result_rows:
+            by_sgg.setdefault(r[0], []).append(tuple(r[1:]))
+        return by_sgg
 
     async def price_stats(self, sgg: str, a: dt.date, b: dt.date) -> Row:
         rows = await self._q(
