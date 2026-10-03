@@ -462,6 +462,50 @@ async def test_stalled_export_job_is_failed_so_client_can_export_again(apps, sta
     assert st == {old: "failed", fresh: "running"}  # 진행 중인 정상 작업은 건드리지 않는다
 
 
+async def test_quality_failure_is_resolved_only_by_a_later_pass_of_the_same_check(apps, adm, admin_key, stack):
+    """'해결됨' = 같은 자산·검사·파티션(없음끼리도 같다고 봄)이 실패 뒤에 통과. 오류 로그와 품질 요약이 같은 규칙."""
+    import psycopg
+
+    rows = [  # (partition, check, passed, 몇 분 전)
+        ("p1", "c1", False, 30), ("p1", "c1", True, 10),  # 뒤에 통과 → 해결
+        ("p2", "c1", False, 30), ("p3", "c1", True, 10),  # 다른 파티션의 통과 → 미해결
+        ("p4", "c1", True, 40), ("p4", "c1", False, 30),  # 앞선 통과 → 미해결
+        (None, "c2", False, 30), (None, "c2", True, 10),  # 파티션 없음끼리 → 해결
+        (None, "c3", False, 30), ("p5", "c3", True, 10),  # 파티션 없음 ≠ 있음 → 미해결
+    ]  # fmt: skip
+    with psycopg.connect(stack["su"], autocommit=True) as pg:
+        for part, check, passed, ago in rows:
+            pg.execute(
+                """INSERT INTO ops.dq_result (asset, partition, check_name, passed, severity, blocking, metric, at)
+                   VALUES ('test/resolve', %s, %s, %s, 'WARN', false, '{}', now() - make_interval(mins => %s))""",
+                (part, check, passed, ago),
+            )
+    expected = {("p1", "c1"): True, ("p2", "c1"): False, ("p4", "c1"): False, (None, "c2"): True, (None, "c3"): False}
+    public = apps[0]
+    async for k in public.state.res.redis.scan_iter("al:cache:*"):
+        await public.state.res.redis.delete(k)
+    ops_key, _ = await new_key(adm, admin_key, scopes=("read", "ops"))
+    try:
+        async with client_at(public, "10.42.0.1", ops_key) as c:
+            r = await c.get("/v1/ops/errors", params={"hours": 24, "source": "quality", "includeResolved": "true"})
+            got = {
+                (e["where"].split(" · ")[1].replace("-", "") or None, e["message"].split(": ")[1]): e["resolved"]
+                for e in r.json()["entries"]
+                if e["where"].startswith("test/resolve")
+            }
+            assert got == expected
+            r = await c.get("/v1/quality/summary")
+            got = {
+                (f["partition"], f["check"]): f["resolved"]
+                for f in r.json()["failedChecks7d"]
+                if f["asset"] == "test/resolve"
+            }
+            assert got == expected
+    finally:
+        with psycopg.connect(stack["su"], autocommit=True) as pg:
+            pg.execute("DELETE FROM ops.dq_result WHERE asset = 'test/resolve'")
+
+
 async def test_ops_errors_survive_clickhouse_timeout(apps, adm, admin_key):
     """서빙 DB 시간 초과(도커 VM 메모리 부족 때 실제로 발생)는 API 오류 부분만 빼고 200 — 화면 전체가 503 이 되지 않게."""
     import time

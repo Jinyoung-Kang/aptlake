@@ -104,6 +104,7 @@ async def seeded(apps, stack, adm, admin_key):
     with psycopg.connect(stack["su"], autocommit=True) as pg:
         pg.execute(
             "TRUNCATE ops.ingest_partition, ops.dq_result, ops.dataset_version, ops.api_budget, ops.region_boundary"
+            " RESTART IDENTITY"  # 검사 ID(dq:N)가 앞 테스트가 넣은 행 수에 따라 바뀌지 않게
         )
         pg.execute("UPDATE ops.log_view SET cleared_at = NULL, cleared_by = NULL")
         pg.execute(
