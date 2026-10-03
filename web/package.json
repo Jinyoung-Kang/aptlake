@@ -9,8 +9,9 @@
     "typecheck": "tsc -b --noEmit",
     "preview": "vite preview",
     "test": "vitest run",
-    "lint": "biome lint src",
-    "typecheck:test": "tsc -p tsconfig.test.json"
+    "lint": "biome lint src && node scripts/contrast.mjs",
+    "typecheck:test": "tsc -p tsconfig.test.json",
+    "check:contrast": "node scripts/contrast.mjs --table"
   },
   "dependencies": {
     "echarts": "^6.1.0",

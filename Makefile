@@ -101,7 +101,7 @@ test-integration: ## 정합성 통합 테스트 (실행 중인 레이크 스택�
 	$(LAKE) run --rm --no-deps -T --user root -v "$$PWD/pipeline/tests:/opt/aptlake/tests:ro" -w /opt/aptlake dagster \
 	  sh -c "uv pip install -q --python /opt/venv/bin/python pytest hypothesis && python -m pytest -q -p no:cacheprovider -m integration tests/test_integration_silver.py"
 
-lint: ## ruff · mypy · tsc · Biome(웹 린트)
+lint: ## ruff · mypy · tsc · Biome(웹 린트) · 색 대비(WCAG)
 	cd pipeline && uv run ruff check src tests && uv run ruff format --check src tests
 	cd api && uv run ruff check src tests && uv run ruff format --check src tests && uv run mypy src
 	cd web && npx tsc -b && npx tsc -p tsconfig.test.json && npm run lint
