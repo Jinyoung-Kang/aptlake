@@ -1,0 +1,7 @@
+== aptlake_api: 모듈 68개, import 간선 165개, 순환 0개
+   core → features 역방향 의존: 없음
+   기능 사이 직접 의존: [('complexes', 'trades'), ('ops', 'quality')]
+== aptlake_pipeline: 모듈 22개, import 간선 58개, 순환 0개
+api/src/aptlake_api/features/complexes/repository.py:9:from ..trades.repository import TRADE_COLS
+api/src/aptlake_api/features/complexes/service.py:8:from ..trades.service import trade_item
+api/src/aptlake_api/features/ops/repository.py:14:from ..quality.repository import RESOLVED
