@@ -211,7 +211,7 @@ function Complexes({ sgg, from, to }: { sgg: string; from: string; to: string })
             { key: "trades", header: "거래", align: "right", cell: (r) => num(r.trades), sort: (r) => r.trades },
             { key: "cancel", header: "해제", align: "right", cell: (r) => num(r.cancelled), sort: (r) => r.cancelled },
             { key: "med", header: "m²당 중위가(만원)", align: "right", cell: (r) => num(r.medianPpm2), sort: (r) => r.medianPpm2 },
-            { key: "last", header: "최근 거래(원)", align: "right", cell: (r) => <span>{manwon(r.lastPrice)}<span className="sub">{r.lastDate.replaceAll("-", ".")} · {num(r.lastArea, 1)}<Sqm /></span></span>, sort: (r) => r.lastDate },
+            { key: "last", header: "최근 거래(원, 해제 포함)", align: "right", cell: (r) => <span>{manwon(r.lastPrice)}<span className="sub">{r.lastDate.replaceAll("-", ".")} · {num(r.lastArea, 1)}<Sqm /></span></span>, sort: (r) => r.lastDate },
           ]}
           foot={<span>{ymLabel(from)} ~ {ymLabel(to)} 거래 기준 상위 50개 단지 · 행을 누르면 단지 상세</span>}
         />

@@ -118,6 +118,7 @@ class RegionRepository:
                    countIf(is_cancelled = 0) AS n, countIf(is_cancelled = 1) AS cancelled,
                    quantileExactInclusiveIf(0.5)(ppm2, {PRICED}) AS med,
                    max(deal_date) AS last_date,
+                   -- 최근 거래 = 신고된 마지막 거래 — 해제된 거래도 포함한다(의도, ADR-037). 화면 머리글에 '해제 포함' 표시
                    -- 같은 날 거래가 여럿이면 거래 ID 로 하나를 정한다 (그냥 deal_date 면 엔진·병합 순서에 따라 바뀜)
                    argMax(price_manwon, (deal_date, trade_id)) AS last_price,
                    argMax(toFloat64(area_m2), (deal_date, trade_id)) AS last_area
