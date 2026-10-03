@@ -1,0 +1,4 @@
+--- ops.log_view 를 20초 잠근 동안 (긴 트랜잭션 흉내)
+/v1/ops/errors?hours=24    -> 200 18.318056s
+/v1/ops/status             -> 200 0.061307s
+/v1/quality/summary        -> 200 0.020948s

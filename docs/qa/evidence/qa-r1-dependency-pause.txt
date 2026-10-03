@@ -1,0 +1,42 @@
+aptlake-qa-clickhouse-1
+== clickhouse 15초 멈춤 (요청 735건, 20 rps)
+  전    months   {200: 47}  p50 12ms p95 54ms max 308ms
+  전    ops      {200: 32}  p50 26ms p95 139ms max 386ms
+  전    regions  {200: 36}  p50 39ms p95 224ms max 385ms
+  전    trades   {200: 42}  p50 20ms p95 78ms max 224ms
+  멈춤   months   {200: 65}  p50 9532ms p95 14633ms max 15243ms
+  멈춤   ops      {200: 77}  p50 9023ms p95 14927ms max 15470ms
+  멈춤   regions  {200: 78}  p50 9016ms p95 14983ms max 15906ms
+  멈춤   trades   {200: 75}  p50 9686ms p95 14245ms max 15742ms
+  푼 뒤  months   {200: 76}  p50 12ms p95 1523ms max 2375ms
+  푼 뒤  ops      {200: 63}  p50 26ms p95 942ms max 2622ms
+  푼 뒤  regions  {200: 66}  p50 37ms p95 1767ms max 2871ms
+  푼 뒤  trades   {200: 78}  p50 20ms p95 994ms max 2520ms
+aptlake-qa-redis-1
+== redis 15초 멈춤 (요청 748건, 20 rps)
+  전    months   {200: 47}  p50 5ms p95 28ms max 98ms
+  전    ops      {200: 32}  p50 25ms p95 48ms max 139ms
+  전    regions  {200: 36}  p50 5ms p95 8ms max 13ms
+  전    trades   {200: 42}  p50 6ms p95 9ms max 11ms
+  멈춤   months   {503: 62, 200: 3}  p50 2006ms p95 2009ms max 2020ms
+  멈춤   ops      {503: 68, 200: 9}  p50 2006ms p95 2010ms max 2210ms
+  멈춤   regions  {503: 60, 200: 18}  p50 2006ms p95 2032ms max 2166ms
+  멈춤   trades   {503: 67, 200: 8}  p50 2006ms p95 2012ms max 2051ms
+  푼 뒤  months   {200: 81}  p50 5ms p95 9ms max 98ms
+  푼 뒤  ops      {200: 68}  p50 26ms p95 60ms max 288ms
+  푼 뒤  regions  {200: 67}  p50 5ms p95 16ms max 51ms
+  푼 뒤  trades   {200: 80}  p50 6ms p95 12ms max 86ms
+aptlake-qa-postgres-1
+== postgres 15초 멈춤 (요청 748건, 20 rps)
+  전    months   {200: 47}  p50 5ms p95 11ms max 112ms
+  전    ops      {200: 32}  p50 27ms p95 44ms max 249ms
+  전    regions  {200: 36}  p50 5ms p95 20ms max 60ms
+  전    trades   {200: 43}  p50 6ms p95 12ms max 24ms
+  멈춤   months   {200: 66}  p50 7ms p95 13ms max 95ms
+  멈춤   ops      {200: 77}  p50 8522ms p95 15677ms max 16552ms
+  멈춤   regions  {200: 78}  p50 7ms p95 12ms max 42ms
+  멈춤   trades   {200: 74}  p50 8ms p95 15ms max 74ms
+  푼 뒤  months   {200: 80}  p50 6ms p95 178ms max 655ms
+  푼 뒤  ops      {200: 68}  p50 31ms p95 93ms max 1921ms
+  푼 뒤  regions  {200: 67}  p50 7ms p95 88ms max 776ms
+  푼 뒤  trades   {200: 80}  p50 8ms p95 19ms max 658ms
