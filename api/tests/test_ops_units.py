@@ -13,10 +13,12 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from aptlake_api import ops
 from aptlake_api.core.clock import provisional
+from aptlake_api.core.redact import redact
 from aptlake_api.core.values import add_months as _add
 from aptlake_api.features.index.service import index_point
+from aptlake_api.features.ops import service as ops
+from aptlake_api.features.ops.dagster import DagsterClient, _event_ts
 
 FAKE_KEY_SECRET = "Zq9" * 14 + "Z"  # 43자 — 소스에 키 형식 문자열을 통째로 두지 않는다 (gitleaks 규칙과 충돌 방지)
 SECRETS = {
@@ -35,23 +37,23 @@ SECRETS = {
 
 @pytest.mark.parametrize("raw", list(SECRETS))
 def test_redact_hides_secrets(raw):
-    out = ops.redact(raw)
+    out = redact(raw)
     assert SECRETS[raw] not in out
     assert "***" in out
 
 
 def test_redact_keeps_identifiers_that_help_debugging():
     raw = '{"complex_key": "c_aaaaaaaaaaaaaaaaaaaa", "stepKey": "bronze", "partition_key": "202407"}'
-    assert ops.redact(raw) == raw
-    assert ops.redact(None) == ""
+    assert redact(raw) == raw
+    assert redact(None) == ""
 
 
 def test_iso_units_and_bad_values():
-    assert ops.iso(1790387026.44) == "2026-09-26T01:43:46.440000+00:00"
-    assert ops.iso("1790387026") == "2026-09-26T01:43:46+00:00"
-    assert ops.iso(None) is None and ops.iso("") is None
-    assert ops.iso(1790385472373) is None  # 밀리초를 초로 잘못 넘기면 버린다 (목록 전체 500 대신)
-    assert ops._event_ts({"timestamp": "1790385472373"}) == pytest.approx(1790385472.373)
+    assert ops.epoch_iso(1790387026.44) == "2026-09-26T01:43:46.440000+00:00"
+    assert ops.epoch_iso("1790387026") == "2026-09-26T01:43:46+00:00"
+    assert ops.epoch_iso(None) is None and ops.epoch_iso("") is None
+    assert ops.epoch_iso(1790385472373) is None  # 밀리초를 초로 잘못 넘기면 버린다 (목록 전체 500 대신)
+    assert _event_ts({"timestamp": "1790385472373"}) == pytest.approx(1790385472.373)
 
 
 def _gql(handler):
@@ -59,7 +61,7 @@ def _gql(handler):
         body = json.loads(request.content)
         return httpx.Response(200, json={"data": handler(body["query"], body.get("variables") or {})})
 
-    return ops.DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(respond)))
+    return DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(respond)))
 
 
 async def test_run_errors_prefers_step_failures_and_caches():
@@ -139,7 +141,7 @@ async def test_graphql_errors_become_unavailable():
     def respond(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"errors": [{"message": "Limit of 2000 is too large"}]})
 
-    dag = ops.DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(respond)))
+    dag = DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(respond)))
     with pytest.raises(ops.DagsterUnavailable):
         await dag.run_errors("run-3")
     assert "run-3" not in dag._run_errors  # 실패는 캐시하지 않는다

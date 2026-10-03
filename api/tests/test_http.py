@@ -242,14 +242,14 @@ async def test_ops_status_and_error_log(apps, adm, admin_key):
 
 
 async def test_ops_status_survives_dagster_down(apps, adm, admin_key):
-    from aptlake_api import ops
+    from aptlake_api.features.ops.dagster import DagsterClient
 
     def down(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
     public = apps[0]
     real = public.state.dagster
-    public.state.dagster = ops.DagsterClient(
+    public.state.dagster = DagsterClient(
         "http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(down))
     )
     try:

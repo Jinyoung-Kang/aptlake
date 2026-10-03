@@ -6,7 +6,7 @@ from __future__ import annotations
 import psycopg
 from prometheus_client.core import GaugeMetricFamily
 
-from .core.settings import settings
+from ...core.settings import settings
 
 
 class OpsCollector:

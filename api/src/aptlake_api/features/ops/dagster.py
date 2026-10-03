@@ -1,49 +1,16 @@
-"""수집 상태 · 오류 로그 (웹 [수집 상태] 메뉴).
+"""오케스트레이터(Dagster) GraphQL 읽기 전용 클라이언트 — 도커 네트워크 내부 http://dagster:3000/graphql.
 
-출처
-  - 작업 큐·스케줄: Dagster GraphQL (읽기 전용 고정 질의, 도커 네트워크 내부 http://dagster:3000/graphql)
-  - 오류 로그: ① Dagster 실행·단계 실패(오류 클래스·메시지·스택) ② 센서 틱 오류
-              ③ 원천 수집 오류(ops.ingest_partition, 같은 달·같은 오류는 묶음) ④ 품질 검사 실패(ops.dq_result)
-              ⑤ API 5xx (ClickHouse usage_event — 키·클라이언트 식별자는 내보내지 않음) ⑥ 원천 한도 소진
-
-공개 화면에 나가는 운영 정보이므로 비밀값을 가린다(redact): 인증키 파라미터, DSN 비밀번호, API 키, 토큰.
-실행 설정(run config)은 내보내지 않는다. Dagster 가 꺼져 있으면(`make serve`) 해당 부분만 'unavailable'.
+고정 질의만 보낸다 (작업 실행·설정 변경 없음). 실행 설정(run config)은 읽지 않는다.
 """
 
 from __future__ import annotations
 
-import datetime as dt
 import time
 from typing import Any
 
 import httpx
 
-from .core.redact import redact  # noqa: F401 — 운영 화면·품질 응답이 쓰는 비밀 가림
-
-# 가릴 이름: 이름 끝이 이 단어면 값을 가린다 (s3.secret-access-key, aws_session_token, X-Amz-Signature, serviceKey …).
-# 'key' 단독 이름(V-World ?key=)은 앞에 다른 단어가 없을 때만 — complex_key·stepKey 같은 식별자는 남긴다.
-JOB_LABEL = {
-    "month_pipeline": "월 수집·반영·발행",
-    "dims_and_index": "단지 차원·자체 지수",
-    "refresh_regions": "시군구·경계 갱신",
-    "iceberg_maintenance": "레이크 유지보수",
-    "__ASSET_JOB": "자산 실행",
-}
-PRIORITY_LABEL = {
-    "incremental": "증분",
-    "recheck": "재확인",
-    "backfill": "백필",
-    "retry": "재시도",
-    "publish-only": "발행 전용",
-    "publish-only-manual": "발행 전용(수동)",
-}
-SCHEDULE_LABEL = {
-    "daily_dims_and_index": "매일 단지 차원·지수",
-    "weekly_iceberg_maintenance": "매주 레이크 유지보수",
-    "monthly_regions": "매월 시군구·경계 갱신",
-    "due_partitions_sensor": "수집 센서 (기한 도래 파티션)",
-}
-ACTIVE = ["QUEUED", "NOT_STARTED", "STARTING", "STARTED", "CANCELING"]
+from .service import DagsterUnavailable
 
 Q_RUNS = """query($f: RunsFilter, $n: Int){ runsOrError(filter: $f, limit: $n){ __typename
   ... on Runs { results { runId jobName status creationTime startTime endTime tags { key value } } }
@@ -60,10 +27,6 @@ Q_LOGS = """query($id: ID!){ logsForRun(runId: $id, limit: 1000){ __typename  # 
       ... on ExecutionStepFailureEvent { error { className message stack causes { className message } } }
       ... on RunFailureEvent { error { className message } } } }
   ... on PythonError { message } } }"""
-
-
-class DagsterUnavailable(Exception):
-    pass
 
 
 class DagsterClient:
@@ -152,69 +115,3 @@ def _event_ts(e: dict) -> float | None:
     """이벤트 로그의 timestamp 는 밀리초 문자열 (실행 기록의 startTime 등은 초 단위 실수)."""
     ts = e.get("timestamp")
     return float(ts) / 1000 if ts else None
-
-
-def iso(ts: float | int | str | None) -> str | None:
-    """초 단위 유닉스 시각 → ISO 8601 (UTC). 범위를 벗어난 값은 버린다 (한 항목 때문에 목록 전체가 실패하지 않게)."""
-    if ts is None or ts == "":
-        return None
-    try:
-        return dt.datetime.fromtimestamp(float(ts), tz=dt.UTC).isoformat()
-    except (ValueError, OverflowError, OSError):
-        return None
-
-
-def job_row(r: dict) -> dict:
-    tags = {t["key"]: t["value"] for t in r.get("tags", [])}
-    prio = tags.get("aptlake/priority")
-    start, end = r.get("startTime"), r.get("endTime")
-    return {
-        "runId": r["runId"],
-        "job": r["jobName"],
-        "jobLabel": JOB_LABEL.get(r["jobName"], r["jobName"]),
-        "partition": tags.get("dagster/partition"),
-        "priority": prio,
-        "priorityLabel": PRIORITY_LABEL.get(prio or "", prio or "수동"),
-        "trigger": "센서"
-        if tags.get("dagster/sensor_name")
-        else "스케줄"
-        if tags.get("dagster/schedule_name")
-        else "수동",
-        "status": r["status"],
-        "requestedAt": iso(r.get("creationTime")),
-        "startedAt": iso(start),
-        "endedAt": iso(end),
-        "durationS": round(end - start, 1) if start and end else None,
-    }
-
-
-def stack_tail(stack: list[str] | None, frames: int = 12) -> str:
-    """스택은 마지막 N개 프레임만 (오류 지점에 가까운 쪽), 비밀값 가림."""
-    if not stack:
-        return ""
-    return redact("".join(stack[-frames:])).rstrip()
-
-
-def run_error_entries(job: dict, errors: list[dict]) -> list[dict]:
-    out = []
-    for i, e in enumerate(errors):
-        err = e["error"] or {}
-        causes = err.get("causes") or []
-        detail = stack_tail(err.get("stack"))
-        for c in causes:
-            detail += f"\n\n원인: {c.get('className') or ''}: {redact(c.get('message'))}".rstrip()
-        msg = redact((err.get("message") or "").strip())
-        out.append(
-            {
-                "id": f"run:{job['runId']}:{i}",
-                "at": iso(e["at"]) or job["endedAt"] or job["requestedAt"],
-                "level": "ERROR",
-                "source": "pipeline",
-                "where": " · ".join(x for x in [job["jobLabel"], job["partition"], e.get("step")] if x),
-                "message": msg.splitlines()[0][:300] if msg else (err.get("className") or "실패"),
-                "detail": (msg + ("\n\n" + detail if detail else "")).strip(),
-                "ref": job["runId"],
-                "resolved": False,
-            }
-        )
-    return out

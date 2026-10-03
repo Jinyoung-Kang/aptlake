@@ -18,7 +18,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from prometheus_client import REGISTRY, CollectorRegistry, multiprocess, start_http_server
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from . import ops, routes_admin, routes_ops
+from . import routes_admin
 from .core.auth import _SLIDING, load_plans
 from .core.envelope import Envelope
 from .core.errors import TRANSIENT_HANDLERS, api_error_handler, http_handler, unhandled_handler, validation_handler
@@ -33,6 +33,8 @@ from .features.exports import worker as export_worker
 from .features.exports.router import router as exports_router
 from .features.index.router import router as index_router
 from .features.market.router import router as market_router
+from .features.ops.dagster import DagsterClient
+from .features.ops.router import router as ops_router
 from .features.quality.router import router as quality_router
 from .features.regions.router import router as regions_router
 from .features.trades.router import router as trades_router
@@ -51,7 +53,7 @@ def _build(name: str, internal: bool) -> FastAPI:
         app.state.plans = await load_plans(res)
         app.state.sliding = res.redis.register_script(_SLIDING)
         app.state.dsv = DatasetVersion()
-        app.state.dagster = ops.DagsterClient(s.dagster_graphql_url)
+        app.state.dagster = DagsterClient(s.dagster_graphql_url)
         app.state.geo_cache = {}
         app.state.usage = UsageRecorder(res.ch_usage, s.usage_flush_interval_s, s.usage_flush_max)
         app.state.usage.start()
@@ -63,7 +65,7 @@ def _build(name: str, internal: bool) -> FastAPI:
             registry = CollectorRegistry()
             multiprocess.MultiProcessCollector(registry)
         if internal:
-            from .opsmetrics import OpsCollector
+            from .features.ops.metrics import OpsCollector
 
             registry.register(OpsCollector())
         with contextlib.suppress(OSError):
@@ -126,9 +128,9 @@ def _build(name: str, internal: bool) -> FastAPI:
             usage_router,
             exports_router,
             market_router,
+            ops_router,
         ):
             app.include_router(feature)
-        app.include_router(routes_ops.router)
     # 큰 응답(경계 GeoJSON·수집 상태)은 압축. 비밀값이 섞이지 않는 응답이라 압축 부채널(BREACH) 우려 없음
     app.add_middleware(Envelope, name=name)  # 안쪽: 추적 ID·보안 헤더·지표·사용량
     app.add_middleware(GZipMiddleware, minimum_size=2048)

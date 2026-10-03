@@ -28,7 +28,7 @@ def fake_dagster(now: float):
     """Dagster GraphQL 가짜 응답: 이후 성공으로 복구된 실패 1건, 아직 실패 중 1건, 대기·실행 중 작업, 오류 난 센서 틱."""
     import json
 
-    from aptlake_api import ops
+    from aptlake_api.features.ops.dagster import DagsterClient
 
     def run(rid, status, created, partition="202407", ended=True):
         return {
@@ -104,4 +104,4 @@ def fake_dagster(now: float):
             data = {"runsOrError": {"__typename": "Runs", "results": rows}}
         return httpx.Response(200, json={"data": data})
 
-    return ops.DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    return DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
