@@ -165,6 +165,7 @@ flowchart LR
 | 브라우저 | CSP 에 **인라인 스크립트·인라인 스타일 모두 금지**(차트 툴팁도 클래스만), Permissions-Policy·COOP·CORP·X-Frame-Options·nosniff, 차트 툴팁(HTML)에 들어가는 이름은 모두 이스케이프(XSS), 접근 로그에 쿼리 문자열을 남기지 않음, 개발자 화면에 넣은 키는 React state 에만 | [aptlake.conf.template](web/templates/aptlake.conf.template), [format.ts](web/src/lib/format.ts) |
 | 웹 키 남용 · 폭주 | 웹 키는 브라우저의 같은 출처 요청(`Sec-Fetch-Site: same-origin`)에만 붙음 → curl 등은 익명 한도. nginx 가 IP 당 초당 50회로 먼저 자름(429) | [aptlake.conf.template](web/templates/aptlake.conf.template) |
 | 공급망 | uv.lock·package-lock 고정, GitHub Actions 는 **커밋 SHA 고정**, pip-audit·npm audit·Trivy·gitleaks, Dependabot(베이스 이미지·compose 이미지 포함, 묶음 PR) | [ci.yml](.github/workflows/ci.yml), [dependabot.yml](.github/dependabot.yml) |
+| 이미지 취약점 | 자체 이미지 3종은 빌드 때 OS 보안 갱신을 적용하고 psycopg 를 Debian 의 libpq 에 대고 빌드(오래된 라이브러리를 묶어 오는 휠 대신) → CI 가 **수정판 있는 HIGH·CRITICAL 0건**을 커밋마다 강제. 서드파티 이미지는 주 1회 스캔, 남는 항목은 이미지별 예외 파일에 닿지 않는 이유·만료일 | [scan_images.sh](tools/scan_images.sh), [infra/trivy](infra/trivy), [images.yml](.github/workflows/images.yml) |
 
 ## 6. 성능 (측정값)
 
@@ -304,7 +305,7 @@ make index         # 단지 차원·자체 지수·R-ONE 검증 산출 (매일 0
 | `make pipeline-redeploy` | 실행 중인 달이 끝나길 기다렸다가 파이프라인 코드 교체 |
 | `make test` / `make test-integration` | 단위·API(Testcontainers) / 실행 중 스택에서 SCD2 통합 테스트 |
 | `make loadtest` | k6 (`export APTLAKE_KEY=$(make -s loadtest-key)`) |
-| `make lint` · `make audit` | ruff·mypy·tsc / pip-audit·npm audit |
+| `make lint` · `make audit` · `make scan-images` | ruff·mypy·tsc / pip-audit·npm audit / 이미지 Trivy(자체 + 서드파티) |
 
 API 예:
 
@@ -326,7 +327,7 @@ curl -H "X-API-Key: $KEY" "http://127.0.0.1:8610/v1/quality/partitions/41135/202
 | dbt | 22 | 월 파티션마다 실행, 실패 시 발행 차단 (전국·시도 집계 = 시군구 합 대조 포함) |
 | 부하 | k6 | 200 + 100 RPS + 한도 초과 시나리오, 최대 처리량(동시 32) |
 
-**CI (GitHub Actions, 매 커밋·PR):** 위 단위·통합 테스트(Testcontainers 포함) + ruff·mypy·tsc·vite build + `dbt parse` + pip-audit·npm audit + gitleaks(비밀 스캔, `al_live_` 키 규칙) + Trivy(취약점) + compose 설정 검증 + **이미지 3종 빌드**. 액션은 커밋 SHA 고정, Dependabot 은 작은 버전만 묶어서 제안합니다.
+**CI (GitHub Actions, 매 커밋·PR):** 위 단위·통합 테스트(Testcontainers 포함) + ruff·mypy·tsc·vite build + `dbt parse` + pip-audit·npm audit + gitleaks(비밀 스캔, `al_live_` 키 규칙) + Trivy(소스 취약점) + compose 설정 검증 + **이미지 3종 빌드와 이미지 Trivy 스캔**. 서드파티 이미지 스캔·지원 종료 점검은 주 1회. 액션은 커밋 SHA 고정, Dependabot 은 작은 버전만 묶어서 제안합니다.
 
 ## 12. 한계
 
