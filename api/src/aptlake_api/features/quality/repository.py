@@ -7,6 +7,16 @@ from typing import Any, cast
 from psycopg_pool import AsyncConnectionPool
 
 Row = dict[str, Any]
+# 실패한 검사(d)가 뒤에 같은 자산·검사·파티션으로 통과했는가. 파티션 없음끼리도 같다고 본다.
+# IS NOT DISTINCT FROM 은 색인을 못 써 실패 1건마다 표 전체를 읽었다(실데이터 7.9만 행, 57건에 446ms) →
+# 파티션 있음·없음으로 나눠 (partition, at) 색인을 쓰게 한다 (8.6ms, 결과 동일)
+RESOLVED = """CASE WHEN d.partition IS NULL THEN
+         EXISTS (SELECT 1 FROM ops.dq_result x WHERE x.partition IS NULL AND x.asset = d.asset
+                   AND x.check_name = d.check_name AND x.at > d.at AND x.passed)
+       ELSE
+         EXISTS (SELECT 1 FROM ops.dq_result x WHERE x.partition = d.partition AND x.asset = d.asset
+                   AND x.check_name = d.check_name AND x.at > d.at AND x.passed)
+       END"""
 
 
 class QualityRepository:
@@ -32,10 +42,8 @@ class QualityRepository:
             ).fetchone()
             failed = await (
                 await c.execute(
-                    """SELECT d.asset, d.partition, d.check_name, d.severity, d.blocking, d.metric, d.at,
-                              EXISTS (SELECT 1 FROM ops.dq_result x
-                                      WHERE x.asset = d.asset AND x.partition IS NOT DISTINCT FROM d.partition
-                                        AND x.check_name = d.check_name AND x.at > d.at AND x.passed) AS resolved
+                    f"""SELECT d.asset, d.partition, d.check_name, d.severity, d.blocking, d.metric, d.at,
+                              {RESOLVED} AS resolved
                        FROM ops.dq_result d
                        WHERE NOT d.passed AND d.at > now() - interval '7 days' ORDER BY d.at DESC LIMIT 200"""
                 )

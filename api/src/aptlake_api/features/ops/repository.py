@@ -11,6 +11,7 @@ from psycopg_pool import AsyncConnectionPool
 from redis.asyncio import Redis
 
 from ...core.errors import ch_transient
+from ..quality.repository import RESOLVED
 from .service import SourceUnavailable
 
 Row = dict[str, Any]
@@ -102,11 +103,9 @@ class OpsRepository:
 
     async def quality_failures(self, since: dt.datetime) -> list[Row]:
         return await self._all(
-            """
+            f"""
             SELECT d.check_id, d.asset, d.partition, d.check_name, d.severity, d.blocking, d.metric, d.at,
-                   EXISTS (SELECT 1 FROM ops.dq_result x
-                           WHERE x.asset = d.asset AND x.partition IS NOT DISTINCT FROM d.partition
-                             AND x.check_name = d.check_name AND x.at > d.at AND x.passed) AS resolved
+                   {RESOLVED} AS resolved
             FROM ops.dq_result d
             WHERE NOT d.passed AND d.at >= %s ORDER BY d.at DESC LIMIT 400""",
             (since,),
