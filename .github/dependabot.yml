@@ -41,6 +41,9 @@ updates:
       # 대신 주간 지원 종료 점검(.github/workflows/eol.yml)이 알린다 — ClickHouse 는 LTS(YY.3·YY.8)만 쓴다
       - dependency-name: clickhouse/clickhouse-server
         update-types: [version-update:semver-minor]
+      # Prometheus 는 LTS 라인(3.13)을 유지 — 작은 올림(3.14 등)은 지원 기간이 6주 남짓이라 제안받지 않는다 (패치만)
+      - dependency-name: prom/prometheus
+        update-types: [version-update:semver-minor]
       - dependency-name: trinodb/trino
   - package-ecosystem: github-actions
     directory: /

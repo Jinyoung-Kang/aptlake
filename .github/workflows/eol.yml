@@ -1,0 +1,17 @@
+name: eol
+# 런타임·서비스 이미지의 지원 종료 점검 (tools/check_eol.py) — 지원이 끝난 버전이 있으면 실패로 알린다.
+# 코드 변경과 무관하게 날짜가 지나며 생기는 문제라 커밋마다가 아니라 주 1회 (월요일 09:00 KST).
+on:
+  schedule: [{ cron: "0 0 * * 1" }]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  eol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: python3 tools/check_eol.py
