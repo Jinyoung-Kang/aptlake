@@ -26,29 +26,33 @@ export function failingChecks(all: FailedCheck[], withResolved: boolean): Failed
 /** 집계에 나타난 계약월(YYYYMM) 오름차순 */
 export function rollupMonths(rollup: QualityRollup | null): string[] {
   const set = new Set<string>();
-  Object.values(rollup?.cells ?? {}).forEach((m) => Object.keys(m).forEach((k) => set.add(k)));
+  for (const m of Object.values(rollup?.cells ?? {})) for (const k of Object.keys(m)) set.add(k);
   return [...set].sort();
 }
 
 /** 시도 히트맵 칸: [x(월), y(시도), 반영 완료 %, 상태별 개수 문구] */
 export function rollupCells(rollup: QualityRollup | null, sidoCodes: string[], months: string[]): [number, number, number, string][] {
   const out: [number, number, number, string][] = [];
-  sidoCodes.forEach((sd, y) => months.forEach((m, x) => {
-    const c = rollup?.cells[sd]?.[m];
-    if (!c) return;
-    const tot = Object.values(c).reduce((a, b) => a + b, 0);
-    out.push([x, y, Math.round(((c.MERGED ?? 0) / tot) * 100), Object.entries(c).map(([k, v]) => `${STATUS_LABEL[k] ?? k} ${v}`).join(" · ")]);
-  }));
+  sidoCodes.forEach((sd, y) => {
+    months.forEach((m, x) => {
+      const c = rollup?.cells[sd]?.[m];
+      if (!c) return;
+      const tot = Object.values(c).reduce((a, b) => a + b, 0);
+      out.push([x, y, Math.round(((c.MERGED ?? 0) / tot) * 100), Object.entries(c).map(([k, v]) => `${STATUS_LABEL[k] ?? k} ${v}`).join(" · ")]);
+    });
+  });
   return out;
 }
 
 /** 시군구 히트맵 칸: [x(월), y(시군구), 상태 순번, 원천 건수] */
 export function gridCells(grid: QualityGrid | null, sggCodes: string[], months: string[]): [number, number, number, number | null][] {
   const out: [number, number, number, number | null][] = [];
-  sggCodes.forEach((code, y) => months.forEach((m, x) => {
-    const c = grid?.cells[code]?.[m];
-    if (c) out.push([x, y, STATUS_ORDER.indexOf(c[0]), c[1]]);
-  }));
+  sggCodes.forEach((code, y) => {
+    months.forEach((m, x) => {
+      const c = grid?.cells[code]?.[m];
+      if (c) out.push([x, y, STATUS_ORDER.indexOf(c[0]), c[1]]);
+    });
+  });
   return out;
 }
 

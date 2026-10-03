@@ -5,7 +5,11 @@ const res = (status: number, headers: Record<string, string> = {}) => new Respon
 
 describe("API 연결 테스트 판정", () => {
   const list = probes("41135", "2024-07", "");
-  const by = (id: string) => list.find((p) => p.id === id)!;
+  const by = (id: string) => {
+    const p = list.find((x) => x.id === id);
+    if (!p) throw new Error(`점검 없음: ${id}`);
+    return p;
+  };
   it("점검 목록: 키를 넣었을 때만 '내 키' 점검", () => {
     expect(list.map((p) => p.id)).toEqual(["regions", "overview", "months", "trades", "index", "bad-param", "bad-key"]);
     expect(probes("41135", "2024-07", "al_live_x").at(-1)?.path).toBe("/v1/me/usage?days=1");

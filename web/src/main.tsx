@@ -9,7 +9,9 @@ try {
   document.documentElement.dataset.theme = "light";
 }
 
-createRoot(document.getElementById("root")!).render(
+const root = document.getElementById("root");
+if (!root) throw new Error("index.html 에 #root 가 없습니다");
+createRoot(root).render(
   <StrictMode>
     <App />
   </StrictMode>,

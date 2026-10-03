@@ -19,7 +19,7 @@ describe("숫자 표기", () => {
     expect(manwon(null)).toBe(DASH);
   });
   it("변화율은 양수에 + 를 붙인다", () => {
-    expect(pct(3.14159)).toBe("+3.1%");
+    expect(pct(3.04159)).toBe("+3.0%");
     expect(pct(-0.04, 2)).toBe("-0.04%");
     expect(pct(0)).toBe("0.0%");
     expect(pct(undefined)).toBe(DASH);

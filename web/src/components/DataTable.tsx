@@ -39,14 +39,15 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, selectedKey, i
         <thead>
           <tr>
             {columns.map((c) => {
-              const active = sort?.key === c.key;
+              const dir = sort && sort.key === c.key ? sort.dir : null;  // 이 열로 정렬 중이면 방향
+              const active = dir != null;
               return (
                 <th key={c.key} className={`${c.align === "right" ? "num" : ""} ${c.sort ? "sortable" : ""}`} style={{ width: c.width }}
-                    title={c.title} aria-sort={active ? (sort!.dir === "asc" ? "ascending" : "descending") : undefined}
-                    onClick={c.sort ? () => setSort(active ? { key: c.key, dir: sort!.dir === "asc" ? "desc" : "asc" } : { key: c.key, dir: "desc" }) : undefined}>
-                  {active && c.align === "right" ? <span className="arrow">{sort!.dir === "asc" ? "▲" : "▼"}</span> : null}
+                    title={c.title} aria-sort={dir ? (dir === "asc" ? "ascending" : "descending") : undefined}
+                    onClick={c.sort ? () => setSort(dir ? { key: c.key, dir: dir === "asc" ? "desc" : "asc" } : { key: c.key, dir: "desc" }) : undefined}>
+                  {active && c.align === "right" ? <span className="arrow">{dir === "asc" ? "▲" : "▼"}</span> : null}
                   {sqm(c.header)}
-                  {active && c.align !== "right" ? <span className="arrow">{sort!.dir === "asc" ? "▲" : "▼"}</span> : null}
+                  {active && c.align !== "right" ? <span className="arrow">{dir === "asc" ? "▲" : "▼"}</span> : null}
                 </th>
               );
             })}

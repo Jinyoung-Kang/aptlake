@@ -35,10 +35,10 @@ function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: 
   }
   const values = useMemo(() => {
     const m = new Map<string, SggSummary>();
-    data.sgg.forEach((s) => m.set(s.sggCd, s));
+    for (const s of data.sgg) m.set(s.sggCd, s);
     return m;
   }, [data]);
-  const meta = METRICS.find((m) => m.value === metric)!;
+  const meta = METRICS.find((m) => m.value === metric) ?? METRICS[0];
 
   const build = (p: Palette) => {
     const series = geo.features.map((f) => {

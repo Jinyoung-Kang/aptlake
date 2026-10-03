@@ -72,7 +72,7 @@ export default function ComplexPage({ route }: { route: Route }) {
           </section>
           <section className="section">
             <div className="section-head"><h2>최근 거래</h2><span className="sub">최근 20건</span></div>
-            <DataTable rows={data!.recentTrades} rowKey={(t) => t.tradeId} columns={[
+            <DataTable rows={data?.recentTrades ?? []} rowKey={(t) => t.tradeId} columns={[
               { key: "d", header: "계약일", cell: (t) => t.dealDate.replaceAll("-", ".") },
               { key: "a", header: "전용m²", align: "right", cell: (t) => num(t.areaM2, 2) },
               { key: "f", header: "층", align: "right", cell: (t) => t.floor ?? DASH },

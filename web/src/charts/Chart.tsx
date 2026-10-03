@@ -89,6 +89,7 @@ export function Chart({ build, deps, height = 320, label, onClick, onReady }: Pr
   const clickRef = useRef(onClick);
   clickRef.current = onClick;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 차트 인스턴스는 처음 한 번만 만든다 (최신 build·onClick 은 ref 로 읽음)
   useEffect(() => {
     if (!el.current) return;
     const chart = echarts.init(el.current, undefined, { renderer: "canvas" });
@@ -105,13 +106,15 @@ export function Chart({ build, deps, height = 320, label, onClick, onReady }: Pr
       chart.dispose();
       inst.current = null;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    inst.current?.setOption(build(palette()), true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  useEffect(
+    () => {
+      inst.current?.setOption(build(palette()), true);
+    },
+    // biome-ignore lint/correctness/useExhaustiveDependencies: 다시 그릴 시점은 호출한 쪽이 deps 로 정한다 (build 는 매번 새 함수)
+    deps,
+  );
 
   return <div ref={el} role="img" aria-label={label} style={{ width: "100%", height }} />;
 }

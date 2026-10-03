@@ -26,6 +26,7 @@ function Pages() {
   const route = useRoute();
   const head = route.parts[0] ?? "market";
   const { data } = useApi<Versioned>(paths.ticker());
+  // biome-ignore lint/correctness/useExhaustiveDependencies: 같은 메뉴 안에서 하위 경로(다른 단지·지역)로 바뀌어도 맨 위로
   useEffect(() => {
     document.title = `${TITLES[head] ?? "AptLake"} · AptLake`;
     window.scrollTo({ top: 0 });

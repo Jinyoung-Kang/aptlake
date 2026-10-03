@@ -25,6 +25,7 @@ export function Sqm() {
 /** 문자열 속 '㎡'·'m²' 를 <Sqm/> 로 바꾼다 (API 가 준 단위·라벨에도 쓴다). 문자열이 아니면 그대로. */
 export function sqm(text: ReactNode): ReactNode {
   if (typeof text !== "string" || !/㎡|m²/.test(text)) return text;
+  // biome-ignore lint/suspicious/noArrayIndexKey: 글자를 나눈 위치가 곧 정체성이다 (순서가 바뀌지 않음)
   return text.split(/㎡|m²/).flatMap((part, i) => (i ? [<Sqm key={i} />, part] : [part]));
 }
 

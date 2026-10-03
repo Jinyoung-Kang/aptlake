@@ -7,9 +7,9 @@
     "enabled": true,
     "rules": {
       "recommended": true,
-      // 도입 시점(2026-10)에 이미 있던 위반은 경고로 두고, 구조 정리(E)·UI(F) 단계에서 고친 뒤 error 로 되돌린다
-      "correctness": { "useExhaustiveDependencies": "warn", "useHookAtTopLevel": "error" },
-      "suspicious": { "useIterableCallbackReturn": "warn", "noArrayIndexKey": "warn" },
+      // 도입 시점(2026-10)에 이미 있던 위반은 경고로 두고, 고친 뒤 error 로 되돌린다 (남은 것: 접근성·CSS — UI 단계)
+      "correctness": { "useExhaustiveDependencies": "error", "useHookAtTopLevel": "error" },
+      "suspicious": { "useIterableCallbackReturn": "error", "noArrayIndexKey": "error" },
       "a11y": {
         "useSemanticElements": "warn",
         "noStaticElementInteractions": "warn",
@@ -17,7 +17,7 @@
         "useAriaPropsSupportedByRole": "warn",
         "useAriaPropsForRole": "warn"
       },
-      "style": { "noNonNullAssertion": "warn", "noDescendingSpecificity": "warn", "useTemplate": "warn" },
+      "style": { "noNonNullAssertion": "error", "noDescendingSpecificity": "warn", "useTemplate": "error" },
       "complexity": { "noImportantStyles": "warn" }
     }
   }

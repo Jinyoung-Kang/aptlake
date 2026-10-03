@@ -17,8 +17,12 @@ export function RegionsProvider({ children }: { children: ReactNode }) {
     const byCode = new Map(regions.map((r) => [r.sggCd, r]));
     const m = new Map<string, Sido>();
     for (const r of regions) {
-      if (!m.has(r.sidoCd)) m.set(r.sidoCd, { sidoCd: r.sidoCd, name: r.sidoName, regions: [] });
-      m.get(r.sidoCd)!.regions.push(r);
+      let sido = m.get(r.sidoCd);
+      if (!sido) {
+        sido = { sidoCd: r.sidoCd, name: r.sidoName, regions: [] };
+        m.set(r.sidoCd, sido);
+      }
+      sido.regions.push(r);
     }
     const sidos = [...m.values()].sort((a, b) => a.sidoCd.localeCompare(b.sidoCd));
     const names = new Map(sidos.map((s) => [s.sidoCd, s.name]));
