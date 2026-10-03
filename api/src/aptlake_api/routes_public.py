@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import math
 import re
 from typing import Annotated, Any
 
@@ -62,7 +63,7 @@ def _ts(v: dt.datetime | None) -> str | None:
 
 
 def _round(v: float | None) -> float | None:
-    return None if v is None else round(v, 1)
+    return None if v is None or math.isnan(v) else round(v, 1)
 
 
 # ───────────────────────── 거래 ─────────────────────────
@@ -176,7 +177,8 @@ async def trades(
                 "count": a0["n"],
                 "cancelled": a0["cancelled"],
                 "medianPpm2": _round(a0["med"]),
-                "medianPrice": None if a0["med_price"] is None or a0["n"] == 0 else round(a0["med_price"]),
+                # 조건의 거래가 모두 해제면 유효 거래가 없어 중위가가 NaN — round(NaN) 은 예외(500)라 '없음'으로
+                "medianPrice": None if a0["n"] == 0 or _round(a0["med_price"]) is None else round(a0["med_price"]),
             }
         has_more = len(rows) > limit
         rows = rows[:limit]

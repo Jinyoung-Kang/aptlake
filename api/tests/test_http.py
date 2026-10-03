@@ -477,3 +477,24 @@ async def test_region_complexes_last_trade_is_deterministic(pub):
         r = await pub.get("/v1/regions/41135/complexes", params={"from": "2024-07", "to": "2024-07"})
         [c] = r.json()["items"]
         assert (c["lastDate"], c["lastPrice"]) == ("2024-07-31", 100247)
+
+
+async def test_trades_summary_when_every_trade_is_cancelled(pub, stack):
+    """조건의 거래가 모두 해제면 유효 거래 중위가는 '없음'이어야 한다 (500 이 아니라)."""
+    import datetime as dt
+    from decimal import Decimal
+
+    ts = dt.datetime(2023, 3, 20, tzinfo=dt.UTC)
+    row = ["11110-202303-00000000000000aa-0", "11110", dt.date(2023, 3, 15), "c_" + "b" * 20, "해제단지", "청운동"]
+    row += ["1", Decimal("59.9"), 3, 70000, 1168.6, 1, dt.date(2023, 3, 18), None, "", "중개거래", "개인", "개인"]
+    row += [2001, 0, 2, ts, None]
+    cols = ["trade_id", "sgg_cd", "deal_date", "complex_key", "apt_nm", "umd_nm", "jibun", "area_m2", "floor"]
+    cols += ["price_manwon", "ppm2", "is_cancelled", "cancel_date", "registered_date", "apt_dong", "deal_kind"]
+    cols += ["seller_type", "buyer_type", "build_year", "is_outlier", "version", "valid_from", "missing_since"]
+    stack["ch"].insert("trade_current", [row], column_names=cols)
+    r = await pub.get(
+        "/v1/trades", params={"sggCd": "11110", "from": "2023-03-01", "to": "2023-03-31", "includeCancelled": "true"}
+    )
+    assert r.status_code == 200, r.text
+    s = r.json()["summary"]
+    assert (s["count"], s["cancelled"], s["medianPpm2"], s["medianPrice"]) == (1, 1, None, None)
