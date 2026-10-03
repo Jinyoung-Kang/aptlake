@@ -1,0 +1,47 @@
+# QA-009 원인 분석과 설정 실험 — QA 스택(수정 전 API), 2026-10-04 04:10~05:05 KST
+# 부하: k6 loadtest/api.js, 회마다 결과 캐시 비우고 60초. CPU 는 cgroup 사용량(100 = 코어 1개). 운영 스택 수집 실행 없음
+
+## 1. 설정 실험 (200+100 RPS) — 모두 기준선 범위 안이라 채택하지 않음
+# e0·e4~e6 은 기준 설정 반복(e4~e6 은 진단 도구를 함께 돌림). e7 = ClickHouse cpuset 2-3·API 0-1, e8 = API cpu_shares 4096(나머지 1024)
+# '실패' 는 익명 한도 시나리오의 429(의도된 거절)를 포함한다
+- e0_base workers=4 conn=20 max_threads=2 RATE_MONTHS=200 RATE_TRADES=100
+e0_base    처리량 283.2 req/s · 실패 0.0018 · 시작 못한 반복 959 | cache_hit p50 10 · p95 712 | cache_miss p50 484 · p95 2159 | months p50 72 · p95 1431 | trades p50 130 · p95 2271
+- e1_mt1 workers=4 conn=20 max_threads=1 RATE_MONTHS=200 RATE_TRADES=100
+e1_mt1     처리량 265.9 req/s · 실패 0.0011 · 시작 못한 반복 2081 | cache_hit p50 14 · p95 494 | cache_miss p50 841 · p95 3140 | months p50 127 · p95 2048 | trades p50 199 · p95 3595
+- e2_conn4 workers=4 conn=4 max_threads=2 RATE_MONTHS=200 RATE_TRADES=100
+e2_conn4   처리량 275.6 req/s · 실패 0.0008 · 시작 못한 반복 1217 | cache_hit p50 15 · p95 448 | cache_miss p50 860 · p95 2724 | months p50 91 · p95 1778 | trades p50 177 · p95 2935
+- e3_conn4_mt1 workers=4 conn=4 max_threads=1 RATE_MONTHS=200 RATE_TRADES=100
+e3_conn4_mt1 처리량 269.1 req/s · 실패 0.0010 · 시작 못한 반복 1454 | cache_hit p50 13 · p95 579 | cache_miss p50 849 · p95 2848 | months p50 77 · p95 1875 | trades p50 136 · p95 3022
+- e4_base_procs workers=4 conn=20 max_threads=2 RATE_MONTHS=200 RATE_TRADES=100
+e4_base_procs 처리량 271.1 req/s · 실패 0.0035 · 시작 못한 반복 1490 | cache_hit p50 16 · p95 652 | cache_miss p50 734 · p95 2662 | months p50 124 · p95 1729 | trades p50 214 · p95 2918
+- e5_base_psi workers=4 conn=20 max_threads=2 RATE_MONTHS=200 RATE_TRADES=100
+e5_base_psi 처리량 270.7 req/s · 실패 0.0009 · 시작 못한 반복 1715 | cache_hit p50 20 · p95 898 | cache_miss p50 810 · p95 2740 | months p50 170 · p95 1839 | trades p50 313 · p95 2977
+- e6_prof workers=4 conn=20 max_threads=2 RATE_MONTHS=200 RATE_TRADES=100
+e6_prof    처리량 258.4 req/s · 실패 0.0008 · 시작 못한 반복 2484 | cache_hit p50 20 · p95 745 | cache_miss p50 910 · p95 3391 | months p50 148 · p95 2148 | trades p50 248 · p95 3749
+- e7_cpuset_ch23_api01 workers=4 conn=20 max_threads=2 RATE_MONTHS=200 RATE_TRADES=100
+e7_cpuset_ch23_api01 처리량 286.2 req/s · 실패 0.0009 · 시작 못한 반복 807 | cache_hit p50 7 · p95 473 | cache_miss p50 705 · p95 2453 | months p50 81 · p95 1520 | trades p50 152 · p95 2716
+- e8_api_priority workers=4 conn=20 max_threads=2 RATE_MONTHS=200 RATE_TRADES=100
+e8_api_priority 처리량 281.3 req/s · 실패 0.0009 · 시작 못한 반복 1019 | cache_hit p50 6 · p95 479 | cache_miss p50 597 · p95 2663 | months p50 89 · p95 1626 | trades p50 198 · p95 2815
+- e9_t120 workers=4 conn=20 max_threads=2 RATE_MONTHS=80 RATE_TRADES=40
+e9_t120    처리량 119.1 req/s · 실패 0.0055 · 시작 못한 반복 46 | cache_hit p50 3 · p95 223 | cache_miss p50 14 · p95 944 | months p50 8 · p95 609 | trades p50 17 · p95 1044
+- 연결 4 (e2): ClickHouse 서버 질의 p95 390 → 87 ms 로 줄었지만 대기가 API 쪽 연결 대기로 옮겨 가 전체 지연은 같았다
+
+## 2. 무엇을 기다리나 (기준 설정)
+- 부하 중 ClickHouse api_reader 질의: 1분에 실제 CPU 55.5 s, CPU 를 기다린 시간(OSCPUWaitMicroseconds) 514.5 s
+- VM 전체 CPU: user 254 · system 47 · softirq 15 · idle 82 (%, 400 = 4코어) — 평균으로는 약 0.8코어가 남는다
+- CPU 압박(PSI some avg10, 부하 25·40초): VM 76.4·70.9 % · API 34.7·36.7 % · ClickHouse 68.1·57.4 % · Redis 6.4·8.1 %
+- 캐시 적중 응답(ClickHouse 를 안 거침)도 p95 450~900 ms
+- API 워커 4개 CPU: 25.0 · 24.3 · 22.7 · 22.5 % (고르게, 포화 아님)
+- py-spy(워커 1개 25초, 요청 처리 중 표본 기준): Redis 호출 14.5 % · 인증·한도 의존성 13.6 % · ClickHouse 클라이언트 10.7 % — 압도적인 곳 없음
+- 질의 종류별 ClickHouse CPU/질의: months 4.97 ms(5,584행 읽어 12행) · 거래 목록 7.4 ms · 거래 요약 5.91 ms
+- months 질의 단독(clickhouse-benchmark, 동시 1, 600회) CPU/질의: max_threads 2 → 2.97 ms · 1 → 2.47 ms · 구 분석기 → 1.97 ms (부하 중에는 차이가 잡음 안)
+
+## 3. 초 단위로 보면 (80+40 RPS)
+- 전체: months p50 7 · p95 172 ms, trades p50 15 · p95 272 ms
+- 첫 3초(캐시 빈 직후)와 dockerd 급증 초·그다음 초를 빼면: months p95 26 ms, trades p95 49 ms (목표 80·150 ms 만족)
+- 정체는 약 10초마다 1초 안팎. 그 초마다 dockerd 가 4 → 50~90 %, VM 커널 몫이 25 → 60~90 % 로 튄다
+- 부하 없을 때(28초)도 dockerd 가 정확히 10초마다 47~80 % (…82·92·02초). 도커 이벤트는 없고, 헬스체크(3·5초 간격)와 주기가 맞지 않는다.
+  무엇이 dockerd 를 부르는지는 확인하지 못했다(미확인)
+
+## 4. 200+100 RPS, 수정 전 (초 단위)
+- 앞 30초는 캐시 빈 직후 몰림(미적중 대기열), 30초 이후는 p50 10·23 ms 이지만 dockerd 급증 초를 빼도 p95 259·448 ms (실제 용량 부족)
