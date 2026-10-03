@@ -6,60 +6,9 @@ import asyncio
 
 import httpx
 import pytest
-import pytest_asyncio
+from helpers import client_at, fake_dagster, new_key
 
 from aptlake_api import keys
-from aptlake_api.settings import settings
-
-
-@pytest_asyncio.fixture(scope="session")
-async def apps(stack):
-    settings.cache_clear()
-    from aptlake_api.main import create_internal_app, create_public_app
-
-    public, internal = create_public_app(), create_internal_app()
-    async with public.router.lifespan_context(public), internal.router.lifespan_context(internal):
-        await public.state.res.redis.set("al:ds:ver", "gold@test.1")
-        yield public, internal
-
-
-@pytest_asyncio.fixture(scope="session")
-async def pub(apps):
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=apps[0], client=("10.9.0.1", 1)), base_url="http://t"
-    ) as c:
-        yield c
-
-
-@pytest_asyncio.fixture(scope="session")
-async def adm(apps):
-    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=apps[1]), base_url="http://t") as c:
-        yield c
-
-
-@pytest_asyncio.fixture(scope="session")
-async def admin_key(stack):
-    import psycopg
-
-    issued = keys.issue("test-pepper")
-    with psycopg.connect(stack["su"], autocommit=True) as c:
-        cid = c.execute("INSERT INTO api.client (name, plan_id) VALUES ('op','pro') RETURNING client_id").fetchone()[0]
-        c.execute(
-            "INSERT INTO api.api_key VALUES (%s,%s,%s,%s, now(), now() + interval '1 day', NULL, NULL)",
-            (issued.key_id, cid, issued.secret_hmac, ["admin", "read"]),
-        )
-    return issued.api_key
-
-
-async def new_key(adm, admin_key, plan="free", scopes=("read",)) -> tuple[str, str]:
-    r = await adm.post(
-        "/v1/admin/clients", json={"name": f"c-{plan}", "planId": plan}, headers={"X-API-Key": admin_key}
-    )
-    assert r.status_code == 201
-    cid = r.json()["clientId"]
-    r = await adm.post(f"/v1/admin/clients/{cid}/keys", json={"scopes": list(scopes)}, headers={"X-API-Key": admin_key})
-    assert r.status_code == 201 and r.headers["cache-control"] == "no-store"
-    return r.json()["apiKey"], cid
 
 
 async def test_anonymous_months_contract(pub):
@@ -192,14 +141,6 @@ async def test_rate_limit_returns_429_with_retry_after(apps):
 # ───────────── 웹 BFF 플랜 · 상태 응답 ETag · 시장 요약 · 수집 상태 ─────────────
 
 
-def client_at(app, ip: str, key: str | None = None) -> httpx.AsyncClient:
-    return httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app, client=(ip, 1)),
-        base_url="http://t",
-        headers={"X-API-Key": key} if key else None,
-    )
-
-
 async def test_web_plan_limits_per_browser_ip(apps, stack):
     import psycopg
 
@@ -260,89 +201,6 @@ async def test_ticker_and_index_use_confirmed_months(apps):
         assert o["rankings"]["volume"][0]["sggCd"] == "41135"
         r = await c.get("/v1/market/overview", params={"ym": "2025-06"})
         assert r.status_code == 422 and r.json()["code"] == "MONTH_OUT_OF_RANGE"
-
-
-def fake_dagster(now: float):
-    """Dagster GraphQL 가짜 응답: 이후 성공으로 복구된 실패 1건, 아직 실패 중 1건, 대기·실행 중 작업, 오류 난 센서 틱."""
-    import json
-
-    from aptlake_api import ops
-
-    def run(rid, status, created, partition="202407", ended=True):
-        return {
-            "runId": rid,
-            "jobName": "month_pipeline",
-            "status": status,
-            "creationTime": created,
-            "startTime": created + 5 if status != "QUEUED" else None,
-            "endTime": created + 60 if ended else None,
-            "tags": [{"key": "dagster/partition", "value": partition}, {"key": "aptlake/priority", "value": "retry"}],
-        }
-
-    failed = [run("fail-old", "FAILURE", now - 7200), run("fail-new", "FAILURE", now - 600, "202408")]
-    succeeded = [run("ok-1", "SUCCESS", now - 3600)]
-    active = [run("q-1", "QUEUED", now - 30, "202409", False), run("r-1", "STARTED", now - 90, "202410", False)]
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        q, v = body["query"], body.get("variables") or {}
-        if q.strip() == "{ version }":
-            data = {"version": "test"}
-        elif "logsForRun" in q:
-            data = {
-                "logsForRun": {
-                    "__typename": "EventConnection",
-                    "events": [
-                        {
-                            "__typename": "ExecutionStepFailureEvent",
-                            "timestamp": str(int((now - 550) * 1000)),  # 이벤트 시각은 밀리초
-                            "stepKey": "bronze__rtms",
-                            "error": {
-                                "className": "HTTPError",
-                                "message": f"502 for https://apis.data.go.kr/x?serviceKey=LEAKME ({v['id']})",
-                                "stack": ["  File a.py\n"],
-                                "causes": [],
-                            },
-                        }
-                    ],
-                }
-            }
-        elif "repositoriesOrError" in q:
-            sensor = {
-                "name": "due_partitions_sensor",
-                "minIntervalSeconds": 300,
-                "nextTick": {"timestamp": now + 60},
-                "sensorState": {
-                    "status": "RUNNING",
-                    "ticks": [
-                        {
-                            "status": "FAILURE",
-                            "timestamp": now - 100,
-                            "skipReason": None,
-                            "runIds": [],
-                            "error": {"message": "boom postgresql://pipeline:hunter2@postgres/aptlake"},
-                        },
-                        {  # 앞선 실패는 이 뒤 정상 틱으로 해결됨 (최근 실패는 그대로 미해결)
-                            "status": "FAILURE",
-                            "timestamp": now - 900,
-                            "skipReason": None,
-                            "runIds": [],
-                            "error": {"message": "old boom"},
-                        },
-                        {"status": "SKIPPED", "timestamp": now - 600, "skipReason": "x", "runIds": [], "error": None},
-                    ],
-                },
-            }
-            data = {"repositoriesOrError": {"nodes": [{"schedules": [], "sensors": [sensor]}]}}
-        else:
-            st = (v.get("f") or {}).get("statuses")
-            rows = {"FAILURE": failed, "SUCCESS": succeeded}.get(st[0] if st and len(st) == 1 else "")
-            if rows is None:
-                rows = active if st else failed + succeeded
-            data = {"runsOrError": {"__typename": "Runs", "results": rows}}
-        return httpx.Response(200, json={"data": data})
-
-    return ops.DagsterClient("http://dagster/graphql", http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
 
 
 async def test_ops_status_and_error_log(apps, adm, admin_key):

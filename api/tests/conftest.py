@@ -8,11 +8,16 @@ from decimal import Decimal
 from pathlib import Path
 
 import clickhouse_connect
+import httpx
 import psycopg
 import pytest
+import pytest_asyncio
 from testcontainers.community.clickhouse import ClickHouseContainer
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
+
+from aptlake_api import keys
+from aptlake_api.settings import settings
 
 ROOT = Path(__file__).resolve().parents[2]
 PW = "test-pw"
@@ -284,3 +289,45 @@ def _seed_clickhouse(c) -> None:
             "trades",
         ],
     )
+
+
+# ───── 앱·클라이언트 (모든 API 테스트 공용) ─────
+
+
+@pytest_asyncio.fixture(scope="session")
+async def apps(stack):
+    settings.cache_clear()
+    from aptlake_api.main import create_internal_app, create_public_app
+
+    public, internal = create_public_app(), create_internal_app()
+    async with public.router.lifespan_context(public), internal.router.lifespan_context(internal):
+        await public.state.res.redis.set("al:ds:ver", "gold@test.1")
+        yield public, internal
+
+
+@pytest_asyncio.fixture(scope="session")
+async def pub(apps):
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=apps[0], client=("10.9.0.1", 1)), base_url="http://t"
+    ) as c:
+        yield c
+
+
+@pytest_asyncio.fixture(scope="session")
+async def adm(apps):
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=apps[1]), base_url="http://t") as c:
+        yield c
+
+
+@pytest_asyncio.fixture(scope="session")
+async def admin_key(stack):
+    import psycopg
+
+    issued = keys.issue("test-pepper")
+    with psycopg.connect(stack["su"], autocommit=True) as c:
+        cid = c.execute("INSERT INTO api.client (name, plan_id) VALUES ('op','pro') RETURNING client_id").fetchone()[0]
+        c.execute(
+            "INSERT INTO api.api_key VALUES (%s,%s,%s,%s, now(), now() + interval '1 day', NULL, NULL)",
+            (issued.key_id, cid, issued.secret_hmac, ["admin", "read"]),
+        )
+    return issued.api_key
