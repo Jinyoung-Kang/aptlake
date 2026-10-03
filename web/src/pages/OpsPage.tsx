@@ -161,7 +161,8 @@ export default function OpsPage({ route }: { route: Route }) {
               <li key={e.id} className={`log-row ${e.resolved || e.cleared ? "resolved" : ""}`}>
                 <div className="log-head">
                   {/* 줄 전체가 펼치기 버튼 — 키보드(Tab·Enter)로도 열고 닫는다 */}
-                  <button type="button" className="log-toggle" aria-expanded={open.has(e.id)} aria-controls={`log-detail-${i}`} onClick={() => open.toggle(e.id)}>
+                  <button type="button" className="log-toggle" aria-expanded={e.detail ? open.has(e.id) : undefined}
+                          aria-controls={e.detail && open.has(e.id) ? `log-detail-${i}` : undefined} onClick={() => open.toggle(e.id)}>
                     <span className="at">{kst(e.at)}</span>
                     <span className={`lvl ${e.level}`}>{e.level === "ERROR" ? "✕ " : "! "}{e.level}</span>
                     <span className="src">{SOURCE_LABEL[e.source] ?? e.source}</span>

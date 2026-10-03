@@ -42,7 +42,8 @@ function SearchBox() {
   const pick = (i: number) => { items[i]?.go(); setOpen(false); setQ(""); };
 
   return (
-    <search className="search" ref={box}>
+    // biome-ignore lint/a11y/noRedundantRoles: <search> 를 모르는 브라우저(사파리 17·크롬 118 이전)에서도 검색 영역으로 알리게
+    <search className="search" ref={box} role="search">
       <span className="glass" aria-hidden="true">⌕</span>
       <input value={q} placeholder="시군구·단지명 검색 (예: 분당, ㅂㄷ, 래미안)" aria-label="시군구·단지 검색"
              role="combobox" aria-expanded={open && items.length > 0} aria-controls="search-results"

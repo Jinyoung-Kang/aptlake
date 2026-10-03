@@ -42,7 +42,10 @@ const pairs = [
   ["accent", "accent-soft", 4.5, "선택된 칩·탭"],
   ["good", "good-soft", 4.5, "배지"], ["warn", "warn-soft", 4.5, "배지"], ["bad", "bad-soft", 4.5, "배지"],
   ["on-accent", "accent-fill", 4.5, "주 버튼"], ["on-accent", "danger-fill", 4.5, "위험 버튼"],
-  ["text", "selected", 4.5, "선택된 행"],
+  ...TEXT.map((t) => [t, "selected", 4.5, "선택된 행·키보드 초점 행"]),
+  // 스위치: 손잡이와 판(켜짐·꺼짐), 판과 둘레 바탕 (1.4.11 — 상태를 알아보는 데 필요한 부분)
+  ["switch-knob", "switch-off", 3, "스위치 손잡이"], ["switch-knob", "switch-on", 3, "스위치 손잡이"],
+  ...["bg", "surface", "bg-sub"].flatMap((b) => [["switch-off", b, 3, "스위치 판"], ["switch-on", b, 3, "스위치 판"]]),
   ...["bg", "surface", "bg-sub"].map((b) => ["border-strong", b, 3, "입력·버튼 테두리"]),
   ...["bg", "surface", "bg-sub"].map((b) => ["focus", b, 3, "초점 표시"]),
 ];
