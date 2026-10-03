@@ -100,3 +100,19 @@ async def test_qa_008_postgres_lock_wait_is_bounded(pub, adm, admin_key, stack):
         elapsed = time.perf_counter() - t
     assert r.status_code == 503, (r.status_code, r.text[:200])
     assert elapsed < 10, elapsed
+
+
+# QA-004: /docs 가 버전을 고정하지 않은 외부 스크립트(swagger-ui-dist@5)를 무결성 검사(SRI) 없이 불렀다. 같은 출처라
+#         웹 BFF 가 붙이는 웹 키(read·ops) 권한으로 API 를 부를 수 있어, CDN·패키지가 오염되면 그 권한이 넘어간다.
+async def test_qa_004_docs_external_assets_are_pinned_with_sri(pub):
+    import re
+
+    r = await pub.get("/docs")
+    assert r.status_code == 200
+    tags = re.findall(r"<(?:script|link)\b[^>]*\b(?:src|href)=\"https?://[^\"]+\"[^>]*>", r.text)
+    assets = [t for t in tags if "swagger-ui" in t]
+    assert len(assets) >= 2, tags  # 스크립트·스타일시트
+    for t in assets:
+        assert re.search(r"swagger-ui-dist@\d+\.\d+\.\d+/", t), f"버전 고정 아님: {t}"
+        assert re.search(r'integrity="sha(256|384|512)-[A-Za-z0-9+/=]+"', t), f"SRI 없음: {t}"
+        assert 'crossorigin="anonymous"' in t, t
