@@ -71,3 +71,14 @@ describe("QA-014 보이는 글자와 접근 가능한 이름 (WCAG 2.5.3 Label i
     await act(async () => root.unmount());
   });
 });
+
+describe("QA-013 거래 목록: 첫 결과가 오기 전에도 요약 줄·표 자리를 둔다 (레이아웃 이동)", () => {
+  it("조회 가능 범위(시세 띠)가 오기 전 — 요약 줄 자리가 있고 빈 표가 먼저 그려지지 않는다", async () => {
+    const served = globalThis.fetch as unknown as (input: string) => Promise<Response>;
+    vi.stubGlobal("fetch", vi.fn((input: string) => (String(input).includes("/v1/market/ticker") ? new Promise<Response>(() => {}) : served(input))));
+    const { root, el } = await renderApp("#/trades?sgg=41135");
+    expect(el.querySelector(".kpis")).not.toBeNull();
+    expect(el.querySelector("table.t")).toBeNull();
+    await act(async () => root.unmount());
+  });
+});
