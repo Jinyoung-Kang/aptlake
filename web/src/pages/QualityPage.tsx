@@ -30,7 +30,7 @@ function PartitionDetail({ sgg, ym }: { sgg: string; ym: string }) {
         <StatRow k="마지막 수집 · 내용 변경" v={`${kst(p.lastFetchedAt, false)} · ${kst(p.lastChangedAt, false)}`} />
         <StatRow k="다음 수집 예정" v={kst(p.nextDueAt, false)} />
       </div>
-      {p.lastError && <pre className="log-detail" style={{ padding: 10, marginTop: 8 }}>{p.lastError}</pre>}
+      {p.lastError && <pre tabIndex={0} className="log-detail" style={{ padding: 10, marginTop: 8 }}>{p.lastError}</pre>}
       <h3 style={{ fontSize: 13, margin: "12px 0 6px" }}>검사 결과</h3>
       <DataTable rows={data.checks} rowKey={(c) => `${c.asset}:${c.name}`} columns={[
         { key: "n", header: "검사", cell: (c) => <span className="name">{c.name}<span className="sub">{c.asset}</span></span> },
@@ -40,7 +40,7 @@ function PartitionDetail({ sgg, ym }: { sgg: string; ym: string }) {
       <h3 style={{ fontSize: 13, margin: "12px 0 6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         계보 (원본 → 스냅샷 → 발행) <CopyButton text={data.lineage.join("\n")} label="복사" />
       </h3>
-      <pre className="code" style={{ fontSize: 11.5 }}>{data.lineage.join("\n") || "아직 발행 전"}</pre>
+      <pre tabIndex={0} className="code" style={{ fontSize: 11.5 }}>{data.lineage.join("\n") || "아직 발행 전"}</pre>
     </div>
   );
 }

@@ -75,7 +75,7 @@ function Ticker() {
   if (!data?.items.length) return null;
   return (
     <section className="ticker" aria-label="주요 지표">
-      <div className="ticker-inner">
+      <div className="ticker-inner" tabIndex={0} role="region" aria-label="시장 지표 띠 (좌우 스크롤)">
         {data.items.map((t) => (
           <div className="tick" key={t.key} title={t.changeBasis ?? undefined}>
             <span className="l">{sqm(t.label.replace(/(\d{4})-(\d{2})/, "$1.$2"))}</span>

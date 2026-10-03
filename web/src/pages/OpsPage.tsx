@@ -170,7 +170,7 @@ export default function OpsPage({ route }: { route: Route }) {
                   </button>
                   <CopyButton text={() => entryText(e)} label="복사" className="btn ghost" />
                 </div>
-                {open.has(e.id) && e.detail ? <pre className="log-detail" id={`log-detail-${i}`}>{e.detail}</pre> : null}
+                {open.has(e.id) && e.detail ? <pre tabIndex={0} className="log-detail" id={`log-detail-${i}`}>{e.detail}</pre> : null}
               </li>
             ))}
           </ul>

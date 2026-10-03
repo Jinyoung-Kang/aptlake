@@ -33,7 +33,7 @@ export function DataTable<T>({ rows, columns, rowKey, onRowClick, selectedKey, i
     });
   }, [rows, columns, sort]);
   return (
-    <div className="table-wrap" style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}>
+    <div className="table-wrap" tabIndex={0} role="region" aria-label={caption ?? "표"} style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}>
       <table className="t">
         {caption ? <caption className="sr-only">{caption}</caption> : null}
         <thead>
