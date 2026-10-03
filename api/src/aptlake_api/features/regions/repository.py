@@ -71,16 +71,16 @@ class RegionRepository:
         if ver is None:  # 버전을 모르면 캐시 없이 그 시군구만
             return [tuple(r) for r in (await self.ch.query(MONTHS_SQL, parameters={"sgg": sgg})).result_rows]
         if _series["ver"] != ver:
-            by_sgg, _ = await _series_flight.do(ver, self._all_series)
-            if _series["ver"] != ver:
-                _series.update(ver=ver, rows=by_sgg)
+            by_sgg, _ = await _series_flight.do(ver, lambda: self._all_series(ver))
             return by_sgg.get(sgg, [])
         return _series["rows"].get(sgg, [])
 
-    async def _all_series(self) -> dict[str, list[tuple]]:
+    async def _all_series(self, ver: str) -> dict[str, list[tuple]]:
         by_sgg: dict[str, list[tuple]] = {}
         for r in (await self.ch.query(ALL_MONTHS_SQL)).result_rows:
             by_sgg.setdefault(r[0], []).append(tuple(r[1:]))
+        # 읽는 태스크 안에서 넣는다 — 태스크가 끝난 직후 들어온 요청이 같은 버전을 다시 읽지 않게
+        _series.update(ver=ver, rows=by_sgg)
         return by_sgg
 
     async def price_stats(self, sgg: str, a: dt.date, b: dt.date) -> Row:

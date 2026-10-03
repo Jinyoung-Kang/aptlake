@@ -206,20 +206,26 @@ def _spy_region_month_queries(apps, monkeypatch) -> list[str]:
     return seen
 
 
-# QA-009 회귀 방지: 계열 캐시는 데이터셋 버전이 바뀌면 다시 읽는다 (발행 뒤 옛 값을 내주지 않게)
+# QA-009 회귀 방지: 계열 캐시는 데이터셋 버전이 바뀌면 다시 읽는다 (발행 뒤 옛 값을 내주지 않게).
+#         버전이 바뀐 직후 기간이 다른 요청이 몰려도 표 읽기는 한 번이다
 async def test_qa_009_months_series_cache_follows_dataset_version(pub, adm, admin_key, apps, monkeypatch):
     seen = _spy_region_month_queries(apps, monkeypatch)
     key, _ = await new_key(adm, admin_key, "pro")
     r = apps[0].state.res.redis
-    params = {"from": "2024-02", "to": "2024-04"}
+    windows = [(f"2024-{m:02d}", f"2024-{n:02d}") for m, n in ((1, 3), (2, 4), (3, 5), (4, 6), (1, 12), (6, 9))]
     try:
         for ver in ("gold@test.qa009a", "gold@test.qa009b"):
             await r.set("al:ds:ver", ver)
             await asyncio.sleep(1.1)  # 프로세스 안 데이터셋 버전 캐시(1초)
             before = len(seen)
-            res = await pub.get("/v1/regions/41135/months", params=params, headers={"X-API-Key": key})
-            assert res.status_code == 200 and res.headers["X-Dataset-Version"] == ver
-            assert len(seen) == before + 1, "버전이 바뀌었는데 계열을 다시 읽지 않음"
+            rs = await asyncio.gather(
+                *[
+                    pub.get("/v1/regions/41135/months", params={"from": a, "to": b}, headers={"X-API-Key": key})
+                    for a, b in windows * 2
+                ]
+            )
+            assert all(x.status_code == 200 and x.headers["X-Dataset-Version"] == ver for x in rs)
+            assert len(seen) == before + 1, f"버전이 바뀐 뒤 계열 읽기 {len(seen) - before}회 (기대 1회)"
     finally:
         await r.set("al:ds:ver", "gold@test.1")
         await asyncio.sleep(1.1)
