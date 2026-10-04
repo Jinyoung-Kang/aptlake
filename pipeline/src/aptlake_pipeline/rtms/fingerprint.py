@@ -15,7 +15,7 @@ import hashlib
 import re
 import unicodedata
 from collections import defaultdict
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
 from .parse import TypedTrade
@@ -48,15 +48,27 @@ def _h(*parts: object) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
-def complex_key(t: TypedTrade) -> str:
-    return "c_" + _h(t.sgg_cd, norm_text(t.umd_nm), norm_jibun(t.jibun), norm_text(t.apt_nm))[:20]
+# 법정동 이름 대응표: (시군구, 정규화한 새 이름) → 옛 이름. 행정구역 승격·개칭(예: 구지면 → 구지읍)으로 이름이 바뀌어도
+# 같은 거래가 같은 지문을 갖도록, 지문·단지 키를 만들 때만 옛 이름(처음 관측한 이름)으로 맞춘다. 표시 이름은 원천 값 그대로.
+UmdAliases = Mapping[tuple[str, str], str]
 
 
-def trade_key(t: TypedTrade) -> str:
+def key_umd(sgg_cd: str, umd_nm: str | None, aliases: UmdAliases | None = None) -> str:
+    """지문·단지 키에 넣는 법정동 이름 (대응표가 있으면 옛 이름)."""
+    n = norm_text(umd_nm)
+    old = aliases.get((sgg_cd, n)) if aliases else None
+    return norm_text(old) if old is not None else n
+
+
+def complex_key(t: TypedTrade, aliases: UmdAliases | None = None) -> str:
+    return "c_" + _h(t.sgg_cd, key_umd(t.sgg_cd, t.umd_nm, aliases), norm_jibun(t.jibun), norm_text(t.apt_nm))[:20]
+
+
+def trade_key(t: TypedTrade, aliases: UmdAliases | None = None) -> str:
     area = "" if t.area_m2 is None else f"{t.area_m2:.4f}"
     return _h(
         t.sgg_cd,
-        norm_text(t.umd_nm),
+        key_umd(t.sgg_cd, t.umd_nm, aliases),
         norm_jibun(t.jibun),
         norm_text(t.apt_nm),
         area,
@@ -99,15 +111,15 @@ class KeyedTrade:
         return f"{self.trade.sgg_cd}-{ym}-{self.trade_key[:16]}-{self.dup_seq}"
 
 
-def assign_keys(trades: Iterable[TypedTrade]) -> list[KeyedTrade]:
+def assign_keys(trades: Iterable[TypedTrade], aliases: UmdAliases | None = None) -> list[KeyedTrade]:
     """한 (sgg_cd, deal_ym) 수집 결과 전체를 받아 지문·순번을 부여한다. 입력 순서와 무관한 결과."""
     groups: dict[str, list[tuple[str, TypedTrade]]] = defaultdict(list)
     for t in trades:
-        groups[trade_key(t)].append((attr_hash(t), t))
+        groups[trade_key(t, aliases)].append((attr_hash(t), t))
     out: list[KeyedTrade] = []
     for tk in sorted(groups):
         for seq, (ah, t) in enumerate(sorted(groups[tk], key=lambda x: x[0])):
-            out.append(KeyedTrade(t, tk, seq, ah, complex_key(t)))
+            out.append(KeyedTrade(t, tk, seq, ah, complex_key(t, aliases)))
     return out
 
 

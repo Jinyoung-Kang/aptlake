@@ -11,9 +11,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import json
 import logging
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -27,7 +29,8 @@ from .budget import BudgetExhausted
 from .config import settings
 from .lake import catalog, eq
 from .rtms.client import FetchFailed, FetchResult, RtmsClient, SourceUnavailable
-from .rtms.parse import REQUIRED_FIELDS, SCHEMA_VERSION, SOURCE_FIELDS_V1, to_typed
+from .rtms.fingerprint import UmdAliases, key_umd, norm_jibun, norm_text
+from .rtms.parse import REQUIRED_FIELDS, SCHEMA_VERSION, SOURCE_FIELDS_V1, TypedTrade, parse_page, to_typed
 
 log = logging.getLogger(__name__)
 
@@ -75,9 +78,42 @@ class CheckOutcome:
     metric: dict
 
 
-def validate(result: FetchResult, rows_last: int | None) -> list[CheckOutcome]:
-    """파티션 단위 bronze 검사. blocking 실패가 하나라도 있으면 그 파티션은 적재하지 않는다."""
+def _identity(t: TypedTrade) -> tuple:
+    """법정동 이름을 뺀 거래 지문 재료 — 이름만 바뀐 같은 거래를 찾는 데 쓴다."""
+    area = "" if t.area_m2 is None else f"{t.area_m2:.4f}"
+    return (t.sgg_cd, norm_jibun(t.jibun), norm_text(t.apt_nm), area, t.deal_date, t.price_manwon, t.floor)
+
+
+def renamed_trades(prev_items: list[dict], items: list[dict], aliases: UmdAliases | None) -> list[list[str]]:
+    """직전 원본과 다른 값은 모두 같은데 (대응표를 적용해도) 법정동 이름만 다른 거래: [[옛 이름, 새 이름], ...]."""
+    prev: dict[tuple, dict[str, str]] = defaultdict(dict)
+    for i in prev_items:
+        with contextlib.suppress(ValueError, KeyError):
+            t = to_typed(i)
+            prev[_identity(t)][key_umd(t.sgg_cd, t.umd_nm, aliases)] = t.umd_nm
+    out = []
+    for i in items:
+        with contextlib.suppress(ValueError, KeyError):  # 파싱 실패는 다른 검사가 센다
+            t = to_typed(i)
+            before = prev.get(_identity(t))
+            if before and key_umd(t.sgg_cd, t.umd_nm, aliases) not in before:
+                out.append([next(iter(before.values())), t.umd_nm])
+    return out
+
+
+def validate(
+    result: FetchResult,
+    rows_last: int | None,
+    prev_items: list[dict] | None = None,
+    aliases: UmdAliases | None = None,
+) -> list[CheckOutcome]:
+    """파티션 단위 bronze 검사. blocking 실패가 하나라도 있으면 그 파티션은 적재하지 않는다.
+
+    prev_items: 같은 파티션의 직전 적재 원본(raw 보관본). 있으면 법정동 이름만 바뀐 같은 거래를 찾는다 —
+    지문 키에 법정동 이름이 들어가므로, 그대로 받으면 같은 거래가 새 거래로 중복되고 옛 거래는 '사라짐'이 된다.
+    """
     items = result.items
+    renamed = renamed_trades(prev_items, items, aliases) if prev_items else []
     unknown = sorted({k for i in items for k in i} - set(SOURCE_FIELDS_V1))
     missing = sorted({f for i in items for f in REQUIRED_FIELDS if f not in i})
     parse_errors: list[str] = []
@@ -107,6 +143,12 @@ def validate(result: FetchResult, rows_last: int | None) -> list[CheckOutcome]:
         ),
         CheckOutcome("row_count_drop_within_30pct", not drop, True, {"prev": rows_last, "now": now}),
         CheckOutcome(
+            "umd_name_stable",
+            not renamed,
+            True,
+            {"compared": prev_items is not None, "renamed": len(renamed), "sample": renamed[:5]},
+        ),
+        CheckOutcome(
             "row_count_change_within_30pct",
             change is None or abs(change) <= 0.3,
             False,
@@ -128,6 +170,20 @@ class RawArchive:
             region_name="us-east-1",
             config=BotoConfig(s3={"addressing_style": "path"}, retries={"max_attempts": 3}),
         )
+
+    def items(self, deal_ym: str, sgg_cd: str, sha: str) -> list[dict] | None:
+        """보관한 원본(내용 해시 키)의 행. 없으면 None — 비교만 건너뛴다(적재를 막지 않음)."""
+        out: list[dict] = []
+        for n in range(1, 1000):
+            key = f"rtms/deal_ym={deal_ym}/sgg_cd={sgg_cd}/{sha}/p{n}.xml"
+            try:
+                body = self.s3.get_object(Bucket=RAW_BUCKET, Key=key)["Body"].read()
+            except ClientError as e:
+                if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                    break
+                raise
+            out.extend(parse_page(body.decode("utf-8")).items)
+        return out if n > 1 else None
 
     def put(self, result: FetchResult) -> str:
         sha = result.sha256
@@ -228,6 +284,7 @@ def ingest_month(
 
     results = asyncio.run(run())
     archive = RawArchive()
+    aliases = ops_db.umd_aliases()
     pending: list[tuple[FetchResult, str, list[dict]]] = []
     for r in sorted(results, key=lambda x: x.sgg_cd):
         st = states[r.sgg_cd]
@@ -237,7 +294,8 @@ def ingest_month(
             summary.unchanged.append(r.sgg_cd)
             continue
         uri = archive.put(r)  # 격리 대상도 증거로 원본은 보관
-        checks = validate(r, st.rows_last)
+        prev = archive.items(deal_ym, r.sgg_cd, st.payload_sha256) if st.payload_sha256 else None
+        checks = validate(r, st.rows_last, prev, aliases)
         for c in checks:
             ops_db.record_dq(
                 "bronze.rtms_raw",
