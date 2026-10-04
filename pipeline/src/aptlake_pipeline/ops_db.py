@@ -13,6 +13,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from .config import settings
+from .rtms.fingerprint import UmdAliases, norm_text
 
 MAX_ATTEMPTS = 3
 
@@ -245,3 +246,25 @@ def record_dataset_version(
                VALUES (%s, %s, %s, %s, %s, %s)""",
             (version, data_as_of, partitions, json.dumps(snapshots), json.dumps(row_counts), run_id),
         )
+
+
+def umd_aliases() -> UmdAliases:
+    """법정동 이름 대응표: (시군구, 정규화한 새 이름) → 옛 이름. 지문·단지 키를 만들 때 쓴다 (fingerprint.key_umd)."""
+    with conn() as c:
+        rows = c.execute("SELECT sgg_cd, new_name, key_name FROM ops.umd_alias").fetchall()
+    return {(r["sgg_cd"], norm_text(r["new_name"])): r["key_name"] for r in rows}
+
+
+def add_umd_aliases(rows: Iterable[tuple[str, str, str]], rule: str, source: str, at: dt.datetime) -> int:
+    """대응표는 더하기만 한다 — 지우거나 바꾸면 그 이름의 거래 지문이 다시 바뀐다(그러면 수집 검사가 막는다)."""
+    vals = [(sgg, new, old, rule, source, at) for sgg, new, old in rows]
+    if not vals:
+        return 0
+    with conn() as c:
+        cur = c.cursor()
+        cur.executemany(
+            """INSERT INTO ops.umd_alias (sgg_cd, new_name, key_name, rule, source, derived_at)
+               VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (sgg_cd, new_name) DO NOTHING""",
+            vals,
+        )
+    return len(vals)

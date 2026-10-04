@@ -23,3 +23,16 @@ def test_pipeline_can_forget_only_synthetic_months(stack):
                       has_function_privilege('api_app', 'ops.forget_synthetic_month(text)', 'EXECUTE')"""
         ).fetchone()
         assert privs == (True, False, False)
+
+
+def test_umd_alias_is_append_only_for_pipeline(stack):
+    """법정동 이름 대응표는 더하기만 한다 — 지우거나 바꾸면 그 이름의 거래 지문이 다시 바뀐다 (V009)."""
+    with psycopg.connect(stack["su"], autocommit=True) as c:
+        privs = c.execute(
+            """SELECT has_table_privilege('pipeline', 'ops.umd_alias', 'SELECT'),
+                      has_table_privilege('pipeline', 'ops.umd_alias', 'INSERT'),
+                      has_table_privilege('pipeline', 'ops.umd_alias', 'UPDATE'),
+                      has_table_privilege('pipeline', 'ops.umd_alias', 'DELETE'),
+                      has_table_privilege('api_app', 'ops.umd_alias', 'INSERT')"""
+        ).fetchone()
+        assert privs == (True, True, False, False, False)

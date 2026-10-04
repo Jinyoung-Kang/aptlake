@@ -93,10 +93,11 @@ def _stage_rows(deal_ym: str, parts: list[dict]) -> list[dict]:
         grouped[rec["sgg_cd"]].append(to_typed(json.loads(rec["row_json"])))
         meta[rec["sgg_cd"]] = (rec["ingest_id"], rec["fetched_at"])
     rows: list[dict] = []
+    aliases = ops_db.umd_aliases()  # 행정구역 승격·개칭: 지문·단지 키는 옛 법정동 이름으로 (표시 이름은 원천 그대로)
     for sgg, trades in grouped.items():
         iid, fetched_at = meta[sgg]
         fetch_seq = by_iid[iid]["fetch_count"]
-        for k in assign_keys(trades):
+        for k in assign_keys(trades, aliases):
             t = k.trade
             rows.append(
                 {

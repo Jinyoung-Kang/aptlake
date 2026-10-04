@@ -13,6 +13,9 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import re
+from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 import httpx
@@ -21,7 +24,8 @@ import pyarrow as pa
 from . import ops_db
 from .config import settings
 from .http_safe import checked
-from .lake import catalog
+from .lake import catalog, execute
+from .rtms.fingerprint import display_text
 
 URL = "https://apis.data.go.kr/1741000/StanReginCd/getStanReginCdList"
 SOURCE = "MOIS StanReginCd"
@@ -78,8 +82,52 @@ def derive_regions(rows: list[dict]) -> list[Region]:
     return sorted(out, key=lambda x: x.sgg_cd)
 
 
+def official_umd_names(rows: list[dict]) -> dict[str, set[str]]:
+    """시군구 코드 → 지금 공식 법정동 이름 ('구지읍', '구지읍 응암리', '정자동'). 공식 이름에서 시도·시군구 이름을 뗀다.
+
+    실거래 원천의 법정동 이름(umdNm)과 같은 꼴이다 — 동은 '정자동', 읍·면은 '구지읍 응암리'.
+    """
+    full = {
+        r["region_cd"][:5]: display_text(r["locatadd_nm"])
+        for r in rows
+        if r["umd_cd"] == "000" and r["ri_cd"] == "00" and r["sgg_cd"] != "000"
+    }
+    out: dict[str, set[str]] = defaultdict(set)
+    for r in rows:
+        if r["umd_cd"] == "000":
+            continue
+        code, name = r["region_cd"][:5], display_text(r["locatadd_nm"])
+        prefix = full.get(code)
+        if prefix and name.startswith(prefix + " "):
+            out[code].add(name[len(prefix) + 1 :])
+    return dict(out)
+
+
+UMD_ALIAS_RULE = "면→읍 승격"
+_MYEON = re.compile(r"(\S+)면((?: \S+)*)")
+
+
+def derive_umd_aliases(
+    official: dict[str, set[str]], observed: Iterable[tuple[str, str]]
+) -> list[tuple[str, str, str]]:
+    """(시군구, 새 공식 이름, 옛 관측 이름). 결정적 규칙: 관측 이름 'X면 …' 이 지금 공식 목록에 없고, 같은 시군구의
+    공식 목록에 'X읍 …' 이 있으면 면→읍 승격으로 본다. 그 밖의 개칭은 추측해 잇지 않는다 — 수집 검사(umd_name_stable)가
+    이름만 바뀐 같은 거래를 막고, 사람이 확인한다. (원천의 폐지 코드 조회는 '데이터없음'이라 옛→새 공식 대응을 받을 수 없다)
+    """
+    out: set[tuple[str, str, str]] = set()
+    for sgg, raw in observed:
+        name, names = display_text(raw), official.get(sgg)
+        if not names or name in names:
+            continue
+        m = _MYEON.fullmatch(name)
+        if m and (new := f"{m.group(1)}읍{m.group(2)}") in names:
+            out.add((sgg, new, name))
+    return sorted(out)
+
+
 def refresh() -> dict[str, int]:
-    regions = derive_regions(fetch_rows())
+    rows = fetch_rows()
+    regions = derive_regions(rows)
     if len(regions) < 200:  # 원천 이상(부분 응답) 방어: 기존 목록을 덮어쓰지 않는다
         raise RuntimeError(f"too few regions from source: {len(regions)}")
     now = dt.datetime.now(tz=dt.UTC)
@@ -122,4 +170,13 @@ def refresh() -> dict[str, int]:
             ),
         )
     )
-    return {"sgg_level": len(regions), "leaf": len(leaf), "parents": len(regions) - len(leaf)}
+    # 법정동 이름 대응표: 지금 공식 목록 × 레이크에 관측된 이름 (더하기만)
+    observed = execute("SELECT DISTINCT sgg_cd, umd_nm FROM lake.silver.apt_trade WHERE umd_nm IS NOT NULL")
+    aliases = derive_umd_aliases(official_umd_names(rows), observed)
+    ops_db.add_umd_aliases(aliases, UMD_ALIAS_RULE, SOURCE, now)
+    return {
+        "sgg_level": len(regions),
+        "leaf": len(leaf),
+        "parents": len(regions) - len(leaf),
+        "umd_aliases": len(aliases),
+    }
