@@ -24,10 +24,22 @@
 - **추측 값 금지**: 원천 API·공식 표·결정적 조회로 확인되지 않은 값(코드 의미, 분류, 수치)은 화면·문서에 쓰지 않는다. 확인 못 하면 빼고, 그렇다고 말한다 (ADR-018)
 - **비밀값**: `.env` 값·API 키를 출력하거나 커밋하지 않는다. 오류 메시지에 키가 든 URL 이 실리지 않게 `http_safe.checked()` 사용
 - `.env` 에 외부 키 등록이 필요하면 작업을 멈추고 사용자에게 묻는다
-- 커밋: 작성자 이메일은 noreply(`85594012+Jinyoung-Kang@users.noreply.github.com`, 로컬 git 설정됨). 메시지는 한국어, 끝에 `Co-Authored-By` 줄
-- 포트폴리오 PDF 에는 GitHub 정보를 넣지 않는다
 - 코드 주석·문서는 한국어, 주변 코드의 주석 밀도·말투를 따른다
 - 변경하면 해당 ADR·README(테스트 수·측정값)·runbook 도 같이 갱신한다
+
+## 전달 방식
+- 브랜치(`improve/…` · `docs/…` · `qa/…`) → PR(한국어 제목·본문) → CI. `main` 브랜치 보호의 필수 검사 7개:
+  pipeline · api · web · images (api) · images (pipeline) · images (web) · security
+- **Claude 가 연 PR 은 CI 통과 시 자동 병합**(사용자 결정 2026-10-03): PR 을 만든 뒤 앱의 Auto-fix 를 켜고 GitHub 자동 병합을 건다
+  (`gh pr merge <n> --auto --merge`). 이미 통과해 자동 병합이 거절되면 바로 `gh pr merge <n> --merge`.
+  GitHub 가 "unstable status" 로 답하면 브랜치 보호가 바뀐 것 — 설정을 다시 만들지 말고 사용자에게 알린다
+- 병합은 **병합 커밋 방식만**(squash · rebase 금지) — 커밋 메시지가 이전 커밋 해시를 참조하고, 작은 단일 주제 커밋을 main 에 남긴다. Dependabot PR 도 같은 방식
+- 커밋: 메시지는 한국어(`문서: …` · `실패 시험: …` 처럼 주제 요약), 끝에 `Co-Authored-By` 줄. 작성자 이메일은 noreply(`85594012+Jinyoung-Kang@users.noreply.github.com`, 로컬 git 설정됨)
+- 결함은 실패 시험 커밋(`실패 시험: …`) → 수정 커밋 → 문서(ADR · runbook · 시험 수) 커밋 순서
+
+## 포트폴리오
+- 원본은 저장소 밖 `../aptlake-portfolio/`(사용법은 그 폴더의 `README.txt` — `portfolio.html` → `cdp.py pdf`, 쪽 넘침 `pages.py`). GitHub 정보를 넣지 않는다
+- 화면 캡처는 로컬 웹(http://localhost:3610)이 떠 있어야 한다 — `cdp.py shots`, 밝은 테마
 
 ## 환경 주의
 - Docker VM 메모리 7.7GB 를 다른 프로젝트(wakeline)와 함께 쓴다. VM 전체가 모자라면 커널이 Trino 를 죽인다 (ADR-034) — 무거운 작업 전 `docker stats` 로 여유 확인
