@@ -156,7 +156,7 @@ class FakeExports:
     def __init__(self, room=True, job=None):
         self.room, self.job, self.created = room, job, []
 
-    async def create_if_room(self, client_id, key_id, params_json, max_running):
+    async def create_if_room(self, client_id, key_id, params_json, dataset_version, max_running):
         self.created.append(max_running)
         return "11111111-1111-1111-1111-111111111111" if self.room else None
 
@@ -175,7 +175,7 @@ async def test_export_rules():
     assert e.value.code == "INVALID_RANGE"
     store = FakeExports(room=False)
     with pytest.raises(ApiError) as e:
-        await exports.create(store, "c", "k", "{}")
+        await exports.create(store, "c", "k", "{}", "gold@2026-10-10.1")
     assert e.value.status == 429 and store.created == [exports.MAX_RUNNING]
 
     done = {
@@ -402,3 +402,83 @@ def test_export_retention_matches_bucket_lifecycle_rule():
     init = (Path(__file__).resolve().parents[2] / "infra/minio/init.sh").read_text()
     days = re.search(r'"ID":"expire-exports".*?"Days":(\d+)', init)
     assert days and dt.timedelta(days=int(days.group(1))) == exports.FILE_RETENTION
+
+
+# ───── 버전 지정 내보내기 (ADR-044) — 파이프라인과 같은 시험 사례표 ─────
+SNAP = __import__("json").loads(
+    (
+        __import__("pathlib").Path(__file__).resolve().parents[2] / "pipeline/tests/fixtures/snapshot_versions.json"
+    ).read_text()
+)
+
+
+def snap_versions():
+    return [{**v, "published_at": dt.datetime.fromisoformat(v["published_at"])} for v in SNAP["versions"]]
+
+
+@pytest.mark.parametrize("case", SNAP["cases"], ids=lambda c: c["why"])
+def test_export_files_for_version_follows_shared_case_table(case):
+    from aptlake_api.features.exports import service as exports
+
+    got = exports.files_for_version(snap_versions(), SNAP["files"], case["target"])
+    if case["expect"] is None:
+        assert got is None
+    else:
+        assert [f"{f['publish_id'][:8]}:{f['deal_ym']}" for f in got] == case["expect"]
+
+
+def test_resolve_snapshot_errors_latest_and_range():
+    from aptlake_api.features.exports import service as exports
+
+    vs, files = snap_versions(), SNAP["files"]
+    a, b = dt.date(2026, 9, 1), dt.date(2026, 10, 31)
+    ver, got = exports.resolve_snapshot(vs, files, None, a, b)  # 생략 → 최신
+    assert ver == "gold@2026-10-10.4" and [f["deal_ym"] for f in got] == ["202609", "202610"]
+    with pytest.raises(ApiError) as e:
+        exports.resolve_snapshot(vs, files, "gold@2099-01-01.1", a, b)
+    assert e.value.status == 404 and e.value.code == "VERSION_NOT_FOUND"
+    with pytest.raises(ApiError) as e:  # 기록 시작 전
+        exports.resolve_snapshot(vs, files, "gold@2026-10-09.1", a, b)
+    assert e.value.status == 410 and e.value.extra == {"oldestAvailable": "gold@2026-10-10.1"}
+    gone = [{**f, "deleted_at": dt.datetime(2026, 10, 11, tzinfo=dt.UTC)} if f["deal_ym"] == "202608" else f
+            for f in files]  # fmt: skip
+    with pytest.raises(ApiError) as e:  # 보관 정리로 기준선의 8월 파일이 지워짐
+        exports.resolve_snapshot(vs, gone, "gold@2026-10-10.2", a, b)
+    assert e.value.code == "SNAPSHOT_EXPIRED" and e.value.extra == {"oldestAvailable": None}
+    with pytest.raises(ApiError) as e:
+        exports.resolve_snapshot([], [], None, a, b)
+    assert e.value.status == 410
+
+
+def test_export_filters_snapshot_month_and_checks_file_hash(tmp_path):
+    import shutil
+    from pathlib import Path
+
+    import pyarrow.parquet as pq
+
+    from aptlake_api.features.exports import storage
+
+    sample = Path(__file__).resolve().parents[2] / "pipeline/tests/fixtures/snapshot_sample.parquet"
+    digest = storage._sha256(str(sample))
+    files = [{"object_key": "trade/deal_ym=202609/x.parquet", "sha256": digest}]
+    fetch = lambda key, path: shutil.copy(sample, path)  # noqa: E731
+    out = tmp_path / "o.parquet"
+    rows, sha = storage.write_export(
+        files, {"from": "2026-09-01", "to": "2026-09-30", "sggCd": "11110"}, str(out), fetch
+    )
+    t = pq.read_table(out)
+    assert (
+        rows == 1
+        and t.schema == storage.EXPORT_SCHEMA
+        and t.column("trade_id").to_pylist() == ["11110-202609-0000000000000001-0"]
+    )  # 해제 거래·다른 시군구는 빠짐
+    assert sha == storage._sha256(str(out))
+    rows, _ = storage.write_export(files, {"from": "2026-09-10", "to": "2026-09-30", "includeCancelled": True},
+                                   str(tmp_path / "p.parquet"), fetch)  # fmt: skip
+    assert rows == 2
+    again, sha2 = storage.write_export(files, {"from": "2026-09-01", "to": "2026-09-30", "sggCd": "11110"},
+                                       str(tmp_path / "q.parquet"), fetch)  # fmt: skip
+    assert sha2 == sha  # 같은 버전·조건 → 같은 파일 (이 pyarrow 판에서 확인)
+    with pytest.raises(storage.SnapshotIntegrityError):
+        storage.write_export([{**files[0], "sha256": "0" * 64}], {"from": "2026-09-01", "to": "2026-09-30"},
+                             str(tmp_path / "r.parquet"), fetch)  # fmt: skip

@@ -31,8 +31,8 @@
 | **데이터** | 전국 256개 시군구 아파트 매매 신고, 2021-01~2026-09 **전 기간 수집 완료**(시군구×월 17,664개) — 서빙 거래 **2,680,375건**(해제 140,489건 포함) · 단지 42,067개 (2026-09-28 기준) |
 | **스택** | Python 3.12 · Dagster · Apache Iceberg(Lakekeeper) · Trino · dbt · MinIO(Silo) · ClickHouse · PostgreSQL · Redis · FastAPI · React 19 · TypeScript · ECharts · nginx · Docker Compose(17개 서비스) · Prometheus·Grafana · k6 |
 | **성능** | 지역·월 통계 p95 **38.6ms** @ 200 RPS(8개월 데이터 기준, 전체 데이터 재측정은 [6장](#6-성능-측정값)), 최대 처리량 **약 5,800 req/s**, 전국 한 달 수집→검증→발행 **1분 45초** |
-| **품질** | 자동 테스트 **366개**(파이프라인 86 · API 174 · 웹 84 · dbt 22) — API 응답 골든 36 · 화면 스냅숏 11 · 계층 규칙 검사 포함, 정적 분석 · 색 대비(WCAG) · 비밀·취약점 스캔을 CI 에서 매 커밋 실행 |
-| **문서** | 설계 결정 기록 36건(ADR-008~043, [docs/decisions.md](docs/decisions.md)) · 성능 측정 원자료([docs/performance.md](docs/performance.md)) · 운영 절차([docs/runbook.md](docs/runbook.md)) · 출시 기준 QA 보고서([docs/qa/2026-10-qa-report.md](docs/qa/2026-10-qa-report.md)) |
+| **품질** | 자동 테스트 **391개**(파이프라인 101 · API 184 · 웹 84 · dbt 22) — API 응답 골든 36 · 화면 스냅숏 11 · 계층 규칙 검사 포함, 정적 분석 · 색 대비(WCAG) · 비밀·취약점 스캔을 CI 에서 매 커밋 실행 |
+| **문서** | 설계 결정 기록 37건(ADR-008~044, [docs/decisions.md](docs/decisions.md)) · 성능 측정 원자료([docs/performance.md](docs/performance.md)) · 운영 절차([docs/runbook.md](docs/runbook.md)) · 출시 기준 QA 보고서([docs/qa/2026-10-qa-report.md](docs/qa/2026-10-qa-report.md)) |
 
 ---
 
@@ -152,10 +152,10 @@ flowchart LR
 | 키 추측·잘못된 키 폭주 | 인증 실패를 IP(해시)별로 세어 분당 30회 초과 시 401 대신 429 (정상 키는 영향 없음) | [auth.py](api/src/aptlake_api/auth.py) |
 | 로그로 키 유출 | 공공데이터 API 키는 URL 쿼리에 실리므로 httpx 요청 로그(URL 전체)를 경고 이상만 남김 | `aptlake_pipeline/__init__.py` |
 | SQL 주입 | ClickHouse 서버측 파라미터 바인딩만, 식별자 허용 목록, 경로·쿼리 정규식 검증. dbt var·Trino 리터럴은 형식 검증 후에만 | [routes_public.py](api/src/aptlake_api/routes_public.py), [silver.py](pipeline/src/aptlake_pipeline/silver.py) |
-| 대량 추출 | 분당 요청(슬라이딩 윈도우, Redis Lua 원자) + 일일 행 한도 + 기간 상한 + **서명된 커서**(다른 질의 재사용·변조 시 400) + 대량은 비동기 내보내기(pro). 행 한도는 거래 단위 레코드(거래 목록·이력·산점도 점·단지 이력)에만 매기고, 원자료를 내보내지 않는 집계(월 통계·지도·순위·지수)는 요청 수 한도만 | [auth.py](api/src/aptlake_api/auth.py), [cursor.py](api/src/aptlake_api/cursor.py) |
+| 대량 추출 | 분당 요청(슬라이딩 윈도우, Redis Lua 원자) + 일일 행 한도 + 기간 상한 + **서명된 커서**(다른 질의 재사용·변조 시 400) + 대량은 비동기 내보내기(pro, **데이터셋 버전 지정 가능** — 달별 스냅숏 파일에서 뽑아 같은 버전·조건이면 같은 행, ADR-044). 행 한도는 거래 단위 레코드(거래 목록·이력·산점도 점·단지 이력)에만 매기고, 원자료를 내보내지 않는 집계(월 통계·지도·순위·지수)는 요청 수 한도만 | [auth.py](api/src/aptlake_api/auth.py), [cursor.py](api/src/aptlake_api/cursor.py) |
 | IP 위조 | `X-Forwarded-For` 는 웹 프록시 고정 IP 에서 온 경우만, 오른쪽부터 신뢰하지 않는 첫 주소. 익명 사용자 IP 는 HMAC 으로만 저장 | `client_ip()` |
 | 서빙 DB 변경 | ClickHouse 사용자 분리: `api_reader`(readonly=1, 5초·300MB·결과 행 상한), `usage_writer`(usage_event INSERT 만), `exporter`, `publisher` | [aptlake-users.xml](infra/clickhouse/users.d/aptlake-users.xml) |
-| 저장소 과권한 | MinIO 계정 분리: ingest(raw Put/Get), catalog(lake), export(exports). raw 버킷 Object Lock(GOVERNANCE 365일), exports 1일 자동 삭제 | [minio/init.sh](infra/minio/init.sh) |
+| 저장소 과권한 | MinIO 계정 분리: ingest(raw Put/Get), catalog(lake), export(exports 쓰기 · snapshots 읽기), snapshot(snapshots 만, 파이프라인). raw 버킷 Object Lock(GOVERNANCE 365일), exports 1일 자동 삭제 | [minio/init.sh](infra/minio/init.sh) |
 | DB 과권한 | PostgreSQL 역할 분리 (migrator 소유 / pipeline / api_app). api_app 은 격리 재시도에 필요한 **열만** UPDATE, 감사 로그 INSERT·SELECT 만 | [V001](api/migrations/V001__ops_api_schema.sql) |
 | Redis 과권한 | ACL: default 끔, api(`al:*`)·pipeline(`budget:*`, `al:ds:*`) 키 접두사·명령 범위 분리 | compose `redis` |
 | Trino 권한 | 파일 기반 접근 제어: pipeline·dbt 쓰기, analyst 읽기 전용, 그 외 거부. 호스트 포트 없음(컨테이너 네트워크 안에서만) | [rules.json](infra/trino/etc/rules.json) |
@@ -321,10 +321,10 @@ curl -H "X-API-Key: $KEY" "http://127.0.0.1:8610/v1/quality/partitions/41135/202
 
 | 층 | 수 | 내용 |
 |---|---|---|
-| 파이프라인 단위 | 82 | **행정구역 승격·개칭(법정동 이름 대응표로 같은 거래 ID 유지 · 이름만 바뀐 같은 거래는 수집 검사가 차단)**, **서빙 표 교체(실제 ClickHouse): 교체 도중 끊긴 발행의 재발행 회복· 한 달 발행 시 같은 해 다른 달 보존·대조 실패 시 서빙 보존·대조 뒤 스테이징이 바뀌면 교체 안 함·연 파티션 이관·거래 표 입도 이관(행 체크섬·블룸 필터·마크 수)**, 실제 응답 XML fixture, 파서, 정규화, 지문·순번(hypothesis: 순서 무관·유일), 엔티티 확장 거부, 시군구 도출, R-ONE 매핑, 지수(알려진 효과 복원·구성 편향), 예산 상한, 원천 오류 분류(한도 초과 429·**인증키 거부는 실행 중단**·요청 오류는 그 파티션만·5xx 재시도), **HTTP 오류 메시지에 인증키 없음**, **레이크 압축 분할(한 문장 파티션 90개 이하·주입 거부)**, 경계 단순화(면적 오차·조각 제거) |
+| 파이프라인 단위 | 99 | **달별 스냅숏(ADR-044): 버전 → 파일 규칙(API 와 같은 사례표)·보관 정리 대상·파일 형식 고정, 발행 때 교체될 행 그대로 파일로·파일 실패 시 서빙 보존·기준선**, **SCD2 새 버전 시각은 이번 관측 시각(A→B→A, ADR-043)**, **행정구역 승격·개칭(법정동 이름 대응표로 같은 거래 ID 유지 · 이름만 바뀐 같은 거래는 수집 검사가 차단)**, **서빙 표 교체(실제 ClickHouse): 교체 도중 끊긴 발행의 재발행 회복· 한 달 발행 시 같은 해 다른 달 보존·대조 실패 시 서빙 보존·대조 뒤 스테이징이 바뀌면 교체 안 함·연 파티션 이관·거래 표 입도 이관(행 체크섬·블룸 필터·마크 수)**, 실제 응답 XML fixture, 파서, 정규화, 지문·순번(hypothesis: 순서 무관·유일), 엔티티 확장 거부, 시군구 도출, R-ONE 매핑, 지수(알려진 효과 복원·구성 편향), 예산 상한, 원천 오류 분류(한도 초과 429·**인증키 거부는 실행 중단**·요청 오류는 그 파티션만·5xx 재시도), **HTTP 오류 메시지에 인증키 없음**, **레이크 압축 분할(한 문장 파티션 90개 이하·주입 거부)**, 경계 단순화(면적 오차·조각 제거) |
 | 정합성 통합 | 2 | 실제 Lakekeeper·MinIO·Trino: 3회 재반영 불변, 해제 → 새 버전·이전 버전 닫힘, 사라짐 → missing, 재등장 → 해제 / 100 스레드 동시 예산 차감 → 정확히 상한 |
-| API 단위 | 71 | **계층 규칙 검사 24**(service 는 웹·DB·HTTP 를 모름, 의존은 안쪽으로만), service 업무 규칙(가짜 저장소, DB 없이), 키 형식·HMAC, 커서 서명, 신뢰 프록시 IP, 스코프 강제, **비밀값 가림 10종**, Dagster 응답 해석(밀리초 이벤트 시각 회귀), 확정 월 지수 |
-| API 통합 | 100 | Testcontainers(PostgreSQL·Redis·ClickHouse, 운영과 같은 마이그레이션·사용자·서버 설정): **법정동 이름 대응표는 파이프라인이 더하기만(수정·삭제 권한 없음)**, **QA 재현 시험 26개(범위 밖 연도·유니코드 숫자 400, DB 무응답·잠금 503, 전체 기간 내보내기, /docs 고정·SRI, 수집 상태 보기·비우기 권한 분리, 같은 요청 동시 30건 → 계산 1회, 기간만 다른 월별 요청 → 질의 1회, 월 계열 캐시의 버전·TTL)**, **공개 응답 골든 36개**(글자 그대로·ETag 유무까지, 구조 정리 전후 동일 확인), 마이그레이션 권한 경계, 헤더 계약, ETag 304, **상태 응답은 내용이 바뀌면 새 ETag**, 플랜 기간, 폐기 즉시 401, 스코프, 관리 라우트 부재, 커서 완결성·위조, 주입 문자열, 사용량 격리, 429, **웹 플랜 IP별 한도**, 시세 띠·지수의 확정 월, 수집 상태·오류 로그(가짜 Dagster: 해결됨 판단·비밀 가림·Dagster 중단 시에도 200), **ClickHouse 과부하 → 503 / 버그 → 500**, 연결 점검, **운영 API 는 ops 스코프만**, **인증 실패 IP별 제한**, 경계 GeoJSON 사전 압축·304, **로그 비우기·되돌리기·감사 기록**, **작업자 재시작으로 멈춘 내보내기 정리**, **서빙 DB 시간 초과 시 오류 로그 부분 응답**, **5xx 원인 분류 기록** |
+| API 단위 | 82 | **버전 지정 내보내기: 파이프라인과 같은 사례표·404/410·지운 파일·달 파일 해시 확인·같은 조건 같은 파일**, **이력에 없는 열 변경 표시·보관 지난 내보내기 expired(ADR-043)**, **계층 규칙 검사 24**(service 는 웹·DB·HTTP 를 모름, 의존은 안쪽으로만), service 업무 규칙(가짜 저장소, DB 없이), 키 형식·HMAC, 커서 서명, 신뢰 프록시 IP, 스코프 강제, **비밀값 가림 10종**, Dagster 응답 해석(밀리초 이벤트 시각 회귀), 확정 월 지수 |
+| API 통합 | 102 | **버전 지정 내보내기(없는 버전 404 · 기록 시작 전 410 · 생략 시 최신 고정)**, **스냅숏 파일 기록은 파이프라인이 더하기·지운 시각만**, Testcontainers(PostgreSQL·Redis·ClickHouse, 운영과 같은 마이그레이션·사용자·서버 설정): **법정동 이름 대응표는 파이프라인이 더하기만(수정·삭제 권한 없음)**, **QA 재현 시험 26개(범위 밖 연도·유니코드 숫자 400, DB 무응답·잠금 503, 전체 기간 내보내기(달 파일 경로, 작업자 최대 메모리 측정), /docs 고정·SRI, 수집 상태 보기·비우기 권한 분리, 같은 요청 동시 30건 → 계산 1회, 기간만 다른 월별 요청 → 질의 1회, 월 계열 캐시의 버전·TTL)**, **공개 응답 골든 36개**(글자 그대로·ETag 유무까지, 구조 정리 전후 동일 확인), 마이그레이션 권한 경계, 헤더 계약, ETag 304, **상태 응답은 내용이 바뀌면 새 ETag**, 플랜 기간, 폐기 즉시 401, 스코프, 관리 라우트 부재, 커서 완결성·위조, 주입 문자열, 사용량 격리, 429, **웹 플랜 IP별 한도**, 시세 띠·지수의 확정 월, 수집 상태·오류 로그(가짜 Dagster: 해결됨 판단·비밀 가림·Dagster 중단 시에도 200), **ClickHouse 과부하 → 503 / 버그 → 500**, 연결 점검, **운영 API 는 ops 스코프만**, **인증 실패 IP별 제한**, 경계 GeoJSON 사전 압축·304, **로그 비우기·되돌리기·감사 기록**, **작업자 재시작으로 멈춘 내보내기 정리**, **서빙 DB 시간 초과 시 오류 로그 부분 응답**, **5xx 원인 분류 기록** |
 | 웹 | 84 | Vitest: 같은 조회 요청 공유·운영자 키 전달·보이는 글자와 이름(WCAG 2.5.3)·첫 결과 전 자리(CLS)·기간 상한·팝업 초점 복귀, 화면 규칙 순수 함수(domain/), API 클라이언트·경로, 페이지 넘김·테마 Hook, **서버 골든 응답으로 그린 화면 스냅숏 11개** · Biome 린트 · 색 대비 검사 |
 | dbt | 22 | 월 파티션마다 실행, 실패 시 발행 차단 (전국·시도 집계 = 시군구 합 대조 포함) |
 | 부하 | k6 | 200 + 100 RPS + 한도 초과 시나리오, 최대 처리량(동시 32) |

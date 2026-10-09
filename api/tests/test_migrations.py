@@ -36,3 +36,17 @@ def test_umd_alias_is_append_only_for_pipeline(stack):
                       has_table_privilege('api_app', 'ops.umd_alias', 'INSERT')"""
         ).fetchone()
         assert privs == (True, True, False, False, False)
+
+
+def test_month_file_records_are_append_only_except_deleted_at(stack):
+    """달별 스냅숏 파일 기록(V010): 파이프라인은 더하고 지운 시각만 채운다, API 는 읽기만 (ADR-044)."""
+    with psycopg.connect(stack["su"], autocommit=True) as c:
+        privs = c.execute(
+            """SELECT has_table_privilege('pipeline', 'ops.dataset_month_file', 'INSERT'),
+                      has_table_privilege('pipeline', 'ops.dataset_month_file', 'DELETE'),
+                      has_column_privilege('pipeline', 'ops.dataset_month_file', 'deleted_at', 'UPDATE'),
+                      has_column_privilege('pipeline', 'ops.dataset_month_file', 'object_key', 'UPDATE'),
+                      has_table_privilege('api_app', 'ops.dataset_month_file', 'SELECT'),
+                      has_table_privilege('api_app', 'ops.dataset_month_file', 'INSERT')"""
+        ).fetchone()
+        assert privs == (True, False, True, False, True, False)

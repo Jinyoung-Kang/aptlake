@@ -119,6 +119,12 @@ def run() -> dict[str, dict[str, int | str]]:
             "snapshots_before": before["snapshots"],
             "snapshots_after": after["snapshots"],
         }
+    try:  # 달별 스냅숏 파일 보관 정리 (ADR-044) — 레이크 정리와 같은 주기
+        from . import snapshots
+
+        out["snapshots"] = snapshots.cleanup()  # type: ignore[assignment]
+    except Exception as e:
+        failed["snapshots"] = f"{type(e).__name__}: {e}"[:300]
     if failed:
         raise MaintenanceError(f"{len(failed)}/{len(TABLES)} tables failed: {failed}")
     return out

@@ -7,20 +7,32 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 import logging
 
+import orjson
+
+from ...core.problems import ApiError
 from ...core.resources import Resources
-from . import storage
+from . import service, storage
 from .repository import ExportRepository
 
 log = logging.getLogger(__name__)
 
 
 async def run_job(repo: ExportRepository, job: dict) -> None:
-    sql, qp = storage.export_query(job["params"])
+    """요청 때 정한 버전의 달 파일을 다시 고른다 — 그사이 보관 정리로 지워졌으면 SNAPSHOT_EXPIRED 로 실패."""
+    params = job["params"] if isinstance(job["params"], dict) else orjson.loads(job["params"])
+    _, files = service.resolve_snapshot(
+        await repo.versions(),
+        await repo.month_files(),
+        job["dataset_version"],
+        dt.date.fromisoformat(params["from"]),
+        dt.date.fromisoformat(params["to"]),
+    )
     key = f"{job['client_id']}/{job['job_id']}.parquet"
-    rows = await asyncio.to_thread(storage.write_parquet_and_upload, sql, qp, key)
-    await repo.mark_done(job["job_id"], rows, key)
+    rows, digest = await asyncio.to_thread(storage.export_and_upload, files, params, key)
+    await repo.mark_done(job["job_id"], rows, key, digest)
 
 
 async def worker(res: Resources, poll_s: float = 2.0) -> None:
@@ -39,6 +51,8 @@ async def worker(res: Resources, poll_s: float = 2.0) -> None:
                 continue
             try:
                 await run_job(repo, job)
+            except ApiError as e:  # 보관 기간이 지난 버전 등 — 원인 코드를 남긴다
+                await repo.mark_failed(job["job_id"], e.code)
             except Exception as e:  # noqa: BLE001
                 log.exception("export failed")
                 await repo.mark_failed(job["job_id"], type(e).__name__)

@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from pathlib import Path
 
 import redis
@@ -48,7 +49,7 @@ from dagster import (
 )
 from dagster_dbt import DagsterDbtTranslator, DbtCliResource, DbtProject, dbt_assets
 
-from . import ingest, lake, maintenance, ops_db, publish, regions, rone, silver
+from . import ingest, lake, maintenance, ops_db, publish, regions, rone, silver, snapshots
 from .budget import PRIORITIES, Budget, ceilings, kst_today
 from .config import settings
 from .lake import eq, isin
@@ -407,9 +408,10 @@ def gold_dimensions(context: AssetExecutionContext, dbt: DbtCliResource):
 )
 def clickhouse_month(context: AssetExecutionContext) -> MaterializeResult:
     ym = context.partition_key
+    publish_id = str(uuid.uuid4())  # 시도마다 새로 — 재시도하면 버전 문자열은 같아도 파일·기록은 섞이지 않는다
     version = publish.next_dataset_version()
-    counts = publish.publish_month(ym, version)
-    publish.commit_version(version, [ym], counts, context.run_id)
+    counts, month_file = publish.publish_month(ym, version, publish_id, snapshots.SnapshotStore())
+    publish.commit_version(version, [ym], counts, context.run_id, publish_id, [month_file])
     ops_db.mark_month_published(ym, version)
     return MaterializeResult(metadata={"dataset_version": version, **counts})
 
@@ -426,8 +428,25 @@ def clickhouse_dimensions(context: AssetExecutionContext) -> MaterializeResult:
     # 서빙 내용이 바뀌었으니 버전을 올린다 — API 결과 캐시·ETag 가 버전을 키로 써서, 올리지 않으면
     # 다음 월 발행 전까지 이전 단지·지역 응답(304 포함)이 계속 나갔다
     version = publish.next_dataset_version()
-    publish.commit_version(version, [], counts, context.run_id)
+    publish.commit_version(version, [], counts, context.run_id, str(uuid.uuid4()))
     return MaterializeResult(metadata={"dataset_version": version, **counts})
+
+
+@asset(
+    key=AssetKey(["serving", "snapshot_baseline"]),
+    group_name="serving",
+    pool="publish",
+    description="달별 스냅숏 기준선 — 지금 서빙 중인 모든 달을 파일로 (기능 시작 때 한 번, 서빙은 바꾸지 않음, ADR-044)",
+)
+def snapshot_baseline(context: AssetExecutionContext) -> MaterializeResult:
+    publish_id = str(uuid.uuid4())
+    months, files = publish.snapshot_baseline(publish_id, snapshots.SnapshotStore())
+    version = publish.next_dataset_version()
+    rows = sum(f.rows for f in files)
+    publish.commit_version(version, months, {"trade_current": rows}, context.run_id, publish_id, files)
+    return MaterializeResult(
+        metadata={"dataset_version": version, "months": len(months), "rows": rows, "bytes": sum(f.bytes for f in files)}
+    )
 
 
 # ───────────────────────── 지수 ─────────────────────────
@@ -457,7 +476,9 @@ def price_index(context: AssetExecutionContext) -> MaterializeResult:
     result = build_index(context.log)
     if result.get("points"):  # 발행했을 때만 (완결된 달이 없으면 발행 없이 끝남) — 버전을 올리는 이유는 위와 같음
         version = publish.next_dataset_version()
-        publish.commit_version(version, [], {"price_index": int(str(result["points"]))}, context.run_id)
+        publish.commit_version(
+            version, [], {"price_index": int(str(result["points"]))}, context.run_id, str(uuid.uuid4())
+        )
         result["dataset_version"] = version
     return MaterializeResult(metadata={k: v if isinstance(v, int | float) else str(v) for k, v in result.items()})
 
@@ -496,6 +517,9 @@ dims_and_index = define_asset_job(
 regions_job = define_asset_job(
     "refresh_regions",
     selection=AssetSelection.assets(AssetKey(["silver", "region"]), AssetKey(["silver", "region_boundary"])),
+)
+snapshot_baseline_job = define_asset_job(
+    "snapshot_baseline", selection=AssetSelection.assets(AssetKey(["serving", "snapshot_baseline"]))
 )
 maintenance_job = define_asset_job(
     "iceberg_maintenance", selection=AssetSelection.assets(AssetKey(["ops", "iceberg_maintenance"]))
@@ -614,11 +638,12 @@ defs = Definitions(
         gold_dimensions,
         clickhouse_month,
         clickhouse_dimensions,
+        snapshot_baseline,
         index_reference,
         price_index,
         iceberg_maintenance,
     ],
-    jobs=[month_pipeline, dims_and_index, regions_job, maintenance_job],
+    jobs=[month_pipeline, dims_and_index, regions_job, maintenance_job, snapshot_baseline_job],
     sensors=[due_partitions_sensor],
     schedules=definitions_schedules,
     resources={"dbt": DbtCliResource(project_dir=dbt_project)},

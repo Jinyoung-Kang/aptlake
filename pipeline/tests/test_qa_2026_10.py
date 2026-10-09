@@ -110,6 +110,13 @@ def rows(ver: str, price: int) -> dict[str, list[list]]:
 COLS = {"region_month": RM, "rollup_month": RU, "trade_current": TC, "trade_version": TV}
 
 
+class NullStore:
+    """달 스냅숏 파일 업로드 대신 (이 시험은 서빙 교체만 본다, ADR-044)."""
+
+    def put(self, path, key):
+        pass
+
+
 def stage_all(data: dict[str, list[list]]):
     def _stage_month(client, deal_ym, dataset_ver, counts):
         for t, rs in data.items():
@@ -134,7 +141,7 @@ def test_publish_interrupted_between_swaps_recovers_on_retry(ch, monkeypatch):
         ch.command(f"TRUNCATE TABLE {t}_staging")
     monkeypatch.setattr(publish, "ch", lambda: ch)
     monkeypatch.setattr(publish, "_stage_month", stage_all(rows("v1", 100000)))
-    publish.publish_month("202402", "v1")
+    publish.publish_month("202402", "v1", "pid-v1", NullStore())
     assert versions(ch)["trade_current"] == {100000} and versions(ch)["region_month"] == {"v1"}
 
     # v2 발행: 세 번째 표(trade_current) 교체 직전에 연결이 끊긴다
@@ -148,14 +155,14 @@ def test_publish_interrupted_between_swaps_recovers_on_retry(ch, monkeypatch):
     monkeypatch.setattr(publish, "_stage_month", stage_all(rows("v2", 200000)))
     monkeypatch.setattr(publish, "_swap", swap_or_die)
     with pytest.raises(ConnectionError):
-        publish.publish_month("202402", "v2")
+        publish.publish_month("202402", "v2", "pid-v2", NullStore())
     mixed = versions(ch)
     # 끊긴 순간의 상태: 앞의 두 표만 v2 — 이 창이 있다는 것을 기록 (ADR-038). 발행은 예외로 끝나 needs_publish 가 남는다
     assert mixed["region_month"] == {"v2"} and mixed["rollup_month"] == {"v2"} and mixed["trade_current"] == {100000}
 
     # 센서가 발행만 다시 하면 (같은 달, 새 버전) 네 표가 모두 맞춰지고 스테이징은 비어 있다
     monkeypatch.setattr(publish, "_swap", real_swap)
-    publish.publish_month("202402", "v2")
+    publish.publish_month("202402", "v2", "pid-v2", NullStore())
     after = versions(ch)
     assert after["region_month"] == {"v2"} and after["rollup_month"] == {"v2"} and after["trade_current"] == {200000}
     assert ch.query("SELECT count() FROM trade_current").first_row[0] == 2
