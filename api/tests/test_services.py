@@ -187,7 +187,10 @@ async def test_export_rules():
         "created_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
         "finished_at": None,
     }
-    out = await exports.status(FakeExports(job=done), "j", "c", presign=lambda k: f"https://s3/{k}", url_ttl_s=900)
+    soon = dt.datetime(2026, 1, 1, 1, tzinfo=dt.UTC)  # 파일 보관(1일) 안
+    out = await exports.status(
+        FakeExports(job=done), "j", "c", presign=lambda k: f"https://s3/{k}", url_ttl_s=900, now=soon
+    )
     assert out["downloadUrl"] == "https://s3/c/j.parquet" and out["expiresInSeconds"] == 900
     with pytest.raises(ApiError) as e:
         await exports.status(FakeExports(job=None), "j", "c", presign=str, url_ttl_s=900)
@@ -385,7 +388,7 @@ async def test_export_status_after_file_retention_is_expired_without_url():
            "created_at": done_at, "finished_at": done_at}  # fmt: skip
     kw = dict(presign=lambda k: f"https://s3/{k}", url_ttl_s=900)
     fresh = await exports.status(FakeExports(job=job), "j", "c", now=done_at + dt.timedelta(hours=23), **kw)
-    assert fresh["status"] == "done" and fresh["downloadUrl"] and fresh["expiresAt"] == "2026-10-02T03:00:00Z"
+    assert fresh["status"] == "done" and fresh["downloadUrl"] and fresh["expiresAt"] == "2026-10-02T03:00:00+00:00"
     old = await exports.status(FakeExports(job=job), "j", "c", now=done_at + dt.timedelta(hours=24), **kw)
     assert old["status"] == "expired" and "downloadUrl" not in old and old["rows"] == 5
 
@@ -398,4 +401,4 @@ def test_export_retention_matches_bucket_lifecycle_rule():
 
     init = (Path(__file__).resolve().parents[2] / "infra/minio/init.sh").read_text()
     days = re.search(r'"ID":"expire-exports".*?"Days":(\d+)', init)
-    assert days and exports.FILE_RETENTION == dt.timedelta(days=int(days.group(1)))
+    assert days and dt.timedelta(days=int(days.group(1))) == exports.FILE_RETENTION

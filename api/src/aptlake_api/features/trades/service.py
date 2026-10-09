@@ -25,6 +25,8 @@ TRACKED = {
     "seller_type": "sellerType",
     "buyer_type": "buyerType",
 }
+# 새 버전을 만드는 원천 열(파이프라인 fingerprint.MUTABLE_FIELDS) 중 이력 표(trade_version)에 없는 열이 바뀜
+UNTRACKED = "untrackedSourceFields"
 
 
 @dataclass(frozen=True)
@@ -161,6 +163,10 @@ async def history(store: TradeStore, trade_id: str, yyyymm: int) -> tuple[dict, 
             for col, name in TRACKED.items():
                 if prev[col] != r[col]:
                     changes.append({"field": name, "from": _json(prev[col]), "to": _json(r[col])})
+            if (
+                not changes
+            ):  # 이력 표에 없는 원천 열(건축연도·중개사 소재지·토지임대부)만 바뀐 버전 — 값은 모른다고 알린다
+                changes.append({"field": UNTRACKED, "from": None, "to": None})
         versions.append(
             {
                 "version": r["version"],

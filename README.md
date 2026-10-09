@@ -31,8 +31,8 @@
 | **데이터** | 전국 256개 시군구 아파트 매매 신고, 2021-01~2026-09 **전 기간 수집 완료**(시군구×월 17,664개) — 서빙 거래 **2,680,375건**(해제 140,489건 포함) · 단지 42,067개 (2026-09-28 기준) |
 | **스택** | Python 3.12 · Dagster · Apache Iceberg(Lakekeeper) · Trino · dbt · MinIO(Silo) · ClickHouse · PostgreSQL · Redis · FastAPI · React 19 · TypeScript · ECharts · nginx · Docker Compose(17개 서비스) · Prometheus·Grafana · k6 |
 | **성능** | 지역·월 통계 p95 **38.6ms** @ 200 RPS(8개월 데이터 기준, 전체 데이터 재측정은 [6장](#6-성능-측정값)), 최대 처리량 **약 5,800 req/s**, 전국 한 달 수집→검증→발행 **1분 45초** |
-| **품질** | 자동 테스트 **361개**(파이프라인 84 · API 171 · 웹 84 · dbt 22) — API 응답 골든 36 · 화면 스냅숏 11 · 계층 규칙 검사 포함, 정적 분석 · 색 대비(WCAG) · 비밀·취약점 스캔을 CI 에서 매 커밋 실행 |
-| **문서** | 설계 결정 기록 35건(ADR-008~042, [docs/decisions.md](docs/decisions.md)) · 성능 측정 원자료([docs/performance.md](docs/performance.md)) · 운영 절차([docs/runbook.md](docs/runbook.md)) · 출시 기준 QA 보고서([docs/qa/2026-10-qa-report.md](docs/qa/2026-10-qa-report.md)) |
+| **품질** | 자동 테스트 **366개**(파이프라인 86 · API 174 · 웹 84 · dbt 22) — API 응답 골든 36 · 화면 스냅숏 11 · 계층 규칙 검사 포함, 정적 분석 · 색 대비(WCAG) · 비밀·취약점 스캔을 CI 에서 매 커밋 실행 |
+| **문서** | 설계 결정 기록 36건(ADR-008~043, [docs/decisions.md](docs/decisions.md)) · 성능 측정 원자료([docs/performance.md](docs/performance.md)) · 운영 절차([docs/runbook.md](docs/runbook.md)) · 출시 기준 QA 보고서([docs/qa/2026-10-qa-report.md](docs/qa/2026-10-qa-report.md)) |
 
 ---
 
