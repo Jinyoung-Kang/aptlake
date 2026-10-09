@@ -115,6 +115,11 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
 - 매주 일 04:00 KST `weekly_iceberg_maintenance`: optimize → expire_snapshots(7일) → remove_orphan_files(7일). 7일 안의 시간여행은 항상 가능.
   - 같은 작업이 달별 스냅숏 파일도 정리한다(ADR-044): 최근 30일의 모든 버전 + 달(KST)마다 마지막 버전 1년 + 최신 버전이 쓰는 파일만 남긴다. 기록(`ops.dataset_month_file`)은 지우지 않고 `deleted_at` 만 채운다. 기록 없는 파일(발행 도중 실패)은 하루 지나면 지운다.
 
+## 원천 반영 지연 (ADR-046)
+- L1·L2 는 매일 05:30 `daily_dims_and_index` 가 dbt `source_latency` 를 다시 만들고(Trino 약 2분) 차원 발행 때 ClickHouse 로 교체한다. 일정이 꺼져 있으면(`make backfill-stop`) 갱신되지 않는다 — `make index` 로 한 번 돌릴 수 있다.
+- L3 는 달 발행마다 `ops.publish_lag` 에 쌓인다(기능 시작 뒤부터). 품질 화면 "원천 반영 지연"에서 본다.
+- 숫자가 비면: `SELECT metric, reason, sum(n) FROM aptlake.source_latency GROUP BY 1,2` (ClickHouse) 로 분포가 들어왔는지 확인.
+
 ## 달별 스냅숏·버전 지정 내보내기 (ADR-044)
 - **처음 켤 때 (한 번):** 아래 순서. 기준선 전에는 내보내기가 410 `SNAPSHOT_EXPIRED` 로 답한다.
   1. `make init` — 새 내부 비밀 `MINIO_SNAPSHOT_SECRET` 자동 생성 (외부 키 아님)

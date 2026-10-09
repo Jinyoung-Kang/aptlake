@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any, cast
 
+from clickhouse_connect.driver.asyncclient import AsyncClient
 from psycopg_pool import AsyncConnectionPool
+
+from .service import L3_BUCKETS
 
 Row = dict[str, Any]
 # 실패한 검사(d)가 뒤에 같은 자산·검사·파티션으로 통과했는가. 파티션 없음끼리도 같다고 본다.
@@ -112,3 +116,49 @@ class QualityRepository:
                 )
             ).fetchone()
         return cast(dict[str, Any], {"part": part, "checks": checks, "ver": ver})
+
+
+class LatencyRepository:
+    """원천 반영 지연: L1·L2 분포(ClickHouse source_latency, 매일 교체) + L3 발행 기록(PostgreSQL ops.publish_lag)."""
+
+    def __init__(self, pg: AsyncConnectionPool, ch: AsyncClient):
+        self.pg, self.ch = pg, ch
+
+    async def source_latency(self, start: dt.date, end: dt.date, sido: str | None) -> list[Row]:
+        where = "observed_date BETWEEN {a:Date} AND {b:Date}" + (" AND sido_cd = {s:String}" if sido else "")
+        res = await self.ch.query(
+            f"""SELECT metric, reason, lag_days, sum(n) AS n FROM source_latency WHERE {where}
+                GROUP BY metric, reason, lag_days ORDER BY metric, reason, lag_days""",
+            parameters={"a": start, "b": end, "s": sido or ""},
+        )
+        return list(res.named_results())
+
+    async def latency_since(self) -> dict[str, dt.date | None]:
+        res = await self.ch.query(
+            "SELECT metric, min(observed_date) FROM source_latency WHERE reason = '' GROUP BY metric"
+        )
+        return {r[0]: r[1] for r in res.result_rows}
+
+    async def publish_lag(self, start: dt.date, end: dt.date, sido: str | None) -> Row:
+        buckets = ", ".join(
+            f"count(*) FILTER (WHERE m > {lo} AND m <= {hi}) AS b{i}"
+            if hi is not None
+            else f"count(*) FILTER (WHERE m > {lo}) AS b{i}"
+            for i, (lo, hi) in enumerate(zip([-1, *L3_BUCKETS[:-1]], L3_BUCKETS, strict=True))
+        )
+        async with self.pg.connection() as c:
+            cur = await c.execute(
+                f"""WITH l AS (
+                        SELECT extract(epoch FROM published_at - fetched_at) / 60 AS m FROM ops.publish_lag
+                        WHERE (published_at AT TIME ZONE 'Asia/Seoul')::date BETWEEN %(a)s AND %(b)s
+                          AND (%(s)s::text IS NULL OR left(sgg_cd, 2) = %(s)s))
+                    SELECT count(*) AS n,
+                           round(percentile_disc(0.5) WITHIN GROUP (ORDER BY m)) AS p50,
+                           round(percentile_disc(0.9) WITHIN GROUP (ORDER BY m)) AS p90,
+                           round(percentile_disc(0.99) WITHIN GROUP (ORDER BY m)) AS p99,
+                           {buckets},
+                           (SELECT min(published_at AT TIME ZONE 'Asia/Seoul')::date FROM ops.publish_lag) AS since
+                    FROM l""",
+                {"a": start, "b": end, "s": sido},
+            )
+            return cast(Row, await cur.fetchone())

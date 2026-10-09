@@ -407,6 +407,13 @@ def publish_dimensions() -> dict[str, int]:
         ["complex_key", "sgg_cd", "umd_nm", "jibun", "apt_nm", "build_year", "land_leasehold", "first_seen", "trades"],
         [[r[0], r[1], r[2], r[3], r[4], r[5], int(r[6]), r[7], r[8]] for r in cx],
     )
+    sl = _rows("""SELECT metric, observed_date, sido_cd, reason, lag_days, n FROM lake.gold.source_latency""")
+    out["source_latency"] = _exchange(
+        client,
+        "source_latency",
+        ["metric", "observed_date", "sido_cd", "reason", "lag_days", "n"],
+        [list(r) for r in sl],
+    )
     return out
 
 

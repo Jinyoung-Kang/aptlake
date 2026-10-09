@@ -583,3 +583,47 @@ def test_change_retention_matches_clickhouse_ttl():
     schema = (Path(__file__).resolve().parents[2] / "infra/clickhouse/init/01-schema.sql").read_text()
     ttl = re.search(r"TABLE IF NOT EXISTS aptlake\.trade_change.*?INTERVAL (\d+) DAY", schema, re.S)
     assert ttl and int(ttl.group(1)) == Settings.model_fields["change_retention_days"].default
+
+
+# ───── 원천 반영 지연 (ADR-046) ─────
+from aptlake_api.features.quality import service as quality  # noqa: E402
+
+
+def test_nearest_rank_matches_percentile_disc():
+    dist = [(1, 2), (3, 1), (10, 1)]  # 값 1,1,3,10
+    assert [quality.nearest_rank(dist, q) for q in (0.25, 0.5, 0.75, 0.99)] == [1, 1, 3, 10]
+    assert quality.nearest_rank([], 0.5) is None
+
+
+class FakeLatency:
+    def __init__(self, rows, since=None, l3=None):
+        self.rows, self.since = rows, since or {}
+        self.l3 = l3 or {"n": 0, "p50": None, "p90": None, "p99": None, "since": None,
+                         **{f"b{i}": 0 for i in range(len(quality.L3_BUCKETS))}}  # fmt: skip
+
+    async def source_latency(self, start, end, sido):
+        return self.rows
+
+    async def latency_since(self):
+        return self.since
+
+    async def publish_lag(self, start, end, sido):
+        return self.l3
+
+
+async def test_latency_metrics_exclusions_and_empty_state():
+    rows = [
+        {"metric": "L1", "reason": "", "lag_days": 2, "n": 3},
+        {"metric": "L1", "reason": "", "lag_days": 30, "n": 1},
+        {"metric": "L1", "reason": "initial_load", "lag_days": None, "n": 100},
+        {"metric": "L2", "reason": "low_resolution", "lag_days": None, "n": 4},
+    ]
+    a, b = dt.date(2026, 9, 1), dt.date(2026, 10, 10)
+    body, charged = await quality.latency(FakeLatency(rows, {"L1": dt.date(2026, 9, 27)}), a, b, None)
+    l1, l2, l3 = body["metrics"]["L1"], body["metrics"]["L2"], body["metrics"]["L3"]
+    assert (l1["n"], l1["p50"], l1["p90"], l1["distribution"]) == (4, 2, 30, [[2, 3], [30, 1]])
+    assert l1["excluded"] == {"initial_load": 100} and l1["measuredSince"] == "2026-09-27" and charged == 0
+    assert (l2["n"], l2["p50"], l2["excluded"], l2["measuredSince"]) == (0, None, {"low_resolution": 4}, None)
+    assert l3["unit"] == "minute" and l3["n"] == 0 and l3["p50"] is None and len(l3["distribution"]) == 8
+    with pytest.raises(ApiError):
+        await quality.latency(FakeLatency([]), b, a, None)

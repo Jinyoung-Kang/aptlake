@@ -379,7 +379,7 @@ def gold_monthly(context: AssetExecutionContext, dbt: DbtCliResource):
 
 @dbt_assets(
     manifest=dbt_project.manifest_path,
-    select="complex_summary",
+    select="complex_summary source_latency",
     dagster_dbt_translator=Translator(),
     name="gold_dimensions",
     pool="trino_write",
@@ -423,7 +423,7 @@ def clickhouse_month(context: AssetExecutionContext) -> MaterializeResult:
     group_name="serving",
     pool="publish",
     retry_policy=TRANSIENT_RETRY,
-    deps=[AssetKey(["gold", "complex_summary"]), AssetKey(["silver", "region"])],
+    deps=[AssetKey(["gold", "complex_summary"]), AssetKey(["gold", "source_latency"]), AssetKey(["silver", "region"])],
 )
 def clickhouse_dimensions(context: AssetExecutionContext) -> MaterializeResult:
     counts = publish.publish_dimensions()

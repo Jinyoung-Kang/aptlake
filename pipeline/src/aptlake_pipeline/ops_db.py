@@ -260,6 +260,16 @@ def record_dataset_version(
                 baseline,
             ),
         )
+        for ym in partitions if files and not baseline else []:  # 달 발행: 수집→발행 지연 (ADR-046)
+            c.execute(
+                """INSERT INTO ops.publish_lag (publish_id, sgg_cd, deal_ym, fetched_at, published_at)
+                   SELECT %(pid)s, p.sgg_cd, p.deal_ym, p.last_changed_at, now()
+                   FROM ops.ingest_partition p
+                   WHERE p.deal_ym = %(ym)s AND p.status = 'MERGED' AND p.last_changed_at > (
+                       SELECT max(v.published_at) FROM ops.dataset_version v
+                       WHERE v.publish_id IS NOT NULL AND v.version <> %(ver)s AND %(ym)s = ANY (v.partitions))""",
+                {"pid": publish_id, "ym": ym, "ver": version},
+            )
         for f in files:
             c.execute(
                 """INSERT INTO ops.dataset_month_file (publish_id, deal_ym, object_key, rows, bytes, sha256)

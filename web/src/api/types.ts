@@ -106,6 +106,12 @@ export type QualityPartition = {
   checks: { asset: string; name: string; passed: boolean; blocking: boolean; severity: string; metric: unknown; at: string }[];
   lineage: string[];
 };
+/** 원천 반영 지연 (ADR-046). distribution = [지연(일) 또는 구간 상한(분, null=그 이상), 건수] */
+export type LatencyMetric = {
+  unit: "day" | "minute"; n: number; p50: number | null; p90: number | null; p99: number | null;
+  distribution: [number | null, number][]; excluded: Record<string, number>; measuredSince: string | null;
+};
+export type QualityLatency = { from: string; to: string; metrics: Record<"L1" | "L2" | "L3", LatencyMetric> };
 
 // ───── 운영 ─────
 export type OpsJob = {

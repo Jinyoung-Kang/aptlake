@@ -94,6 +94,17 @@ CREATE TABLE IF NOT EXISTS aptlake.trade_version
     buyer_type       LowCardinality(String)
 ) ENGINE = MergeTree PARTITION BY toYYYYMM(deal_date) ORDER BY (trade_id, valid_from);
 
+-- 원천 반영 지연 분포 (ADR-046): dbt gold.source_latency 를 매일 통째로 교체 (차원 발행).
+CREATE TABLE IF NOT EXISTS aptlake.source_latency
+(
+    metric         LowCardinality(String),
+    observed_date  Date,
+    sido_cd        LowCardinality(String),
+    reason         LowCardinality(String),
+    lag_days       Nullable(Int32),
+    n              UInt64
+) ENGINE = MergeTree ORDER BY (metric, observed_date, sido_cd);
+
 -- 변경분 피드 (ADR-045): 달 발행마다 '마지막으로 기록된 그 달 파일'과 새 값을 비교한 결과. 행에 그 발행 시점의 거래 값을
 -- 함께 둔다(나중에 trade_current 가 또 바뀌어도 피드는 그때 값을 준다). 버전 기록(PostgreSQL)이 커밋된 publish_id 만 보인다.
 -- 보존 90일 — API 설정 change_retention_days 와 같아야 한다 (시험으로 확인).
