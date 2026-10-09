@@ -151,7 +151,7 @@ def reset_fetching(deal_ym: str) -> None:
 def loaded_partitions(deal_ym: str) -> list[dict[str, Any]]:
     with conn() as c:
         return c.execute(
-            """SELECT sgg_cd, last_ingest_id, fetch_count, rows_last, rows_prev
+            """SELECT sgg_cd, last_ingest_id, fetch_count, rows_last, rows_prev, last_changed_at
                FROM ops.ingest_partition WHERE deal_ym=%s AND status='LOADED' ORDER BY sgg_cd""",
             (deal_ym,),
         ).fetchall()

@@ -1,5 +1,5 @@
 import type { Trade, TradeVersion } from "../api/types";
-import { AREA_BANDS, maxPickDate, tradeFilter, VERSION_FIELD, versionValue } from "../domain/trades";
+import { AREA_BANDS, maxPickDate, tradeFilter, UNTRACKED_FIELD, VERSION_FIELD, versionValue } from "../domain/trades";
 import { useTradesPager } from "../hooks/useTradesPager";
 import { useApi, useAvailable } from "../hooks/useApi";
 import DateRangePicker from "../components/DateRangePicker";
@@ -42,7 +42,9 @@ function Detail({ t, onClose }: { t: Trade; onClose: () => void }) {
               <strong>v{v.version}</strong> {v.current ? <Badge tone="info">현재</Badge> : null}
               <div className="muted small">{kst(v.validFrom, false)} 부터{v.validTo ? ` · ${kst(v.validTo, false)} 까지` : ""}</div>
               {v.version === 1 && v.changes.length === 0 ? <div className="ch">최초 관측</div> : null}
-              {v.changes.map((c) => <div key={c.field} className="ch">{VERSION_FIELD[c.field] ?? c.field}: {versionValue(c.from)} → <strong>{versionValue(c.to)}</strong></div>)}
+              {v.changes.map((c) => c.field === UNTRACKED_FIELD
+                ? <div key={c.field} className="ch">{VERSION_FIELD[c.field]}</div>
+                : <div key={c.field} className="ch">{VERSION_FIELD[c.field] ?? c.field}: {versionValue(c.from)} → <strong>{versionValue(c.to)}</strong></div>)}
             </li>
           ))}
         </ul>

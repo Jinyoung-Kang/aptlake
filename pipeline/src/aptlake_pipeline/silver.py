@@ -96,6 +96,9 @@ def _stage_rows(deal_ym: str, parts: list[dict]) -> list[dict]:
     aliases = ops_db.umd_aliases()  # 행정구역 승격·개칭: 지문·단지 키는 옛 법정동 이름으로 (표시 이름은 원천 그대로)
     for sgg, trades in grouped.items():
         iid, fetched_at = meta[sgg]
+        # 새 버전의 시각은 '이번에 관측한 시각'이다. 같은 원본이 bronze 에 이미 있으면 옛 ingest_id 를 다시 쓰므로
+        # (A→B→A) bronze 의 fetched_at 은 옛 시각일 수 있다 → 이번 적재의 수집 시각(mark_loaded 가 채움)을 쓴다 (D1)
+        fetched_at = by_iid[iid].get("last_changed_at") or fetched_at
         fetch_seq = by_iid[iid]["fetch_count"]
         for k in assign_keys(trades, aliases):
             t = k.trade

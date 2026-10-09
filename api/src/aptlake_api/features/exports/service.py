@@ -12,6 +12,7 @@ from ...core.values import iso
 Row = dict[str, Any]
 MAX_RUNNING = 2  # 클라이언트당 대기·진행 중 작업
 MAX_SPAN_DAYS = 366 * 20
+FILE_RETENTION = dt.timedelta(days=1)  # exports 버킷 수명 규칙(infra/minio/init.sh)과 같아야 한다 — 시험으로 확인
 
 
 class ExportStore(Protocol):
@@ -34,7 +35,13 @@ async def create(store: ExportStore, client_id: str, key_id: str, params_json: s
 
 
 async def status(
-    store: ExportStore, job_id: str, client_id: str, *, presign: Callable[[str], str], url_ttl_s: int
+    store: ExportStore,
+    job_id: str,
+    client_id: str,
+    *,
+    presign: Callable[[str], str],
+    url_ttl_s: int,
+    now: dt.datetime | None = None,
 ) -> dict[str, Any]:
     job = await store.get(job_id, client_id)
     if job is None:  # 다른 클라이언트의 작업도 404 (존재 여부 비노출)
@@ -47,8 +54,14 @@ async def status(
         "finishedAt": iso(job["finished_at"]),
     }
     if job["status"] == "done" and job["object_key"]:
-        out["downloadUrl"] = presign(job["object_key"])
-        out["expiresInSeconds"] = url_ttl_s
+        # 결과 파일은 버킷 수명 규칙으로 지워진다 → 그 뒤에는 지워진 파일의 주소 대신 expired (D3)
+        expires = (job["finished_at"] or job["created_at"]) + FILE_RETENTION
+        out["expiresAt"] = iso(expires)
+        if (now or dt.datetime.now(tz=dt.UTC)) >= expires:
+            out["status"] = "expired"
+        else:
+            out["downloadUrl"] = presign(job["object_key"])
+            out["expiresInSeconds"] = url_ttl_s
     if job["status"] == "failed":
         out["error"] = job["error"]
     return out

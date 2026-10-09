@@ -32,6 +32,9 @@ export function maxPickDate(avail: Available, today: string): string {
 
 export const VERSION_FIELD: Record<string, string> = {
   cancelled: "해제", cancelDate: "해제일", registeredDate: "등기일", aptDong: "동", dealKind: "거래유형", sellerType: "매도자", buyerType: "매수자",
+  // 이력 표에 없는 원천 열(건축연도·중개사 소재지·토지임대부)만 바뀐 버전 — 값은 알 수 없다
+  untrackedSourceFields: "이력에 없는 원천 값(건축연도·중개사 소재지·토지임대부 중) 변경",
 };
+export const UNTRACKED_FIELD = "untrackedSourceFields";
 /** 버전 이력의 값 표시 (예/아니오/없음) */
 export const versionValue = (v: unknown) => (v === true ? "예" : v === false ? "아니오" : v == null || v === "" ? "없음" : String(v));

@@ -187,7 +187,10 @@ async def test_export_rules():
         "created_at": dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
         "finished_at": None,
     }
-    out = await exports.status(FakeExports(job=done), "j", "c", presign=lambda k: f"https://s3/{k}", url_ttl_s=900)
+    soon = dt.datetime(2026, 1, 1, 1, tzinfo=dt.UTC)  # 파일 보관(1일) 안
+    out = await exports.status(
+        FakeExports(job=done), "j", "c", presign=lambda k: f"https://s3/{k}", url_ttl_s=900, now=soon
+    )
     assert out["downloadUrl"] == "https://s3/c/j.parquet" and out["expiresInSeconds"] == 900
     with pytest.raises(ApiError) as e:
         await exports.status(FakeExports(job=None), "j", "c", presign=str, url_ttl_s=900)
@@ -348,3 +351,54 @@ async def test_error_log_keeps_run_failures_when_only_sensor_query_fails():
     )
     assert [e["ref"] for e in body["entries"]] == ["r-1"]
     assert len(body["notes"]) == 1 and "Dagster" in body["notes"][0]
+
+
+# ───── 데이터 제품 설계 계획서 6장의 결함 ─────
+class FakeVersions:
+    def __init__(self, rows):
+        self.rows = rows
+
+    async def versions(self, trade_id, yyyymm):
+        return self.rows
+
+
+def version_row(version, valid_from, **kw):
+    base = dict(is_cancelled=0, cancel_date=None, registered_date=None, apt_dong="", deal_kind="중개거래",
+                seller_type="개인", buyer_type="개인")  # fmt: skip
+    return {"version": version, "valid_from": valid_from, "valid_to": None, "is_current": 1, **base, **kw}
+
+
+async def test_history_names_untracked_change_instead_of_empty_list():
+    """D2: 이력 표(trade_version)에 없는 원천 열(건축연도·중개사 소재지·토지임대부)만 바뀌어 생긴 버전도
+    '바뀐 것 없음'으로 보이면 안 된다 — 무엇이 바뀌었는지 모른다는 사실을 그대로 알린다."""
+    t0, t1 = dt.datetime(2026, 9, 1, tzinfo=dt.UTC), dt.datetime(2026, 9, 5, tzinfo=dt.UTC)
+    rows = [version_row(1, t0, is_current=0, valid_to=t1), version_row(2, t1)]
+    body, charged = await trades.history(FakeVersions(rows), "41135-202609-0000000000000000-0", 202609)
+    assert body["versions"][0]["changes"] == []
+    assert body["versions"][1]["changes"] == [{"field": "untrackedSourceFields", "from": None, "to": None}]
+    assert charged == 2
+
+
+async def test_export_status_after_file_retention_is_expired_without_url():
+    """D3: 결과 파일은 버킷 수명 규칙으로 1일 뒤 지워진다 — 그 뒤에는 주소 대신 expired."""
+    from aptlake_api.features.exports import service as exports
+
+    done_at = dt.datetime(2026, 10, 1, 3, 0, tzinfo=dt.UTC)
+    job = {"job_id": "j", "status": "done", "rows": 5, "error": None, "object_key": "c/j.parquet",
+           "created_at": done_at, "finished_at": done_at}  # fmt: skip
+    kw = dict(presign=lambda k: f"https://s3/{k}", url_ttl_s=900)
+    fresh = await exports.status(FakeExports(job=job), "j", "c", now=done_at + dt.timedelta(hours=23), **kw)
+    assert fresh["status"] == "done" and fresh["downloadUrl"] and fresh["expiresAt"] == "2026-10-02T03:00:00+00:00"
+    old = await exports.status(FakeExports(job=job), "j", "c", now=done_at + dt.timedelta(hours=24), **kw)
+    assert old["status"] == "expired" and "downloadUrl" not in old and old["rows"] == 5
+
+
+def test_export_retention_matches_bucket_lifecycle_rule():
+    import re
+    from pathlib import Path
+
+    from aptlake_api.features.exports import service as exports
+
+    init = (Path(__file__).resolve().parents[2] / "infra/minio/init.sh").read_text()
+    days = re.search(r'"ID":"expire-exports".*?"Days":(\d+)', init)
+    assert days and dt.timedelta(days=int(days.group(1))) == exports.FILE_RETENTION
