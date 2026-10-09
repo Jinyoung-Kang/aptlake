@@ -101,7 +101,8 @@ class ExportRepository:
                 list[Row],
                 await (
                     await c.execute(
-                        "SELECT version, published_at, publish_id::text AS publish_id FROM ops.dataset_version"
+                        """SELECT version, published_at, publish_id::text AS publish_id, snapshot_baseline
+                           FROM ops.dataset_version"""
                     )
                 ).fetchall(),
             )

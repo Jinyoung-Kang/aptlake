@@ -49,11 +49,15 @@ def files_for_version(versions: list[Row], files: list[Row], target: str) -> lis
     t = by_ver.get(target)
     if t is None:
         return None
+    starts = [_order(v) for v in versions if v.get("snapshot_baseline")]
+    start = min(starts) if starts else None
+    if start is None or _order(t) < start:
+        return []
     pub = {str(v["publish_id"]): v for v in versions if v.get("publish_id")}
     best: dict[str, tuple[tuple, Row]] = {}
     for f in files:
         v = pub.get(str(f["publish_id"]))
-        if v is None or _order(v) > _order(t):
+        if v is None or _order(v) > _order(t) or _order(v) < start:  # 기준선 전 발행의 파일은 쓰지 않는다
             continue
         if f["deal_ym"] not in best or _order(v) > best[f["deal_ym"]][0]:
             best[f["deal_ym"]] = (_order(v), f)

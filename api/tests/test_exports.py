@@ -16,8 +16,8 @@ def seed_snapshot(stack) -> None:
     with psycopg.connect(stack["su"], autocommit=True) as pg:
         pg.execute(
             """INSERT INTO ops.dataset_version (version, published_at, data_as_of, partitions, snapshots, row_counts,
-                   publish_id)
-               VALUES ('gold@2026-10-10.1', now() - interval '1 hour', now(), ARRAY['202407'], '{}', '{}', %s)
+                   publish_id, snapshot_baseline)
+               VALUES ('gold@2026-10-10.1', now() - interval '1 hour', now(), ARRAY['202407'], '{}', '{}', %s, true)
                ON CONFLICT DO NOTHING""",
             (BASE_PID,),
         )

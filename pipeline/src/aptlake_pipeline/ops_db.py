@@ -241,13 +241,24 @@ def record_dataset_version(
     run_id: str | None,
     publish_id: str,
     files: list[Any],
+    baseline: bool = False,
 ) -> None:
     """버전과 그 발행의 달 스냅숏 파일을 한 트랜잭션으로 (둘 중 하나만 남지 않게)."""
     with conn() as c, c.transaction():
         c.execute(
-            """INSERT INTO ops.dataset_version (version, data_as_of, partitions, snapshots, row_counts, run_id, publish_id)
-               VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-            (version, data_as_of, partitions, json.dumps(snapshots), json.dumps(row_counts), run_id, publish_id),
+            """INSERT INTO ops.dataset_version (version, data_as_of, partitions, snapshots, row_counts, run_id, publish_id,
+                   snapshot_baseline)
+               VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
+            (
+                version,
+                data_as_of,
+                partitions,
+                json.dumps(snapshots),
+                json.dumps(row_counts),
+                run_id,
+                publish_id,
+                baseline,
+            ),
         )
         for f in files:
             c.execute(
@@ -261,7 +272,7 @@ def snapshot_records() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(발행 기록, 달 파일 기록) — 보관 정리용."""
     with conn() as c:
         versions = c.execute(
-            "SELECT version, published_at, publish_id::text AS publish_id FROM ops.dataset_version"
+            "SELECT version, published_at, publish_id::text AS publish_id, snapshot_baseline FROM ops.dataset_version"
         ).fetchall()
         files = c.execute(
             """SELECT publish_id::text AS publish_id, deal_ym, object_key, deleted_at

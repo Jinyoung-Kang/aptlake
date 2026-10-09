@@ -443,7 +443,7 @@ def snapshot_baseline(context: AssetExecutionContext) -> MaterializeResult:
     months, files = publish.snapshot_baseline(publish_id, snapshots.SnapshotStore())
     version = publish.next_dataset_version()
     rows = sum(f.rows for f in files)
-    publish.commit_version(version, months, {"trade_current": rows}, context.run_id, publish_id, files)
+    publish.commit_version(version, months, {"trade_current": rows}, context.run_id, publish_id, files, baseline=True)
     return MaterializeResult(
         metadata={"dataset_version": version, "months": len(months), "rows": rows, "bytes": sum(f.bytes for f in files)}
     )

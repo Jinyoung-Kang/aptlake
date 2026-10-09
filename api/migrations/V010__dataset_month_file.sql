@@ -3,6 +3,9 @@
 -- 버전 V 의 데이터 = 달마다 V 이전에 기록된 가장 최근 파일. 버전 지정 내보내기(F3)와 변경분 피드(F2)의 기준이 된다.
 -- publish_id: 버전 문자열은 발행 전에 정해지고 실패 후 재시도하면 같은 값이 다시 나온다 → 시도마다 고유한 uuid 를 붙인다.
 ALTER TABLE ops.dataset_version ADD COLUMN publish_id uuid UNIQUE;
+-- 기준선(make snapshot-baseline): 서빙 중인 모든 달을 파일로 남긴 버전. 기록은 여기서 시작한다 —
+-- 그 전 버전은 (배포 직후 기준선 전에 끼어든 달 발행이라도) 일부 달만 파일이 있어 '그 버전 그대로'가 아니다.
+ALTER TABLE ops.dataset_version ADD COLUMN snapshot_baseline boolean NOT NULL DEFAULT false;
 
 CREATE TABLE ops.dataset_month_file (
     publish_id  uuid         NOT NULL REFERENCES ops.dataset_version (publish_id),

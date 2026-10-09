@@ -28,8 +28,8 @@ def test_files_for_version_follows_shared_case_table(case):
         assert [f"{f['publish_id'][:8]}:{f['deal_ym']}" for f in got] == case["expect"]
 
 
-def _v(name: str, at: dt.datetime, pid: str | None) -> dict:
-    return {"version": name, "published_at": at, "publish_id": pid}
+def _v(name: str, at: dt.datetime, pid: str | None, baseline: bool = False) -> dict:
+    return {"version": name, "published_at": at, "publish_id": pid, "snapshot_baseline": baseline}
 
 
 def test_kept_versions_recent_days_plus_last_of_each_month_plus_latest():
@@ -40,7 +40,7 @@ def test_kept_versions_recent_days_plus_last_of_each_month_plus_latest():
         _v("aug", dt.datetime(2026, 8, 31, 16, tzinfo=dt.UTC), "c"),  # KST 9월 1일 01시 → 9월로 센다
         _v("sep-mid", dt.datetime(2026, 9, 5, tzinfo=dt.UTC), "d"),
         _v("recent", dt.datetime(2026, 9, 20, tzinfo=dt.UTC), "e"),  # 30일 안
-        _v("ancient", dt.datetime(2025, 9, 1, tzinfo=dt.UTC), "f"),  # 1년 넘음
+        _v("ancient", dt.datetime(2025, 9, 1, tzinfo=dt.UTC), "f", baseline=True),  # 기준선, 1년 넘음
         _v("pre-feature", dt.datetime(2026, 10, 1, tzinfo=dt.UTC), None),
     ]
     assert snapshots.kept_versions(vs, now) == {"old-jun-b", "recent"}
@@ -49,19 +49,21 @@ def test_kept_versions_recent_days_plus_last_of_each_month_plus_latest():
 def test_files_to_delete_keeps_files_still_used_by_kept_versions():
     now = dt.datetime(2026, 10, 10, tzinfo=dt.UTC)
     vs = [
-        _v("base", dt.datetime(2026, 7, 1, tzinfo=dt.UTC), "base"),
+        _v("base", dt.datetime(2026, 7, 1, tzinfo=dt.UTC), "base", baseline=True),
         _v("jul-late", dt.datetime(2026, 7, 2, tzinfo=dt.UTC), "j2"),  # 7월 마지막 → 남음
         _v("new", dt.datetime(2026, 10, 9, tzinfo=dt.UTC), "new"),
     ]
     vs.insert(1, _v("jul-mid", dt.datetime(2026, 7, 1, 12, tzinfo=dt.UTC), "j1"))
+    vs.insert(0, _v("pre-base", dt.datetime(2026, 6, 30, tzinfo=dt.UTC), "pre"))  # 기준선 전 발행
     files = [
         {"publish_id": "base", "deal_ym": "202606", "object_key": "k0"},  # 모든 버전이 씀
         {"publish_id": "base", "deal_ym": "202607", "object_key": "k1"},  # j1 이 덮음 → 아무도 안 씀
         {"publish_id": "j1", "deal_ym": "202607", "object_key": "k2"},  # j2 가 덮음 → 아무도 안 씀
         {"publish_id": "j2", "deal_ym": "202607", "object_key": "k3"},  # 7월 마지막·최신이 씀
         {"publish_id": "j1", "deal_ym": "202605", "object_key": "k4", "deleted_at": now},  # 이미 지움
+        {"publish_id": "pre", "deal_ym": "202606", "object_key": "k5"},  # 기준선 전 파일 — 쓰이지 않는다
     ]
-    assert [f["object_key"] for f in snapshots.files_to_delete(vs, files, now)] == ["k1", "k2"]
+    assert [f["object_key"] for f in snapshots.files_to_delete(vs, files, now)] == ["k1", "k2", "k5"]
 
 
 def test_orphan_keys_only_unrecorded_and_older_than_grace():

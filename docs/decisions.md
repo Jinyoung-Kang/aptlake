@@ -392,7 +392,7 @@
   - 달을 발행할 때마다 곧 교체될 `trade_current` 스테이징을 Parquet 파일로 남긴다(`snapshots/trade/deal_ym=…/{publish_id}.parquet`). 파일을 못 쓰면 교체하지 않는다.
   - 버전 기록과 파일 등록(`ops.dataset_month_file`, V010)은 한 트랜잭션이다. 시도마다 `publish_id`(uuid)를 붙인다 — 버전 문자열은 발행 전에 정해져 재시도하면 같은 값이 나오기 때문이다.
   - 버전 V 의 데이터 = 달마다 V 이전에 기록된 가장 최근 파일. 규칙은 파이프라인·API 에 같은 코드가 있고 같은 사례표(`pipeline/tests/fixtures/snapshot_versions.json`)로 시험한다.
-  - 기능 시작 때 `make snapshot-baseline` 이 지금 서빙을 파일로 쓰고 기준선 버전을 남긴다. 그 전 버전은 410.
+  - 기능 시작 때 `make snapshot-baseline` 이 지금 서빙을 파일로 쓰고 기준선 버전(`snapshot_baseline = true`)을 남긴다. 기록은 가장 이른 기준선에서 시작한다 — 그 전 버전은 410 이다. 배포 직후 기준선 전에 끼어든 달 발행도 일부 달만 파일이 있어 '그 버전 그대로'가 아니므로 쓰지 않는다(그 파일은 정리 대상).
   - **내보내기는 버전 지정 유무와 관계없이 늘 달 파일에서** 뽑는다(경로 하나). 생략하면 요청 시점 최신 버전을 작업에 고정한다. 받은 달 파일은 기록된 해시와 맞는지 확인한다.
   - 쓰기는 Python(Arrow → pyarrow → S3). ClickHouse `s3()` 는 자격증명이 질의 문자열(query_log)에 남는다. 계정 `snapshot` 은 이 버킷만, `export` 는 읽기만.
   - 보관: 최근 30일 모든 버전 + 달마다 마지막 버전 1년 + 최신. 실측(70개월 129MB, 한 달 최대 2.7MB, 달 발행 하루 3~4회)으로 정했다. 주간 정리 작업이 지우고 기록에는 지운 시각만 남긴다.

@@ -450,6 +450,7 @@ def commit_version(
     run_id: str | None,
     publish_id: str,
     files: list[snapshots.MonthFile] | None = None,
+    baseline: bool = False,
 ) -> None:
     """버전 기록 + 달 스냅숏 파일 등록을 한 트랜잭션으로 → Redis 현재 버전. 기록된 발행의 파일만 쓰인다(ADR-044)."""
     with ops_db.conn() as c:
@@ -467,6 +468,8 @@ def commit_version(
             "gold.price_index",
         )
     }
-    ops_db.record_dataset_version(version, as_of, partitions, snaps, row_counts, run_id, publish_id, files or [])
+    ops_db.record_dataset_version(
+        version, as_of, partitions, snaps, row_counts, run_id, publish_id, files or [], baseline
+    )
     r = redis.Redis.from_url(str(settings().redis_url))
     r.mset({"al:ds:ver": version, "al:ds:asof": as_of.isoformat()})

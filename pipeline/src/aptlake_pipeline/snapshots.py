@@ -154,10 +154,16 @@ def _order(v: Mapping[str, Any]) -> tuple:
     return (v["published_at"], v["version"])
 
 
+def record_start(versions: Sequence[Mapping[str, Any]]) -> tuple | None:
+    """기록 시작 = 가장 이른 기준선 버전. 그 전 버전은 일부 달만 파일이 있어 '그 버전 그대로'가 아니다."""
+    starts = [_order(v) for v in versions if v.get("snapshot_baseline")]
+    return min(starts) if starts else None
+
+
 def files_for_version(
     versions: Sequence[Mapping[str, Any]], files: Sequence[Mapping[str, Any]], target: str
 ) -> list[Mapping[str, Any]] | None:
-    """버전 target 시점의 달 파일들(달 순). 기록 없는 버전이면 None. 기록이 시작되기 전 버전이면 [].
+    """버전 target 시점의 달 파일들(달 순). 기록 없는 버전이면 None. 기록 시작(기준선) 전 버전이면 [].
 
     versions: version·published_at·publish_id / files: publish_id·deal_ym·… (지운 파일 포함 — 판단은 호출한 쪽)
     """
@@ -165,11 +171,14 @@ def files_for_version(
     t = by_ver.get(target)
     if t is None:
         return None
-    pub = {v["publish_id"]: v for v in versions if v.get("publish_id")}
+    start = record_start(versions)
+    if start is None or _order(t) < start:
+        return []
+    pub = {str(v["publish_id"]): v for v in versions if v.get("publish_id")}
     best: dict[str, tuple[tuple, Mapping[str, Any]]] = {}
     for f in files:
-        v = pub.get(f["publish_id"])
-        if v is None or _order(v) > _order(t):
+        v = pub.get(str(f["publish_id"]))
+        if v is None or _order(v) > _order(t) or _order(v) < start:  # 기준선 전 발행의 파일은 쓰지 않는다
             continue
         if f["deal_ym"] not in best or _order(v) > best[f["deal_ym"]][0]:
             best[f["deal_ym"]] = (_order(v), f)
@@ -178,7 +187,8 @@ def files_for_version(
 
 def kept_versions(versions: Sequence[Mapping[str, Any]], now: dt.datetime) -> set[str]:
     """보관 정책에 남는 버전: 최근 KEEP_DAYS 일 전부 + 달(KST)마다 마지막 버전 KEEP_MONTHLY_DAYS 일 + 최신."""
-    vs = sorted((v for v in versions if v.get("publish_id")), key=_order)
+    start = record_start(versions)
+    vs = sorted((v for v in versions if v.get("publish_id") and start is not None and _order(v) >= start), key=_order)
     if not vs:
         return set()
     keep = {vs[-1]["version"]}
