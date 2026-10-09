@@ -94,6 +94,42 @@ CREATE TABLE IF NOT EXISTS aptlake.trade_version
     buyer_type       LowCardinality(String)
 ) ENGINE = MergeTree PARTITION BY toYYYYMM(deal_date) ORDER BY (trade_id, valid_from);
 
+-- 변경분 피드 (ADR-045): 달 발행마다 '마지막으로 기록된 그 달 파일'과 새 값을 비교한 결과. 행에 그 발행 시점의 거래 값을
+-- 함께 둔다(나중에 trade_current 가 또 바뀌어도 피드는 그때 값을 준다). 버전 기록(PostgreSQL)이 커밋된 publish_id 만 보인다.
+-- 보존 90일 — API 설정 change_retention_days 와 같아야 한다 (시험으로 확인).
+CREATE TABLE IF NOT EXISTS aptlake.trade_change
+(
+    publish_id       UUID,
+    deal_ym          UInt32,
+    trade_id         String,
+    change           Enum8('added' = 1, 'removed' = 2, 'updated' = 3, 'missing' = 4, 'restored' = 5),
+    changed_fields   Array(LowCardinality(String)),
+    sgg_cd           LowCardinality(String),
+    deal_date        Date,
+    complex_key      String,
+    apt_nm           String,
+    umd_nm           LowCardinality(String),
+    jibun            String,
+    area_m2          Decimal(9, 4),
+    floor            Nullable(Int16),
+    price_manwon     UInt32,
+    ppm2             Float64,
+    is_cancelled     UInt8,
+    cancel_date      Nullable(Date),
+    registered_date  Nullable(Date),
+    apt_dong         String,
+    deal_kind        LowCardinality(String),
+    seller_type      LowCardinality(String),
+    buyer_type       LowCardinality(String),
+    build_year       Nullable(UInt16),
+    is_outlier       UInt8,
+    version          UInt16,
+    valid_from       DateTime64(3, 'UTC'),
+    missing_since    Nullable(DateTime64(3, 'UTC')),
+    created_at       DateTime64(3, 'UTC') DEFAULT now64(3)
+) ENGINE = MergeTree PARTITION BY toYYYYMM(created_at) ORDER BY (publish_id, trade_id)
+  TTL toDateTime(created_at) + INTERVAL 90 DAY DELETE;
+
 CREATE TABLE IF NOT EXISTS aptlake.complex
 (
     complex_key     String,

@@ -482,3 +482,104 @@ def test_export_filters_snapshot_month_and_checks_file_hash(tmp_path):
     with pytest.raises(storage.SnapshotIntegrityError):
         storage.write_export([{**files[0], "sha256": "0" * 64}], {"from": "2026-09-01", "to": "2026-09-30"},
                              str(tmp_path / "r.parquet"), fetch)  # fmt: skip
+
+
+# ───── 변경분 피드 (ADR-045) ─────
+NOW = dt.datetime(2026, 10, 20, tzinfo=dt.UTC)
+
+
+def fv(name, days_ago, pid=None, baseline=False):
+    return {"version": name, "published_at": NOW - dt.timedelta(days=days_ago), "publish_id": pid,
+            "snapshot_baseline": baseline}  # fmt: skip
+
+
+def change_row(pid, tid, change="added", fields=()):
+    return {"publish_id": pid, "trade_id": tid, "change": change, "changed_fields": list(fields),
+            "deal_date": dt.date(2026, 9, 1), "complex_key": "c", "apt_nm": "a", "umd_nm": "u", "jibun": "1",
+            "area_m2": 84.99, "floor": 5, "price_manwon": 50000, "ppm2": 588.3, "is_cancelled": 1, "cancel_date": None,
+            "registered_date": None, "apt_dong": "", "deal_kind": "", "seller_type": "", "buyer_type": "",
+            "build_year": 2000, "is_outlier": 0, "version": 2, "missing_since": None}  # fmt: skip
+
+
+class FakeChanges:
+    def __init__(self, versions, rows):
+        self._versions, self.rows, self.asked = versions, rows, []
+
+    async def versions(self):
+        return self._versions
+
+    async def changes(self, ids, after, limit):
+        self.asked.append(ids)
+        out = sorted(({**r, "r": ids.index(r["publish_id"]) + 1} for r in self.rows if r["publish_id"] in ids),
+                     key=lambda r: (r["r"], r["trade_id"]))  # fmt: skip
+        return [r for r in out if after is None or (r["r"], r["trade_id"]) > after][:limit]
+
+
+FEED_VERSIONS = [
+    fv("gold@2026-07-01.1", 111, "p0", baseline=False),  # 보존 밖·기준선 전
+    fv("gold@2026-10-01.1", 19, "base", baseline=True),
+    fv("gold@2026-10-02.1", 18, "p1"),
+    fv("gold@2026-10-03.1", 17, "dims"),  # 차원 발행 — 거래 변경 없음
+    fv("gold@2026-10-04.1", 16, "p2"),
+]
+FEED_ROWS = [
+    change_row("p1", "t-b", "updated", ["cancelled"]),
+    change_row("p1", "t-a"),
+    change_row("p2", "t-a", "missing"),
+]
+
+
+async def feed(store, since, limit=10, pos=None):
+    return await trades.changes(store, since, limit, pos, now=NOW, retention_days=90, cursor_key=b"k", fingerprint="f")
+
+
+async def test_change_feed_window_order_and_shape():
+    store = FakeChanges(FEED_VERSIONS, FEED_ROWS)
+    body, charged = await feed(store, "gold@2026-10-01.1")
+    assert store.asked == [["p1", "dims", "p2"]]  # since 다음부터 최신까지
+    assert [(i["publishedVersion"], i["tradeId"], i["change"], i["changedFields"]) for i in body["items"]] == [
+        ("gold@2026-10-02.1", "t-a", "added", None),
+        ("gold@2026-10-02.1", "t-b", "updated", ["cancelled"]),
+        ("gold@2026-10-04.1", "t-a", "missing", None),
+    ]
+    assert body["fromVersion"] == "gold@2026-10-01.1" and body["toVersion"] == "gold@2026-10-04.1"
+    assert body["items"][0]["trade"]["cancelled"] is True and charged == 3 and body["page"]["nextCursor"] is None
+    latest, n = await feed(FakeChanges(FEED_VERSIONS, FEED_ROWS), "gold@2026-10-04.1")
+    assert latest["items"] == [] and n == 0
+
+
+async def test_change_feed_pages_keep_upper_version_fixed():
+    key = b"k"
+    store = FakeChanges(FEED_VERSIONS, FEED_ROWS)
+    first, _ = await feed(store, "gold@2026-10-01.1", limit=2)
+    pos = cursor_mod.decode(key, first["page"]["nextCursor"], "f")
+    assert pos["u"] == "gold@2026-10-04.1"
+    store._versions = [*FEED_VERSIONS, fv("gold@2026-10-05.1", 15, "p3")]  # 페이지 사이에 새 발행
+    store.rows = [*FEED_ROWS, change_row("p3", "t-z")]
+    second, _ = await feed(store, "gold@2026-10-01.1", limit=2, pos=pos)
+    assert [i["tradeId"] for i in second["items"]] == ["t-a"] and second["toVersion"] == "gold@2026-10-04.1"
+
+
+async def test_change_feed_errors():
+    store = FakeChanges(FEED_VERSIONS, FEED_ROWS)
+    with pytest.raises(ApiError) as e:
+        await feed(store, "gold@2099-01-01.1")
+    assert e.value.status == 404 and e.value.code == "VERSION_NOT_FOUND"
+    with pytest.raises(ApiError) as e:  # 기준선 전·보존 밖
+        await feed(store, "gold@2026-07-01.1")
+    assert e.value.status == 410 and e.value.extra == {"oldestAvailable": "gold@2026-10-01.1"}
+    old = [{**v, "published_at": v["published_at"] - dt.timedelta(days=100)} for v in FEED_VERSIONS]
+    with pytest.raises(ApiError) as e:  # 기준선도 보존 밖
+        await feed(FakeChanges(old, FEED_ROWS), "gold@2026-10-01.1")
+    assert e.value.code == "CHANGES_EXPIRED" and e.value.extra == {"oldestAvailable": None}
+
+
+def test_change_retention_matches_clickhouse_ttl():
+    import re
+    from pathlib import Path
+
+    from aptlake_api.core.settings import Settings
+
+    schema = (Path(__file__).resolve().parents[2] / "infra/clickhouse/init/01-schema.sql").read_text()
+    ttl = re.search(r"TABLE IF NOT EXISTS aptlake\.trade_change.*?INTERVAL (\d+) DAY", schema, re.S)
+    assert ttl and int(ttl.group(1)) == Settings.model_fields["change_retention_days"].default

@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     usage_flush_interval_s: float = 1.0
     usage_flush_max: int = 1000
     export_url_ttl_s: int = 900
+    change_retention_days: int = 90  # 변경분 피드 보존 — ClickHouse trade_change TTL 과 같아야 한다 (시험으로 확인)
     metrics_port: int = 8612
     dagster_graphql_url: str = "http://dagster:3000/graphql"
 

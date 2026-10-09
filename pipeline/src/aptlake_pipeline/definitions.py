@@ -410,7 +410,9 @@ def clickhouse_month(context: AssetExecutionContext) -> MaterializeResult:
     ym = context.partition_key
     publish_id = str(uuid.uuid4())  # 시도마다 새로 — 재시도하면 버전 문자열은 같아도 파일·기록은 섞이지 않는다
     version = publish.next_dataset_version()
-    counts, month_file = publish.publish_month(ym, version, publish_id, snapshots.SnapshotStore())
+    counts, month_file = publish.publish_month(
+        ym, version, publish_id, snapshots.SnapshotStore(), ops_db.last_month_file(ym)
+    )
     publish.commit_version(version, [ym], counts, context.run_id, publish_id, [month_file])
     ops_db.mark_month_published(ym, version)
     return MaterializeResult(metadata={"dataset_version": version, **counts})

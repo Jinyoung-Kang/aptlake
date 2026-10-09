@@ -179,3 +179,82 @@ async def history(store: TradeStore, trade_id: str, yyyymm: int) -> tuple[dict, 
         )
         prev = r
     return {"tradeId": trade_id, "versions": versions}, len(versions)
+
+
+# ───────────────────────── 변경분 피드 (ADR-045) ─────────────────────────
+class ChangeStore(Protocol):
+    async def versions(self) -> list[Row]: ...
+    async def changes(self, publish_ids: list[str], after: tuple[int, str] | None, limit: int) -> list[Row]: ...
+
+
+def _vorder(v: Row) -> tuple:
+    return (v["published_at"], v["version"])
+
+
+def _feed_window(
+    versions: list[Row], since: str, until: str | None, now: dt.datetime, retention_days: int
+) -> tuple[Row, list[Row]]:
+    """(상한 버전, since 다음부터 상한까지 기록된 발행). 404·410 판정."""
+    vs = sorted(versions, key=_vorder)
+    by = {v["version"]: v for v in vs}
+    s = by.get(since)
+    if s is None:
+        raise ApiError(404, "VERSION_NOT_FOUND", "Not Found", "발행 기록에 없는 데이터셋 버전입니다.")
+    starts = [_vorder(v) for v in vs if v.get("snapshot_baseline")]
+    cutoff = now - dt.timedelta(days=retention_days)
+    if not starts or _vorder(s) < min(starts) or s["published_at"] < cutoff:
+        oldest = next((v["version"] for v in vs if starts and _vorder(v) >= min(starts) and v["published_at"] >= cutoff),
+                      None)  # fmt: skip
+        raise ApiError(
+            410,
+            "CHANGES_EXPIRED",
+            "Gone",
+            "변경 기록 보존 기간 밖이거나 기록 시작 전 버전입니다. 스냅숏 내보내기(datasetVersion)로 다시 받은 뒤 그 버전부터 이어 받으세요.",
+            extra={"oldestAvailable": oldest},
+        )
+    u = by.get(until) if until else vs[-1]
+    if u is None or _vorder(u) < _vorder(s):
+        raise ApiError(400, "INVALID_CURSOR", "Invalid Cursor", "커서의 상한 버전이 맞지 않습니다.")
+    window = [v for v in vs if _vorder(s) < _vorder(v) <= _vorder(u) and v.get("publish_id")]
+    return u, window
+
+
+async def changes(
+    store: ChangeStore,
+    since: str,
+    limit: int,
+    pos: dict[str, Any] | None,
+    *,
+    now: dt.datetime,
+    retention_days: int,
+    cursor_key: bytes,
+    fingerprint: str,
+) -> tuple[dict, int]:
+    """since 다음 발행부터 상한(첫 페이지 때의 최신) 버전까지의 거래 변경. (발행 순, 거래 ID 순)."""
+    until, window = _feed_window(await store.versions(), since, pos["u"] if pos else None, now, retention_days)
+    ids = [str(v["publish_id"]) for v in window]
+    after = (int(pos["r"]), str(pos["k"])) if pos else None
+    rows = await store.changes(ids, after, limit + 1) if ids else []
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    nxt = None
+    if has_more and rows:
+        last = rows[-1]
+        nxt = cursor.encode(cursor_key, {"u": until["version"], "r": last["r"], "k": last["trade_id"]}, fingerprint)
+    items = [
+        {
+            "publishedVersion": window[r["r"] - 1]["version"],
+            "change": r["change"],
+            "tradeId": r["trade_id"],
+            "changedFields": list(r["changed_fields"]) if r["change"] == "updated" else None,
+            "trade": trade_item(r),
+        }
+        for r in rows
+    ]
+    return {
+        "fromVersion": since,
+        "toVersion": until["version"],
+        "items": items,
+        "page": {"limit": limit, "nextCursor": nxt},
+        "disclaimer": DISCLAIMER,
+    }, len(items)

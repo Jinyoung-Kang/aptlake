@@ -268,6 +268,17 @@ def record_dataset_version(
             )
 
 
+def last_month_file(deal_ym: str) -> str | None:
+    """그 달의 마지막으로 기록된 스냅숏 파일 — 변경분 비교 기준 (커밋된 발행만, ADR-045)."""
+    with conn() as c:
+        row = c.execute(
+            """SELECT f.object_key FROM ops.dataset_month_file f JOIN ops.dataset_version v USING (publish_id)
+               WHERE f.deal_ym = %s ORDER BY v.published_at DESC, v.version DESC LIMIT 1""",
+            (deal_ym,),
+        ).fetchone()
+    return row["object_key"] if row else None
+
+
 def snapshot_records() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """(발행 기록, 달 파일 기록) — 보관 정리용."""
     with conn() as c:
