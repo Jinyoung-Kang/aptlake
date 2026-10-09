@@ -24,7 +24,7 @@ import clickhouse_connect
 import redis
 from clickhouse_connect.driver.client import Client
 
-from . import ops_db
+from . import ops_db, snapshots
 from .config import settings
 from .lake import current_snapshot_id, execute
 
@@ -145,7 +145,11 @@ def _part_col(table: str) -> str:
     }[table]
 
 
-def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
+def publish_month(
+    deal_ym: str, dataset_ver: str, publish_id: str, store: snapshots.SnapshotStore
+) -> tuple[dict[str, int], snapshots.MonthFile]:
+    """스테이징 → 대조 → 달 스냅숏 파일(곧 교체될 trade_current 그대로) → 교체. 파일은 교체 전에 써서,
+    파일을 못 쓰면 서빙도 바꾸지 않는다(버전 V 의 파일이 늘 V 의 서빙과 같게). 기록 등록은 commit_version."""
     if not _YM.fullmatch(deal_ym):
         raise ValueError(deal_ym)
     client = ch()
@@ -155,12 +159,32 @@ def publish_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
         _stage_month(client, deal_ym, dataset_ver, counts)
         for t in tables:
             _verify_staged(client, t, deal_ym, counts[t])
+        month_file = snapshots.write_month(client, "trade_current_staging", deal_ym, publish_id, store)
+        if month_file.rows != counts["trade_current"]:
+            raise ReconciliationError(f"snapshot {deal_ym}: 파일 {month_file.rows} != 대조 {counts['trade_current']}")
     except Exception:
         _drop_staged(client, tables, deal_ym)  # 대조 실패·적재 오류 → 네 표 모두 서빙은 이전 그대로
         raise
     for t in tables:  # 넷 다 대조를 통과했을 때만 교체
         _swap(client, t, deal_ym, counts[t])
-    return counts
+    return counts, month_file
+
+
+def snapshot_baseline(publish_id: str, store: snapshots.SnapshotStore) -> tuple[list[str], list[snapshots.MonthFile]]:
+    """기능 시작 때 한 번: 지금 서빙 중인 모든 달을 파일로 (서빙은 바꾸지 않음). 이 버전이 버전 지정 내보내기·
+    변경분 피드의 시작점이다. 발행 풀(동시 1) 안에서 돌아 그사이 서빙이 바뀌지 않는다."""
+    client = ch()
+    months = [
+        str(r[0]) for r in client.query("SELECT DISTINCT toYYYYMM(deal_date) FROM trade_current ORDER BY 1").result_rows
+    ]
+    files = []
+    for ym in months:
+        f = snapshots.write_month(client, "trade_current", ym, publish_id, store)
+        live = _count(client, f"SELECT count() FROM {DB}.trade_current WHERE toYYYYMM(deal_date) = {ym}")
+        if f.rows != live:
+            raise ReconciliationError(f"baseline {ym}: 파일 {f.rows} != 서빙 {live}")
+        files.append(f)
+    return months, files
 
 
 def _stage_month(client: Client, deal_ym: str, dataset_ver: str, counts: dict[str, int]) -> None:
@@ -419,11 +443,20 @@ def next_dataset_version(now: dt.datetime | None = None) -> str:
     return f"gold@{day}.{n + 1}"
 
 
-def commit_version(version: str, partitions: list[str], row_counts: dict[str, int], run_id: str | None) -> None:
+def commit_version(
+    version: str,
+    partitions: list[str],
+    row_counts: dict[str, int],
+    run_id: str | None,
+    publish_id: str,
+    files: list[snapshots.MonthFile] | None = None,
+    baseline: bool = False,
+) -> None:
+    """버전 기록 + 달 스냅숏 파일 등록을 한 트랜잭션으로 → Redis 현재 버전. 기록된 발행의 파일만 쓰인다(ADR-044)."""
     with ops_db.conn() as c:
         row = c.execute("SELECT max(last_fetched_at) AS t FROM ops.ingest_partition").fetchone()
     as_of = (row["t"] if row else None) or dt.datetime.now(tz=dt.UTC)
-    snapshots = {
+    snaps = {
         t: current_snapshot_id(t)
         for t in (
             "bronze.rtms_raw",
@@ -435,6 +468,8 @@ def commit_version(version: str, partitions: list[str], row_counts: dict[str, in
             "gold.price_index",
         )
     }
-    ops_db.record_dataset_version(version, as_of, partitions, snapshots, row_counts, run_id)
+    ops_db.record_dataset_version(
+        version, as_of, partitions, snaps, row_counts, run_id, publish_id, files or [], baseline
+    )
     r = redis.Redis.from_url(str(settings().redis_url))
     r.mset({"al:ds:ver": version, "al:ds:asof": as_of.isoformat()})

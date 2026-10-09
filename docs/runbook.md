@@ -113,6 +113,19 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
 
 ## 유지보수
 - 매주 일 04:00 KST `weekly_iceberg_maintenance`: optimize → expire_snapshots(7일) → remove_orphan_files(7일). 7일 안의 시간여행은 항상 가능.
+  - 같은 작업이 달별 스냅숏 파일도 정리한다(ADR-044): 최근 30일의 모든 버전 + 달(KST)마다 마지막 버전 1년 + 최신 버전이 쓰는 파일만 남긴다. 기록(`ops.dataset_month_file`)은 지우지 않고 `deleted_at` 만 채운다. 기록 없는 파일(발행 도중 실패)은 하루 지나면 지운다.
+
+## 달별 스냅숏·버전 지정 내보내기 (ADR-044)
+- **처음 켤 때 (한 번):** 아래 순서. 기준선 전에는 내보내기가 410 `SNAPSHOT_EXPIRED` 로 답한다.
+  1. `make init` — 새 내부 비밀 `MINIO_SNAPSHOT_SECRET` 자동 생성 (외부 키 아님)
+  2. `docker compose up -d minio-init` — `snapshots` 버킷·`snapshot` 계정, export 계정에 읽기 권한 (멱등)
+  3. `docker compose up -d --build api api-internal web` — V010 적용
+  4. `make pipeline-redeploy` — 이후 달 발행마다 파일이 남는다
+  5. `make snapshot-baseline` — 지금 서빙 중인 모든 달을 파일로 + 기준선 버전 하나 (서빙은 그대로, 발행 풀에서 돌아 다른 발행과 겹치지 않음)
+- **확인:** `SELECT count(*), sum(rows), sum(bytes) FROM ops.dataset_month_file WHERE deleted_at IS NULL` (기준선 직후 = 서빙 달 수·거래 수). 2026-10 실측: 70개월 129MB, 한 달 최대 2.7MB.
+- **용량:** `docker compose exec -T minio sh -c 'du -sh /data/snapshots'` (경로는 MinIO 데이터 볼륨 기준). 크게 늘면 보관 일수(`snapshots.KEEP_DAYS`)를 줄인다.
+- **내보내기 실패 `SNAPSHOT_EXPIRED`:** 요청과 작업 실행 사이에 보관 정리로 파일이 지워진 경우다. 응답의 `oldestAvailable` 이후 버전으로 다시 요청한다.
+- **해시 불일치(`SnapshotIntegrityError`):** 달 파일이 기록과 다르다 — 파일을 바꾸지 말고 원인을 본다(버킷에 다른 쓰기 주체가 있는지, 계정 권한).
 
 ## 백업과 복원
 - `make backup` — PostgreSQL 3개 DB(aptlake: 키·클라이언트·감사·수집 상태 / lakekeeper: Iceberg 카탈로그 / dagster: 실행 이력) 덤프,

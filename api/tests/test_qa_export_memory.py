@@ -1,4 +1,5 @@
 """QA-006: 전국 전체 기간 대량 내보내기가 exporter 메모리 상한(400MB)에서 정렬하다 실패했다.
+ADR-044 이후 내보내기는 ClickHouse 대신 달별 스냅숏 파일을 읽는다 — 같은 규모로, 작업자 프로세스 메모리를 잰다.
 
 내보내기 질의는 ORDER BY deal_date, trade_id 로 전체를 정렬하는데, 메모리 안에서만 정렬하면 행이 늘수록 상한에 닿는다
 (QA 생성 데이터 255만 행: 384 MiB > 381 MiB, MEMORY_LIMIT_EXCEEDED). 운영 거래 표도 같은 규모(269만 행)이고 매달 늘어난다.
@@ -59,10 +60,48 @@ def exporter():
         )
 
 
-def test_qa_006_full_range_bulk_export_streams_within_exporter_memory_limit(exporter):
-    sql, qp = storage.export_query({"from": "2021-01-01", "to": "2026-09-30"})  # pro 플랜: 기간 제한 없음
-    rows = 0
-    with exporter.query_arrow_stream(sql, parameters=qp) as stream:  # 작업자(write_parquet_and_upload)와 같은 호출
-        for batch in stream:
-            rows += batch.num_rows
-    assert rows == ROWS
+def test_qa_006_full_range_bulk_export_streams_within_worker_memory_limit(exporter, tmp_path):
+    """내보내기는 이제 달별 스냅숏 파일을 한 달씩 읽는다(ADR-044). 운영 규모(300만 행·69개월)의 달 파일로 전국 전체 기간을
+    내보낼 때, 작업자 프로세스의 최대 메모리가 내부 앱 상한(512MB)보다 넉넉히 작아야 한다 — 별도 프로세스로 재서 확인."""
+    import json
+    import resource
+    import subprocess
+    import sys
+
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    schema = pa.schema(list(storage.EXPORT_SCHEMA) + [
+        pa.field("valid_from", pa.timestamp("ms", tz="UTC")), pa.field("missing_since", pa.timestamp("ms", tz="UTC"))])  # fmt: skip
+    months = [str(r[0]) for r in exporter.query(
+        "SELECT DISTINCT toYYYYMM(deal_date) FROM trade_current ORDER BY 1").result_rows]  # fmt: skip
+    files = []
+    for ym in months:
+        path = tmp_path / f"{ym}.parquet"
+        with (
+            pq.ParquetWriter(path, schema, compression="zstd") as w,
+            exporter.query_arrow_stream(
+                f"SELECT {', '.join(schema.names)} FROM trade_current WHERE toYYYYMM(deal_date) = {ym} "
+                "ORDER BY deal_date, trade_id"
+            ) as stream,
+        ):
+            for b in stream:
+                t = pa.Table.from_batches([b]) if isinstance(b, pa.RecordBatch) else b
+                w.write_table(t.cast(schema))
+        files.append({"object_key": str(path)})
+    script = """
+import json, shutil, sys
+from aptlake_api.features.exports import storage
+rows, _ = storage.write_export(json.loads(sys.argv[1]), {"from": "2021-01-01", "to": "2026-09-30",
+    "includeCancelled": True}, sys.argv[2], lambda k, p: shutil.copy(k, p))
+print(rows)
+"""
+    before = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    out = subprocess.run([sys.executable, "-c", script, json.dumps(files), str(tmp_path / "out.parquet")],
+                         check=True, capture_output=True, text=True)  # fmt: skip
+    peak = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    peak_mb = (peak if sys.platform == "darwin" else peak * 1024) / 2**20
+    print(f"QA-006 작업자 최대 메모리 {peak_mb:.0f}MB")
+    assert int(out.stdout.strip()) == ROWS
+    # 측정(macOS, 69개월·300만 행): 272MB — 앱 상주분(약 90MB)과 합쳐도 내부 앱 상한 512MB 안
+    assert peak > before and peak_mb < 400, f"작업자 최대 메모리 {peak_mb:.0f}MB"

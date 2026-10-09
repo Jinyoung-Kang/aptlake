@@ -8,13 +8,15 @@ trade_current 는 인덱스 입도 1024 (ADR-038) — 기존 8192 표는 이관 
 from __future__ import annotations
 
 import datetime as dt
+from decimal import Decimal
 from pathlib import Path
 
 import clickhouse_connect
+import pyarrow.parquet as pq
 import pytest
 from testcontainers.community.clickhouse import ClickHouseContainer
 
-from aptlake_pipeline import publish
+from aptlake_pipeline import publish, snapshots
 
 ROOT = Path(__file__).resolve().parents[2]
 PW = "test-only-password"
@@ -138,7 +140,7 @@ def test_publish_does_not_swap_from_staging_recreated_after_reconciliation(ch, m
     monkeypatch.setattr(publish, "ch", lambda: ch)
     monkeypatch.setattr(publish, "_stage_month", stage_then_staging_recreated)
     with pytest.raises(publish.ReconciliationError):
-        publish.publish_month("202402", "v2")
+        publish.publish_month("202402", "v2", "pid", FakeStore())
     assert serving(ch) == before
 
 
@@ -206,3 +208,69 @@ def _columns(table: str) -> str:
         line for line in ddl[start : ddl.index(";", start)].splitlines() if not line.strip().startswith("--")
     )
     return body[body.index("(") : body.index(") ENGINE") + 1]
+
+
+# ───── 달별 스냅숏 파일 (ADR-044) ─────
+class FakeStore:
+    """snapshots 버킷 대신 — 올린 파일을 표로 읽어 둔다."""
+
+    def __init__(self, fail: bool = False):
+        self.fail, self.files = fail, {}
+
+    def put(self, path, key):
+        if self.fail:
+            raise OSError("s3 down")
+        self.files[key] = pq.read_table(path)
+
+
+def trade(tid: str, day: dt.date, price: int) -> list:
+    return [tid, "11110", day, "c1", "단지", "숭인동", "1", Decimal("84.9900"), 5, price, price / 84.99, 0, None, None,
+            "", "중개거래", "개인", "개인", 2000, 0, 1, dt.datetime(2026, 9, 2, tzinfo=dt.UTC), None]  # fmt: skip
+
+
+def stage_trades(rows):
+    def fake(client, ym, ver, counts):
+        client.insert("trade_current_staging", rows, column_names=snapshots.COLUMNS)
+        counts.update(region_month=0, rollup_month=0, trade_version=0, trade_current=len(rows))
+
+    return fake
+
+
+def trade_ids(ch, table="trade_current"):
+    return [r[0] for r in ch.query(f"SELECT trade_id FROM {table} ORDER BY deal_date, trade_id").result_rows]
+
+
+def test_publish_writes_month_file_equal_to_what_it_swaps_in(ch, monkeypatch):
+    ch.command("TRUNCATE TABLE trade_current")
+    rows = [trade("11110-202609-b-0", D(2026, 9, 20), 50000), trade("11110-202609-a-0", D(2026, 9, 3), 40000)]
+    store = FakeStore()
+    monkeypatch.setattr(publish, "ch", lambda: ch)
+    monkeypatch.setattr(publish, "_stage_month", stage_trades(rows))
+    counts, f = publish.publish_month("202609", "v9", "pid-1", store)
+    assert f.object_key == "trade/deal_ym=202609/pid-1.parquet" and f.rows == 2 == counts["trade_current"]
+    table = store.files[f.object_key]
+    assert table.schema == snapshots.SCHEMA
+    assert table.column("trade_id").to_pylist() == trade_ids(ch) == ["11110-202609-a-0", "11110-202609-b-0"]
+
+
+def test_month_file_failure_leaves_serving_untouched(ch, monkeypatch):
+    ch.command("TRUNCATE TABLE trade_current")
+    ch.insert("trade_current", [trade("11110-202609-old-0", D(2026, 9, 1), 1)], column_names=snapshots.COLUMNS)
+    monkeypatch.setattr(publish, "ch", lambda: ch)
+    monkeypatch.setattr(publish, "_stage_month", stage_trades([trade("11110-202609-new-0", D(2026, 9, 2), 2)]))
+    with pytest.raises(OSError):
+        publish.publish_month("202609", "v9", "pid-2", FakeStore(fail=True))
+    assert trade_ids(ch) == ["11110-202609-old-0"]
+    assert trade_ids(ch, "trade_current_staging") == []
+
+
+def test_baseline_writes_every_serving_month_without_changing_serving(ch, monkeypatch):
+    ch.command("TRUNCATE TABLE trade_current")
+    live = [trade("11110-202608-a-0", D(2026, 8, 1), 1), trade("11110-202609-a-0", D(2026, 9, 1), 2),
+            trade("11110-202609-b-0", D(2026, 9, 2), 3)]  # fmt: skip
+    ch.insert("trade_current", live, column_names=snapshots.COLUMNS)
+    store = FakeStore()
+    monkeypatch.setattr(publish, "ch", lambda: ch)
+    months, files = publish.snapshot_baseline("base", store)
+    assert months == ["202608", "202609"] and [f.rows for f in files] == [1, 2]
+    assert trade_ids(ch) == ["11110-202608-a-0", "11110-202609-a-0", "11110-202609-b-0"]

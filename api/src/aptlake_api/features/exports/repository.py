@@ -14,7 +14,9 @@ class ExportRepository:
     def __init__(self, pg: AsyncConnectionPool):
         self.pg = pg
 
-    async def create_if_room(self, client_id: str, key_id: str, params_json: str, max_running: int) -> str | None:
+    async def create_if_room(
+        self, client_id: str, key_id: str, params_json: str, dataset_version: str, max_running: int
+    ) -> str | None:
         """한도 안이면 작업을 만들고 ID, 넘으면 None. '확인 후 추가'를 클라이언트별 잠금 안에서 —
         동시에 여러 요청이 와도 진행 중 작업이 한도를 넘지 않게."""
         async with self.pg.connection() as c, c.transaction():
@@ -34,8 +36,9 @@ class ExportRepository:
                 Row,
                 await (
                     await c.execute(
-                        "INSERT INTO api.export_job (client_id, key_id, params) VALUES (%s, %s, %s) RETURNING job_id",
-                        (client_id, key_id, params_json),
+                        """INSERT INTO api.export_job (client_id, key_id, params, dataset_version)
+                           VALUES (%s, %s, %s, %s) RETURNING job_id""",
+                        (client_id, key_id, params_json, dataset_version),
                     )
                 ).fetchone(),
             )
@@ -47,7 +50,8 @@ class ExportRepository:
                 Row | None,
                 await (
                     await c.execute(
-                        """SELECT job_id, status, rows, error, object_key, created_at, finished_at FROM api.export_job
+                        """SELECT job_id, status, rows, error, object_key, created_at, finished_at, dataset_version, sha256
+                           FROM api.export_job
                            WHERE job_id = %s AND client_id = %s""",
                         (job_id, client_id),
                     )
@@ -76,16 +80,43 @@ class ExportRepository:
                         """UPDATE api.export_job SET status='running', started_at=now()
                        WHERE job_id = (SELECT job_id FROM api.export_job WHERE status='queued'
                                        ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1)
-                       RETURNING job_id, client_id, params"""
+                       RETURNING job_id, client_id, params, dataset_version"""
                     )
                 ).fetchone(),
             )
 
-    async def mark_done(self, job_id: Any, rows: int, object_key: str) -> None:
+    async def mark_done(self, job_id: Any, rows: int, object_key: str, sha256: str) -> None:
         async with self.pg.connection() as c:
             await c.execute(
-                "UPDATE api.export_job SET status='done', rows=%s, object_key=%s, finished_at=now() WHERE job_id=%s",
-                (rows, object_key, job_id),
+                """UPDATE api.export_job SET status='done', rows=%s, object_key=%s, sha256=%s, finished_at=now()
+                   WHERE job_id=%s""",
+                (rows, object_key, sha256, job_id),
+            )
+
+    # ───── 달별 스냅숏 기록 (ADR-044, ops 스키마 읽기 전용) ─────
+
+    async def versions(self) -> list[Row]:
+        async with self.pg.connection() as c:
+            return cast(
+                list[Row],
+                await (
+                    await c.execute(
+                        """SELECT version, published_at, publish_id::text AS publish_id, snapshot_baseline
+                           FROM ops.dataset_version"""
+                    )
+                ).fetchall(),
+            )
+
+    async def month_files(self) -> list[Row]:
+        async with self.pg.connection() as c:
+            return cast(
+                list[Row],
+                await (
+                    await c.execute(
+                        """SELECT publish_id::text AS publish_id, deal_ym, object_key, rows, sha256, deleted_at
+                           FROM ops.dataset_month_file"""
+                    )
+                ).fetchall(),
             )
 
     async def mark_failed(self, job_id: Any, error: str) -> None:

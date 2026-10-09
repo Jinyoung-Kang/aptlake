@@ -34,6 +34,8 @@ class Settings:
     s3_endpoint: str
     s3_ingest_access_key: str
     s3_ingest_secret_key: Secret = field(repr=False)
+    s3_snapshot_access_key: str
+    s3_snapshot_secret_key: Secret = field(repr=False)
     ch_host: str
     ch_port: int
     ch_publisher_password: Secret = field(repr=False)
@@ -65,6 +67,8 @@ def settings() -> Settings:
         s3_endpoint=_env("S3_ENDPOINT", "http://minio:9000"),
         s3_ingest_access_key=_env("S3_INGEST_ACCESS_KEY", "ingest"),
         s3_ingest_secret_key=Secret(_env("S3_INGEST_SECRET_KEY", "")),
+        s3_snapshot_access_key=_env("S3_SNAPSHOT_ACCESS_KEY", "snapshot"),
+        s3_snapshot_secret_key=Secret(_env("S3_SNAPSHOT_SECRET_KEY", "")),
         ch_host=_env("CH_HOST", "clickhouse"),
         ch_port=int(_env("CH_PORT", "8123")),
         ch_publisher_password=Secret(_env("CH_PUBLISHER_PASSWORD", "")),

@@ -23,16 +23,21 @@ class ExportRequest(BaseModel):
     from_: dt.date = Field(alias="from")
     to: dt.date
     includeCancelled: bool = False  # noqa: N815
+    # 생략하면 요청 시점의 최신 버전 (작업에 저장해, 작업이 늦게 돌아도 같은 버전)
+    datasetVersion: str | None = Field(default=None, pattern=r"^gold@\d{4}-\d{2}-\d{2}\.\d{1,4}$")  # noqa: N815
 
 
-@router.post("/exports", status_code=202, summary="Parquet 내보내기 작업 생성 (bulk 스코프·pro 플랜)")
+@router.post("/exports", status_code=202, summary="Parquet 내보내기 작업 생성 — 버전 지정 가능 (bulk 스코프·pro 플랜)")
 async def create_export(request: Request, body: ExportRequest, p: Principal = require_scope("bulk")) -> OrjsonResponse:
     service.check_request(p.plan.allow_bulk, body.from_, body.to)
-    job_id = await service.create(
-        ExportRepository(request.app.state.res.pg), p.client_id, p.subject, body.model_dump_json(by_alias=True)
+    repo = ExportRepository(request.app.state.res.pg)
+    version, _ = service.resolve_snapshot(
+        await repo.versions(), await repo.month_files(), body.datasetVersion, body.from_, body.to
     )
+    params = body.model_copy(update={"datasetVersion": version}).model_dump_json(by_alias=True)
+    job_id = await service.create(repo, p.client_id, p.subject, params, version)
     return OrjsonResponse(
-        {"jobId": job_id, "status": "queued"},
+        {"jobId": job_id, "status": "queued", "datasetVersion": version},
         status_code=202,
         headers={**p.limit_headers, "Location": f"/v1/exports/{job_id}"},
     )
