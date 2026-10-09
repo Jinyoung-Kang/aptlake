@@ -131,12 +131,21 @@ class SnapshotStore:
     def download(self, key: str, path: str) -> None:
         self.s3.download_file(BUCKET, key, path)
 
+    def read(self, key: str) -> pa.Table:
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "m.parquet")
+            self.download(key, path)
+            return pq.read_table(path)
+
     def delete(self, key: str) -> None:
         self.s3.delete_object(Bucket=BUCKET, Key=key)
 
 
-def write_month(client: Any, table: str, deal_ym: str, publish_id: str, store: SnapshotStore) -> MonthFile:
-    """ClickHouse 표(스테이징 또는 서빙)의 한 달을 파일로 써서 올린다. 블록 단위라 한 달 전체를 메모리에 올리지 않는다."""
+def write_month(
+    client: Any, table: str, deal_ym: str, publish_id: str, store: SnapshotStore
+) -> tuple[MonthFile, pa.Table]:
+    """ClickHouse 표(스테이징 또는 서빙)의 한 달을 파일로 써서 올린다. (파일 기록, 쓴 내용) — 내용은 변경분 비교에 쓴다
+    (한 달 최대 6만 행 수준이라 메모리에 둔다)."""
     key = object_key(deal_ym, publish_id)
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "m.parquet")
@@ -144,7 +153,8 @@ def write_month(client: Any, table: str, deal_ym: str, publish_id: str, store: S
             rows = write_parquet(stream, path)
         size, digest = os.path.getsize(path), sha256_file(path)
         store.put(path, key)
-    return MonthFile(deal_ym, key, rows, size, digest)
+        table_read = pq.read_table(path)
+    return MonthFile(deal_ym, key, rows, size, digest), table_read
 
 
 # ───────────────────────── 버전 → 파일 (순수 — API 의 같은 규칙과 같은 시험 사례표를 쓴다) ─────────────────────────

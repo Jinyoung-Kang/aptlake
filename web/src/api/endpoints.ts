@@ -27,6 +27,7 @@ export const paths = {
   qualityRollup: (from: string, to: string) => `/v1/quality/rollup?from=${from}&to=${to}`,
   qualityGrid: (from: string, to: string, sido: string) => `/v1/quality/partitions?from=${from}&to=${to}&sido=${sido}`,
   qualityPartition: (sgg: string, ym: string) => `/v1/quality/partitions/${sgg}/${ym}`,
+  qualityLatency: (from: string, to: string) => `/v1/quality/latency?from=${from}&to=${to}`,
   opsStatus: () => "/v1/ops/status",
   opsErrors: (hours: string, includeResolved: boolean, includeCleared: boolean) =>
     `/v1/ops/errors?hours=${hours}&includeResolved=${includeResolved}&includeCleared=${includeCleared}`,

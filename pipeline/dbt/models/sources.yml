@@ -1,5 +1,11 @@
 version: 2
 sources:
+  - name: bronze
+    database: lake
+    schema: bronze
+    tables:
+      - name: rtms_raw
+        meta: { dagster: { asset_key: ["bronze", "rtms_raw"] } }
   - name: silver
     database: lake
     schema: silver

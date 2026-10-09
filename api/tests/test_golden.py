@@ -58,6 +58,7 @@ CASES: list[tuple[str, str, dict]] = [
     ("quality_partition", "/v1/quality/partitions/41135/2024-08", {}),
     ("quality_partition_merged", "/v1/quality/partitions/41135/2024-07", {}),
     ("quality_partition_missing", "/v1/quality/partitions/41135/2020-01", {}),
+    ("quality_latency", "/v1/quality/latency", {"from": "2026-09-01", "to": "2026-10-10"}),
     ("market_overview_default", "/v1/market/overview", {}),
     ("market_overview_month", "/v1/market/overview", {"ym": "2024-06"}),
     ("market_overview_out_of_range", "/v1/market/overview", {"ym": "2030-01"}),
@@ -103,8 +104,8 @@ async def seeded(apps, stack, adm, admin_key):
     fixed = dt.datetime(2024, 8, 5, 3, 0, tzinfo=dt.UTC)
     with psycopg.connect(stack["su"], autocommit=True) as pg:
         pg.execute(
-            "TRUNCATE ops.ingest_partition, ops.dq_result, ops.dataset_month_file, ops.dataset_version, ops.api_budget,"
-            " ops.region_boundary"
+            "TRUNCATE ops.ingest_partition, ops.dq_result, ops.publish_lag, ops.dataset_month_file, ops.dataset_version,"
+            " ops.api_budget, ops.region_boundary"
             " RESTART IDENTITY"  # 검사 ID(dq:N)가 앞 테스트가 넣은 행 수에 따라 바뀌지 않게
         )
         pg.execute("UPDATE ops.log_view SET cleared_at = NULL, cleared_by = NULL")
@@ -139,6 +140,15 @@ async def seeded(apps, stack, adm, admin_key):
     ch = stack["ch"]
     ch.command("TRUNCATE TABLE IF EXISTS index_reference")
     ch.command("TRUNCATE TABLE IF EXISTS index_validation")
+    ch.command("TRUNCATE TABLE IF EXISTS source_latency")
+    ch.insert(  # 원천 반영 지연: 신고(L1)는 분포, 해제(L2)는 제외만 — 수집→발행(L3)은 기록 없음(측정 중)
+        "source_latency",
+        [["L1", dt.date(2026, 9, 28), "41", "", d, n] for d, n in ((1, 2), (3, 5), (6, 4), (12, 3), (25, 2), (45, 1))]
+        + [["L1", dt.date(2026, 9, 26), "41", "initial_load", None, 250],
+           ["L2", dt.date(2026, 9, 26), "41", "initial_load", None, 12],
+           ["L2", dt.date(2026, 10, 2), "41", "low_resolution", None, 1]],
+        column_names=["metric", "observed_date", "sido_cd", "reason", "lag_days", "n"],
+    )  # fmt: skip
     ch.insert(
         "index_reference",
         [["00", dt.date(2023 + i // 12, i % 12 + 1, 1), 95.0 + i * 0.5, "R-ONE test"] for i in range(24)],

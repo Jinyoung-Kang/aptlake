@@ -1,0 +1,111 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "from": "2026-09-01",
+  "metrics": {
+   "L1": {
+    "distribution": [
+     [
+      1,
+      2
+     ],
+     [
+      3,
+      5
+     ],
+     [
+      6,
+      4
+     ],
+     [
+      12,
+      3
+     ],
+     [
+      25,
+      2
+     ],
+     [
+      45,
+      1
+     ]
+    ],
+    "excluded": {
+     "initial_load": 250
+    },
+    "measuredSince": "2026-09-28",
+    "n": 17,
+    "p50": 6,
+    "p90": 25,
+    "p99": 45,
+    "unit": "day"
+   },
+   "L2": {
+    "distribution": [],
+    "excluded": {
+     "initial_load": 12,
+     "low_resolution": 1
+    },
+    "measuredSince": null,
+    "n": 0,
+    "p50": null,
+    "p90": null,
+    "p99": null,
+    "unit": "day"
+   },
+   "L3": {
+    "distribution": [
+     [
+      15,
+      0
+     ],
+     [
+      30,
+      0
+     ],
+     [
+      60,
+      0
+     ],
+     [
+      120,
+      0
+     ],
+     [
+      360,
+      0
+     ],
+     [
+      720,
+      0
+     ],
+     [
+      1440,
+      0
+     ],
+     [
+      null,
+      0
+     ]
+    ],
+    "excluded": {},
+    "measuredSince": null,
+    "n": 0,
+    "p50": null,
+    "p90": null,
+    "p99": null,
+    "unit": "minute"
+   }
+  },
+  "sido": null,
+  "to": "<today>"
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

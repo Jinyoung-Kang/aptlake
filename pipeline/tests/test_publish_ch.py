@@ -222,6 +222,9 @@ class FakeStore:
             raise OSError("s3 down")
         self.files[key] = pq.read_table(path)
 
+    def read(self, key):
+        return self.files[key]
+
 
 def trade(tid: str, day: dt.date, price: int) -> list:
     return [tid, "11110", day, "c1", "단지", "숭인동", "1", Decimal("84.9900"), 5, price, price / 84.99, 0, None, None,
@@ -246,8 +249,11 @@ def test_publish_writes_month_file_equal_to_what_it_swaps_in(ch, monkeypatch):
     store = FakeStore()
     monkeypatch.setattr(publish, "ch", lambda: ch)
     monkeypatch.setattr(publish, "_stage_month", stage_trades(rows))
-    counts, f = publish.publish_month("202609", "v9", "pid-1", store)
-    assert f.object_key == "trade/deal_ym=202609/pid-1.parquet" and f.rows == 2 == counts["trade_current"]
+    counts, f = publish.publish_month("202609", "v9", "00000000-0000-0000-0000-0000000000a1", store)
+    assert (
+        f.object_key == "trade/deal_ym=202609/00000000-0000-0000-0000-0000000000a1.parquet"
+        and f.rows == 2 == counts["trade_current"]
+    )
     table = store.files[f.object_key]
     assert table.schema == snapshots.SCHEMA
     assert table.column("trade_id").to_pylist() == trade_ids(ch) == ["11110-202609-a-0", "11110-202609-b-0"]
@@ -259,7 +265,7 @@ def test_month_file_failure_leaves_serving_untouched(ch, monkeypatch):
     monkeypatch.setattr(publish, "ch", lambda: ch)
     monkeypatch.setattr(publish, "_stage_month", stage_trades([trade("11110-202609-new-0", D(2026, 9, 2), 2)]))
     with pytest.raises(OSError):
-        publish.publish_month("202609", "v9", "pid-2", FakeStore(fail=True))
+        publish.publish_month("202609", "v9", "00000000-0000-0000-0000-0000000000a2", FakeStore(fail=True))
     assert trade_ids(ch) == ["11110-202609-old-0"]
     assert trade_ids(ch, "trade_current_staging") == []
 
@@ -274,3 +280,43 @@ def test_baseline_writes_every_serving_month_without_changing_serving(ch, monkey
     months, files = publish.snapshot_baseline("base", store)
     assert months == ["202608", "202609"] and [f.rows for f in files] == [1, 2]
     assert trade_ids(ch) == ["11110-202608-a-0", "11110-202609-a-0", "11110-202609-b-0"]
+
+
+# ───── 변경분 피드 (ADR-045) ─────
+def changes(ch, publish_id):
+    return [
+        (r[0], r[1], tuple(r[2]))
+        for r in ch.query(
+            "SELECT trade_id, change, changed_fields FROM trade_change WHERE publish_id = {p:UUID} ORDER BY trade_id",
+            parameters={"p": publish_id},
+        ).result_rows
+    ]
+
+
+def test_publish_records_changes_against_last_recorded_month_file(ch, monkeypatch):
+    ch.command("TRUNCATE TABLE trade_current")
+    ch.command("TRUNCATE TABLE trade_change")
+    store = FakeStore()
+    monkeypatch.setattr(publish, "ch", lambda: ch)
+    p1, p2 = "00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"
+    first = [trade("11110-202609-a-0", D(2026, 9, 3), 40000), trade("11110-202609-b-0", D(2026, 9, 20), 50000)]
+    monkeypatch.setattr(publish, "_stage_month", stage_trades(first))
+    counts, f1 = publish.publish_month("202609", "v1", p1, store)  # 기록된 직전 파일 없음 → 모두 추가
+    assert counts["trade_change"] == 2 and [c[1] for c in changes(ch, p1)] == ["added", "added"]
+
+    cancelled = trade("11110-202609-b-0", D(2026, 9, 20), 50000)
+    cancelled[11], cancelled[12], cancelled[20] = 1, D(2026, 9, 30), 2  # 해제·해제일·버전
+    second = [cancelled, trade("11110-202609-c-0", D(2026, 9, 25), 60000)]
+    monkeypatch.setattr(publish, "_stage_month", stage_trades(second))
+    counts, _ = publish.publish_month("202609", "v2", p2, store, previous_key=f1.object_key)
+    assert changes(ch, p2) == [
+        ("11110-202609-a-0", "removed", ()),
+        ("11110-202609-b-0", "updated", ("cancelled", "cancelDate", "version")),
+        ("11110-202609-c-0", "added", ()),
+    ]
+    assert counts["trade_change"] == 3
+    row = ch.query(
+        "SELECT is_cancelled, price_manwon FROM trade_change WHERE publish_id = {p:UUID} AND change = 'updated'",
+        parameters={"p": p2},
+    ).first_row
+    assert row == (1, 50000)  # 그 발행 시점 값을 함께 남긴다

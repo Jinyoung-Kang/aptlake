@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from typing import Any, cast
 
 from clickhouse_connect.driver.asyncclient import AsyncClient
+from psycopg_pool import AsyncConnectionPool
 
 from .service import TradeFilter
 
@@ -69,3 +70,45 @@ class TradeRepository:
             ORDER BY valid_from""",
             {"id": trade_id, "ym": yyyymm},
         )
+
+
+CHUNK = 16  # 한 번에 읽는 발행 수 (발행당 변경 수백~수천 행 → 정렬이 작게 유지)
+
+
+class ChangeRepository:
+    """변경분 피드: 발행 기록(PostgreSQL ops.dataset_version) + 변경 행(ClickHouse trade_change)."""
+
+    def __init__(self, pg: AsyncConnectionPool, ch: AsyncClient):
+        self.pg, self.ch = pg, ch
+
+    async def versions(self) -> list[Row]:
+        async with self.pg.connection() as c:
+            cur = await c.execute(
+                """SELECT version, published_at, publish_id::text AS publish_id, snapshot_baseline
+                   FROM ops.dataset_version"""
+            )
+            return cast(list[Row], await cur.fetchall())
+
+    async def changes(self, publish_ids: list[str], after: tuple[int, str] | None, limit: int) -> list[Row]:
+        """(r, trade_id) 키셋 페이지. r = 발행 순번(1부터, 버전 창 안의 위치).
+
+        기본 키 (publish_id, trade_id) 를 타도록, 이어 읽는 발행 하나를 먼저 읽고 모자라면 다음 발행들을
+        CHUNK 개씩 읽는다. 창 전체를 순번으로 정렬하면 90일 창(합성 36만 행)에서 페이지 하나가 약 2초였다.
+        """
+        out: list[Row] = []
+        r0, k0 = after if after else (1, "")
+        if after:  # 읽던 발행의 나머지
+            out += await self._read([publish_ids[r0 - 1]], r0, "AND trade_id > {k0:String}", {"k0": k0}, limit)
+            r0 += 1
+        while len(out) < limit and r0 <= len(publish_ids):
+            chunk = publish_ids[r0 - 1 : r0 - 1 + CHUNK]
+            out += await self._read(chunk, r0, "", {}, limit - len(out))
+            r0 += len(chunk)
+        return out
+
+    async def _read(self, ids: list[str], first: int, cond: str, extra: dict[str, Any], n: int) -> list[Row]:
+        sql = f"""SELECT {first - 1} + indexOf({{ids:Array(String)}}, toString(publish_id)) AS r, change, changed_fields,
+                         {TRADE_COLS}
+                  FROM trade_change WHERE publish_id IN {{ids:Array(UUID)}} {cond}
+                  ORDER BY r, trade_id LIMIT {{n:UInt32}}"""
+        return list((await self.ch.query(sql, parameters={"ids": ids, "n": n, **extra})).named_results())

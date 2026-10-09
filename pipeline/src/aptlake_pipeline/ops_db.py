@@ -260,12 +260,33 @@ def record_dataset_version(
                 baseline,
             ),
         )
+        for ym in partitions if files and not baseline else []:  # 달 발행: 수집→발행 지연 (ADR-046)
+            c.execute(
+                """INSERT INTO ops.publish_lag (publish_id, sgg_cd, deal_ym, fetched_at, published_at)
+                   SELECT %(pid)s, p.sgg_cd, p.deal_ym, p.last_changed_at, now()
+                   FROM ops.ingest_partition p
+                   WHERE p.deal_ym = %(ym)s AND p.status = 'MERGED' AND p.last_changed_at > (
+                       SELECT max(v.published_at) FROM ops.dataset_version v
+                       WHERE v.publish_id IS NOT NULL AND v.version <> %(ver)s AND %(ym)s = ANY (v.partitions))""",
+                {"pid": publish_id, "ym": ym, "ver": version},
+            )
         for f in files:
             c.execute(
                 """INSERT INTO ops.dataset_month_file (publish_id, deal_ym, object_key, rows, bytes, sha256)
                    VALUES (%s, %s, %s, %s, %s, %s)""",
                 (publish_id, f.deal_ym, f.object_key, f.rows, f.bytes, f.sha256),
             )
+
+
+def last_month_file(deal_ym: str) -> str | None:
+    """그 달의 마지막으로 기록된 스냅숏 파일 — 변경분 비교 기준 (커밋된 발행만, ADR-045)."""
+    with conn() as c:
+        row = c.execute(
+            """SELECT f.object_key FROM ops.dataset_month_file f JOIN ops.dataset_version v USING (publish_id)
+               WHERE f.deal_ym = %s ORDER BY v.published_at DESC, v.version DESC LIMIT 1""",
+            (deal_ym,),
+        ).fetchone()
+    return row["object_key"] if row else None
 
 
 def snapshot_records() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

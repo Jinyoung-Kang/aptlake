@@ -89,3 +89,21 @@ models:
     columns:
       - name: complex_key
         data_tests: [unique, not_null]
+  - name: source_latency
+    description: 원천 반영 지연 분포 (L1 신고·L2 해제, 관측일·시도·제외 사유·지연 일수별 건수, ADR-046)
+    data_tests:
+      - unique_combination:
+          arguments: { columns: [metric, observed_date, sido_cd, reason, lag_days] }
+      - expression_is_true:
+          arguments: { expression: "(reason = '' and lag_days >= 0) or (reason <> '' and lag_days is null)" }
+    columns:
+      - name: metric
+        data_tests:
+          - accepted_values: { arguments: { values: ["L1", "L2"] } }
+      - name: reason
+        data_tests:
+          - accepted_values:
+              arguments: { values: ["", "initial_load", "low_resolution", "time_inverted", "no_base_date", "negative_lag"] }
+      - name: n
+        data_tests: [not_null]
+

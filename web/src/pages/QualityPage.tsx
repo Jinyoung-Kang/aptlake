@@ -1,14 +1,15 @@
 import { useMemo, useState } from "react";
 import { useApi } from "../hooks/useApi";
-import { axisX, base, Chart, type Palette } from "../charts/Chart";
+import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
-import { Badge, CopyButton, ErrorBox, Kpi, Skeleton, StatRow, Switch } from "../components/ui";
+import { Badge, CopyButton, ErrorBox, Kpi, Skeleton, StatRow, Switch, Tabs } from "../components/ui";
 import { DASH, esc, kst, num, relative, ymAdd, ymLabel, ymOf } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
-import { completion, failingChecks, gridCells, parseCell, rollupCells, rollupMonths, STATUS_LABEL, STATUS_ORDER, STATUS_TONE } from "../domain/quality";
+import { completion, failingChecks, gridCells, LATENCY_DESC, LATENCY_LABEL, latencyBars, latencyExcluded, latencyValue, latencyWindow, type LatencyKey,
+         parseCell, rollupCells, rollupMonths, STATUS_LABEL, STATUS_ORDER, STATUS_TONE } from "../domain/quality";
 import { paths } from "../api/endpoints";
-import type { QualityGrid, QualityPartition, QualityRollup, QualitySummary } from "../api/types";
+import type { QualityGrid, QualityLatency, QualityPartition, QualityRollup, QualitySummary } from "../api/types";
 
 function statusColor(p: Palette, s: string) {
   return p.status[STATUS_TONE[s] ?? "none"];
@@ -42,6 +43,58 @@ function PartitionDetail({ sgg, ym }: { sgg: string; ym: string }) {
       </h3>
       <pre /* biome-ignore lint/a11y/noNoninteractiveTabindex: 스크롤 영역은 키보드로도 넘길 수 있어야 한다 (WCAG 2.1.1, axe scrollable-region-focusable, QA-011) */ tabIndex={0} className="code" style={{ fontSize: 11.5 }}>{data.lineage.join("\n") || "아직 발행 전"}</pre>
     </div>
+  );
+}
+
+/** 원천 반영 지연 (ADR-046): 계약·해제가 서비스에 들어오기까지 — 지표 하나씩 분포와 분위수 */
+function LatencySection() {
+  const w = useMemo(() => latencyWindow(new Date()), []);
+  const lat = useApi<QualityLatency>(paths.qualityLatency(w.from, w.to));
+  const [metric, setMetric] = useState<LatencyKey>("L1");
+  const m = lat.data?.metrics[metric];
+  const bars = m ? latencyBars(m) : [];
+  const build = (p: Palette) => {
+    const b = base(p);
+    return {
+      ...b, legend: { show: false },
+      // 기본 툴팁은 style 속성이 든 HTML 을 만든다 → CSP(인라인 스타일 금지)에 맞춰 직접 구성
+      tooltip: { ...b.tooltip, formatter: (ps: { dataIndex: number }[]) => `<b>${esc(bars[ps[0].dataIndex][0])}</b><br/>${num(bars[ps[0].dataIndex][1])}건` },
+      xAxis: axisX(p, { type: "category", data: bars.map(([l]) => l) }),
+      yAxis: axisY(p, { type: "value", name: "건", minInterval: 1 }),
+      series: [{ type: "bar", name: "건수", data: bars.map(([, n]) => n), barMaxWidth: 28, itemStyle: { color: p.s1, borderRadius: [3, 3, 0, 0] } }],
+    };
+  };
+  const tabs = (["L1", "L2", "L3"] as LatencyKey[]).map((k) => ({ value: k, label: LATENCY_LABEL[k], n: lat.data?.metrics[k].n }));
+  return (
+    <section className="section">
+      <div className="section-head">
+        <h2>원천 반영 지연</h2><span className="sub">최근 30일 관측 ({w.from} ~ {w.to}) · 관측 시각은 수집 시각이라 원천 공개 지연에 수집 주기가 더해진 값</span>
+      </div>
+      <ErrorBox error={lat.error} onRetry={lat.reload} />
+      {m ? (
+        <div className="panel panel-pad">
+          <Tabs value={metric} options={tabs} onChange={setMetric} />
+          <div className="kpis" style={{ marginTop: 10 }}>
+            <Kpi k="중앙값" v={latencyValue(m, m.p50)} d={LATENCY_DESC[metric]} />
+            <Kpi k="90% 지점" v={latencyValue(m, m.p90)} d={`99% 지점 ${latencyValue(m, m.p99)}`} />
+            <Kpi k="표본" v={num(m.n)} unit="건" d={m.measuredSince ? `측정 시작 ${m.measuredSince}` : "아직 측정분 없음"} />
+          </div>
+          {m.n ? (
+            <Chart build={build} deps={[lat.data, metric]} height={240} label={`${LATENCY_LABEL[metric]} 지연 분포`} />
+          ) : (
+            <div className="empty">측정 중 — {metric === "L3" ? "이 기능을 켠 뒤의 발행부터" : "초기 적재(백필) 뒤 새로 관측된 것부터"} 쌓입니다.</div>
+          )}
+          <DataTable rows={bars} rowKey={([l]) => l} columns={[
+            { key: "b", header: "구간", cell: ([l]) => l },
+            { key: "n", header: "건수", cell: ([, n]) => num(n) },
+          ]} />
+          {latencyExcluded(m).length ? (
+            <p className="note">분포에서 뺀 것: {latencyExcluded(m).map(([l, n]) => `${l} ${num(n)}건`).join(" · ")}.
+              계약월 3개월 이내만 매일 다시 받으므로 그 범위만 하루 단위로 셉니다.</p>
+          ) : null}
+        </div>
+      ) : lat.loading ? <Skeleton h={320} /> : null}
+    </section>
   );
 }
 
@@ -131,6 +184,8 @@ export default function QualityPage({ route }: { route: Route }) {
           ) : rollup.loading ? <Skeleton h={360} /> : <div className="empty">완결도 자료를 불러오지 못했습니다.</div>}
         </div>
       </section>
+
+      <LatencySection />
 
       {sido && (
         <section className="section">

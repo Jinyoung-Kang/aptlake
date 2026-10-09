@@ -24,7 +24,7 @@ import clickhouse_connect
 import redis
 from clickhouse_connect.driver.client import Client
 
-from . import ops_db, snapshots
+from . import changes, ops_db, snapshots
 from .config import settings
 from .lake import current_snapshot_id, execute
 
@@ -146,10 +146,15 @@ def _part_col(table: str) -> str:
 
 
 def publish_month(
-    deal_ym: str, dataset_ver: str, publish_id: str, store: snapshots.SnapshotStore
+    deal_ym: str,
+    dataset_ver: str,
+    publish_id: str,
+    store: snapshots.SnapshotStore,
+    previous_key: str | None = None,
 ) -> tuple[dict[str, int], snapshots.MonthFile]:
-    """스테이징 → 대조 → 달 스냅숏 파일(곧 교체될 trade_current 그대로) → 교체. 파일은 교체 전에 써서,
-    파일을 못 쓰면 서빙도 바꾸지 않는다(버전 V 의 파일이 늘 V 의 서빙과 같게). 기록 등록은 commit_version."""
+    """스테이징 → 대조 → 달 스냅숏 파일(곧 교체될 trade_current 그대로) → 변경분(직전 기록 파일과 비교) → 교체.
+    파일·변경분은 교체 전에 써서, 못 쓰면 서빙도 바꾸지 않는다. 둘 다 버전 기록(commit_version)이 커밋돼야 보인다.
+    previous_key: 그 달의 마지막으로 기록된 파일 (없으면 모두 added — 기준선 전이거나 새 달)."""
     if not _YM.fullmatch(deal_ym):
         raise ValueError(deal_ym)
     client = ch()
@@ -159,15 +164,36 @@ def publish_month(
         _stage_month(client, deal_ym, dataset_ver, counts)
         for t in tables:
             _verify_staged(client, t, deal_ym, counts[t])
-        month_file = snapshots.write_month(client, "trade_current_staging", deal_ym, publish_id, store)
+        month_file, new = snapshots.write_month(client, "trade_current_staging", deal_ym, publish_id, store)
         if month_file.rows != counts["trade_current"]:
             raise ReconciliationError(f"snapshot {deal_ym}: 파일 {month_file.rows} != 대조 {counts['trade_current']}")
+        old = store.read(previous_key).to_pylist() if previous_key else []
+        counts["trade_change"] = _insert_changes(client, deal_ym, publish_id, changes.diff_month(old, new.to_pylist()))
     except Exception:
         _drop_staged(client, tables, deal_ym)  # 대조 실패·적재 오류 → 네 표 모두 서빙은 이전 그대로
         raise
     for t in tables:  # 넷 다 대조를 통과했을 때만 교체
         _swap(client, t, deal_ym, counts[t])
     return counts, month_file
+
+
+CHANGE_COLUMNS = ["publish_id", "deal_ym", "trade_id", "change", "changed_fields"] + [
+    c for c in snapshots.COLUMNS if c != "trade_id"
+]
+
+
+def _insert_changes(client: Client, deal_ym: str, publish_id: str, rows: list[changes.Change]) -> int:
+    if rows:
+        client.insert(
+            "trade_change",
+            [
+                [publish_id, int(deal_ym), c.trade_id, c.change, list(c.changed_fields)]
+                + [c.row[k] for k in CHANGE_COLUMNS[5:]]
+                for c in rows
+            ],
+            column_names=CHANGE_COLUMNS,
+        )
+    return len(rows)
 
 
 def snapshot_baseline(publish_id: str, store: snapshots.SnapshotStore) -> tuple[list[str], list[snapshots.MonthFile]]:
@@ -179,7 +205,7 @@ def snapshot_baseline(publish_id: str, store: snapshots.SnapshotStore) -> tuple[
     ]
     files = []
     for ym in months:
-        f = snapshots.write_month(client, "trade_current", ym, publish_id, store)
+        f, _ = snapshots.write_month(client, "trade_current", ym, publish_id, store)
         live = _count(client, f"SELECT count() FROM {DB}.trade_current WHERE toYYYYMM(deal_date) = {ym}")
         if f.rows != live:
             raise ReconciliationError(f"baseline {ym}: 파일 {f.rows} != 서빙 {live}")
@@ -380,6 +406,13 @@ def publish_dimensions() -> dict[str, int]:
         "complex",
         ["complex_key", "sgg_cd", "umd_nm", "jibun", "apt_nm", "build_year", "land_leasehold", "first_seen", "trades"],
         [[r[0], r[1], r[2], r[3], r[4], r[5], int(r[6]), r[7], r[8]] for r in cx],
+    )
+    sl = _rows("""SELECT metric, observed_date, sido_cd, reason, lag_days, n FROM lake.gold.source_latency""")
+    out["source_latency"] = _exchange(
+        client,
+        "source_latency",
+        ["metric", "observed_date", "sido_cd", "reason", "lag_days", "n"],
+        [list(r) for r in sl],
     )
     return out
 

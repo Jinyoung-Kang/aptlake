@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Annotated
 
 from fastapi import APIRouter, Path, Query, Request
@@ -12,13 +13,30 @@ from ...core.http import require_scope, respond
 from ...core.params import SGG, YM_Q
 from ...core.values import ym_to_date
 from . import service
-from .repository import QualityRepository
+from .repository import LatencyRepository, QualityRepository
 
 router = APIRouter(prefix="/v1")
 
 
 def _repo(request: Request) -> QualityRepository:
     return QualityRepository(request.app.state.res.pg)
+
+
+@router.get("/quality/latency", summary="원천 반영 지연 분포 — 신고·해제 반영(일), 수집→발행(분)")
+async def quality_latency(
+    request: Request,
+    from_: Annotated[dt.date, Query(alias="from")],
+    to: dt.date,
+    sido: Annotated[str | None, Query(pattern=r"^[0-9]{2}$")] = None,
+    p: Principal = require_scope("read"),
+) -> Response:
+    # 매일 차원 발행·달 발행 때만 바뀌고 그때 데이터셋 버전이 오른다 → 버전 기준 결과 캐시
+    return await respond(
+        request,
+        "quality_latency",
+        {"a": from_.isoformat(), "b": to.isoformat(), "s": sido},
+        lambda: service.latency(LatencyRepository(request.app.state.res.pg, request.app.state.res.ch), from_, to, sido),
+    )
 
 
 @router.get("/quality/summary", summary="전체 신선도·파티션 상태·최근 실패 검사")

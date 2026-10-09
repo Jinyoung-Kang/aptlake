@@ -120,3 +120,70 @@ async def partition(store: QualityStore, sgg: str, deal_ym: str) -> tuple[dict, 
         ],
         "lineage": lineage,
     }, 0
+
+
+# ───────────────────────── 원천 반영 지연 (ADR-046) ─────────────────────────
+LATENCY_MAX_DAYS = 366
+# L3(수집→발행, 분) 분포 구간 상한 — 마지막 None 은 그 이상
+L3_BUCKETS: list[int | None] = [15, 30, 60, 120, 360, 720, 1440, None]
+
+
+class LatencyStore(Protocol):
+    async def source_latency(self, start: dt.date, end: dt.date, sido: str | None) -> list[Row]: ...
+    async def latency_since(self) -> dict[str, dt.date | None]: ...
+    async def publish_lag(self, start: dt.date, end: dt.date, sido: str | None) -> Row: ...
+
+
+def nearest_rank(dist: list[tuple[int, int]], q: float) -> int | None:
+    """정렬된 (값, 건수) 분포의 q 분위 — 누적 건수가 q·N 이상이 되는 가장 작은 값 (PostgreSQL percentile_disc 와 같음)."""
+    total = sum(n for _, n in dist)
+    if not total:
+        return None
+    need, acc = q * total, 0
+    for value, n in dist:
+        acc += n
+        if acc >= need:
+            return value
+    return dist[-1][0]
+
+
+def _metric(rows: list[Row], since: dt.date | None) -> dict[str, Any]:
+    dist: dict[int, int] = {}
+    excluded: dict[str, int] = {}
+    for r in rows:
+        if r["reason"]:
+            excluded[r["reason"]] = excluded.get(r["reason"], 0) + int(r["n"])
+        else:
+            dist[int(r["lag_days"])] = dist.get(int(r["lag_days"]), 0) + int(r["n"])
+    d = sorted(dist.items())
+    n = sum(dist.values())
+    return {
+        "unit": "day",
+        "n": n,
+        "p50": nearest_rank(d, 0.5),
+        "p90": nearest_rank(d, 0.9),
+        "p99": nearest_rank(d, 0.99),
+        "distribution": [[k, v] for k, v in d],
+        "excluded": dict(sorted(excluded.items())),
+        "measuredSince": since.isoformat() if since else None,
+    }
+
+
+async def latency(store: LatencyStore, start: dt.date, end: dt.date, sido: str | None) -> tuple[dict, int]:
+    if end < start or (end - start).days > LATENCY_MAX_DAYS:
+        raise ApiError(400, "INVALID_RANGE", "Invalid Range", f"기간은 {LATENCY_MAX_DAYS}일까지입니다.")
+    rows = await store.source_latency(start, end, sido)
+    since = await store.latency_since()
+    l3 = await store.publish_lag(start, end, sido)
+    metrics = {m: _metric([r for r in rows if r["metric"] == m], since.get(m)) for m in ("L1", "L2")}
+    metrics["L3"] = {
+        "unit": "minute",
+        "n": int(l3["n"]),
+        "p50": None if l3["p50"] is None else int(l3["p50"]),  # PostgreSQL numeric → 정수(분)
+        "p90": None if l3["p90"] is None else int(l3["p90"]),
+        "p99": None if l3["p99"] is None else int(l3["p99"]),
+        "distribution": [[b, int(l3[f"b{i}"])] for i, b in enumerate(L3_BUCKETS)],
+        "excluded": {},
+        "measuredSince": l3["since"].isoformat() if l3["since"] else None,
+    }
+    return {"from": start.isoformat(), "to": end.isoformat(), "sido": sido, "metrics": metrics}, 0

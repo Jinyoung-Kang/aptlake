@@ -482,3 +482,148 @@ def test_export_filters_snapshot_month_and_checks_file_hash(tmp_path):
     with pytest.raises(storage.SnapshotIntegrityError):
         storage.write_export([{**files[0], "sha256": "0" * 64}], {"from": "2026-09-01", "to": "2026-09-30"},
                              str(tmp_path / "r.parquet"), fetch)  # fmt: skip
+
+
+# ───── 변경분 피드 (ADR-045) ─────
+NOW = dt.datetime(2026, 10, 20, tzinfo=dt.UTC)
+
+
+def fv(name, days_ago, pid=None, baseline=False):
+    return {"version": name, "published_at": NOW - dt.timedelta(days=days_ago), "publish_id": pid,
+            "snapshot_baseline": baseline}  # fmt: skip
+
+
+def change_row(pid, tid, change="added", fields=()):
+    return {"publish_id": pid, "trade_id": tid, "change": change, "changed_fields": list(fields),
+            "deal_date": dt.date(2026, 9, 1), "complex_key": "c", "apt_nm": "a", "umd_nm": "u", "jibun": "1",
+            "area_m2": 84.99, "floor": 5, "price_manwon": 50000, "ppm2": 588.3, "is_cancelled": 1, "cancel_date": None,
+            "registered_date": None, "apt_dong": "", "deal_kind": "", "seller_type": "", "buyer_type": "",
+            "build_year": 2000, "is_outlier": 0, "version": 2, "missing_since": None}  # fmt: skip
+
+
+class FakeChanges:
+    def __init__(self, versions, rows):
+        self._versions, self.rows, self.asked = versions, rows, []
+
+    async def versions(self):
+        return self._versions
+
+    async def changes(self, ids, after, limit):
+        self.asked.append(ids)
+        out = sorted(({**r, "r": ids.index(r["publish_id"]) + 1} for r in self.rows if r["publish_id"] in ids),
+                     key=lambda r: (r["r"], r["trade_id"]))  # fmt: skip
+        return [r for r in out if after is None or (r["r"], r["trade_id"]) > after][:limit]
+
+
+FEED_VERSIONS = [
+    fv("gold@2026-07-01.1", 111, "p0", baseline=False),  # 보존 밖·기준선 전
+    fv("gold@2026-10-01.1", 19, "base", baseline=True),
+    fv("gold@2026-10-02.1", 18, "p1"),
+    fv("gold@2026-10-03.1", 17, "dims"),  # 차원 발행 — 거래 변경 없음
+    fv("gold@2026-10-04.1", 16, "p2"),
+]
+FEED_ROWS = [
+    change_row("p1", "t-b", "updated", ["cancelled"]),
+    change_row("p1", "t-a"),
+    change_row("p2", "t-a", "missing"),
+]
+
+
+async def feed(store, since, limit=10, pos=None):
+    return await trades.changes(store, since, limit, pos, now=NOW, retention_days=90, cursor_key=b"k", fingerprint="f")
+
+
+async def test_change_feed_window_order_and_shape():
+    store = FakeChanges(FEED_VERSIONS, FEED_ROWS)
+    body, charged = await feed(store, "gold@2026-10-01.1")
+    assert store.asked == [["p1", "dims", "p2"]]  # since 다음부터 최신까지
+    assert [(i["publishedVersion"], i["tradeId"], i["change"], i["changedFields"]) for i in body["items"]] == [
+        ("gold@2026-10-02.1", "t-a", "added", None),
+        ("gold@2026-10-02.1", "t-b", "updated", ["cancelled"]),
+        ("gold@2026-10-04.1", "t-a", "missing", None),
+    ]
+    assert body["fromVersion"] == "gold@2026-10-01.1" and body["toVersion"] == "gold@2026-10-04.1"
+    assert body["items"][0]["trade"]["cancelled"] is True and charged == 3 and body["page"]["nextCursor"] is None
+    latest, n = await feed(FakeChanges(FEED_VERSIONS, FEED_ROWS), "gold@2026-10-04.1")
+    assert latest["items"] == [] and n == 0
+
+
+async def test_change_feed_pages_keep_upper_version_fixed():
+    key = b"k"
+    store = FakeChanges(FEED_VERSIONS, FEED_ROWS)
+    first, _ = await feed(store, "gold@2026-10-01.1", limit=2)
+    pos = cursor_mod.decode(key, first["page"]["nextCursor"], "f")
+    assert pos["u"] == "gold@2026-10-04.1"
+    store._versions = [*FEED_VERSIONS, fv("gold@2026-10-05.1", 15, "p3")]  # 페이지 사이에 새 발행
+    store.rows = [*FEED_ROWS, change_row("p3", "t-z")]
+    second, _ = await feed(store, "gold@2026-10-01.1", limit=2, pos=pos)
+    assert [i["tradeId"] for i in second["items"]] == ["t-a"] and second["toVersion"] == "gold@2026-10-04.1"
+
+
+async def test_change_feed_errors():
+    store = FakeChanges(FEED_VERSIONS, FEED_ROWS)
+    with pytest.raises(ApiError) as e:
+        await feed(store, "gold@2099-01-01.1")
+    assert e.value.status == 404 and e.value.code == "VERSION_NOT_FOUND"
+    with pytest.raises(ApiError) as e:  # 기준선 전·보존 밖
+        await feed(store, "gold@2026-07-01.1")
+    assert e.value.status == 410 and e.value.extra == {"oldestAvailable": "gold@2026-10-01.1"}
+    old = [{**v, "published_at": v["published_at"] - dt.timedelta(days=100)} for v in FEED_VERSIONS]
+    with pytest.raises(ApiError) as e:  # 기준선도 보존 밖
+        await feed(FakeChanges(old, FEED_ROWS), "gold@2026-10-01.1")
+    assert e.value.code == "CHANGES_EXPIRED" and e.value.extra == {"oldestAvailable": None}
+
+
+def test_change_retention_matches_clickhouse_ttl():
+    import re
+    from pathlib import Path
+
+    from aptlake_api.core.settings import Settings
+
+    schema = (Path(__file__).resolve().parents[2] / "infra/clickhouse/init/01-schema.sql").read_text()
+    ttl = re.search(r"TABLE IF NOT EXISTS aptlake\.trade_change.*?INTERVAL (\d+) DAY", schema, re.S)
+    assert ttl and int(ttl.group(1)) == Settings.model_fields["change_retention_days"].default
+
+
+# ───── 원천 반영 지연 (ADR-046) ─────
+from aptlake_api.features.quality import service as quality  # noqa: E402
+
+
+def test_nearest_rank_matches_percentile_disc():
+    dist = [(1, 2), (3, 1), (10, 1)]  # 값 1,1,3,10
+    assert [quality.nearest_rank(dist, q) for q in (0.25, 0.5, 0.75, 0.99)] == [1, 1, 3, 10]
+    assert quality.nearest_rank([], 0.5) is None
+
+
+class FakeLatency:
+    def __init__(self, rows, since=None, l3=None):
+        self.rows, self.since = rows, since or {}
+        self.l3 = l3 or {"n": 0, "p50": None, "p90": None, "p99": None, "since": None,
+                         **{f"b{i}": 0 for i in range(len(quality.L3_BUCKETS))}}  # fmt: skip
+
+    async def source_latency(self, start, end, sido):
+        return self.rows
+
+    async def latency_since(self):
+        return self.since
+
+    async def publish_lag(self, start, end, sido):
+        return self.l3
+
+
+async def test_latency_metrics_exclusions_and_empty_state():
+    rows = [
+        {"metric": "L1", "reason": "", "lag_days": 2, "n": 3},
+        {"metric": "L1", "reason": "", "lag_days": 30, "n": 1},
+        {"metric": "L1", "reason": "initial_load", "lag_days": None, "n": 100},
+        {"metric": "L2", "reason": "low_resolution", "lag_days": None, "n": 4},
+    ]
+    a, b = dt.date(2026, 9, 1), dt.date(2026, 10, 10)
+    body, charged = await quality.latency(FakeLatency(rows, {"L1": dt.date(2026, 9, 27)}), a, b, None)
+    l1, l2, l3 = body["metrics"]["L1"], body["metrics"]["L2"], body["metrics"]["L3"]
+    assert (l1["n"], l1["p50"], l1["p90"], l1["distribution"]) == (4, 2, 30, [[2, 3], [30, 1]])
+    assert l1["excluded"] == {"initial_load": 100} and l1["measuredSince"] == "2026-09-27" and charged == 0
+    assert (l2["n"], l2["p50"], l2["excluded"], l2["measuredSince"]) == (0, None, {"low_resolution": 4}, None)
+    assert l3["unit"] == "minute" and l3["n"] == 0 and l3["p50"] is None and len(l3["distribution"]) == 8
+    with pytest.raises(ApiError):
+        await quality.latency(FakeLatency([]), b, a, None)

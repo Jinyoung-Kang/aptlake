@@ -56,7 +56,7 @@ AptLake 의 자리는 "앱을 만드는 사람을 위한, 검증 기록이 붙�
       "change": "updated",
       "tradeId": "41135-202606-…-1",
       "changedFields": ["cancelled", "cancelDate"],
-      "trade": { "…": "trade_current 와 같은 필드 (removed 면 null)" }
+      "trade": { "…": "거래 목록과 같은 필드 — 그 발행 시점 값 (removed 면 직전 값)" }
     }
   ],
   "page": { "nextCursor": "…또는 null" }

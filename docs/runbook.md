@@ -115,6 +115,11 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
 - 매주 일 04:00 KST `weekly_iceberg_maintenance`: optimize → expire_snapshots(7일) → remove_orphan_files(7일). 7일 안의 시간여행은 항상 가능.
   - 같은 작업이 달별 스냅숏 파일도 정리한다(ADR-044): 최근 30일의 모든 버전 + 달(KST)마다 마지막 버전 1년 + 최신 버전이 쓰는 파일만 남긴다. 기록(`ops.dataset_month_file`)은 지우지 않고 `deleted_at` 만 채운다. 기록 없는 파일(발행 도중 실패)은 하루 지나면 지운다.
 
+## 원천 반영 지연 (ADR-046)
+- L1·L2 는 매일 05:30 `daily_dims_and_index` 가 dbt `source_latency` 를 다시 만들고(Trino 약 2분) 차원 발행 때 ClickHouse 로 교체한다. 일정이 꺼져 있으면(`make backfill-stop`) 갱신되지 않는다 — `make index` 로 한 번 돌릴 수 있다.
+- L3 는 달 발행마다 `ops.publish_lag` 에 쌓인다(기능 시작 뒤부터). 품질 화면 "원천 반영 지연"에서 본다.
+- 숫자가 비면: `SELECT metric, reason, sum(n) FROM aptlake.source_latency GROUP BY 1,2` (ClickHouse) 로 분포가 들어왔는지 확인.
+
 ## 달별 스냅숏·버전 지정 내보내기 (ADR-044)
 - **처음 켤 때 (한 번):** 아래 순서. 기준선 전에는 내보내기가 410 `SNAPSHOT_EXPIRED` 로 답한다.
   1. `make init` — 새 내부 비밀 `MINIO_SNAPSHOT_SECRET` 자동 생성 (외부 키 아님)
@@ -125,6 +130,8 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
 - **확인:** `SELECT count(*), sum(rows), sum(bytes) FROM ops.dataset_month_file WHERE deleted_at IS NULL` (기준선 직후 = 서빙 달 수·거래 수). 2026-10 실측: 70개월 129MB, 한 달 최대 2.7MB.
 - **용량:** `docker compose exec -T minio sh -c 'du -sh /data/snapshots'` (경로는 MinIO 데이터 볼륨 기준). 크게 늘면 보관 일수(`snapshots.KEEP_DAYS`)를 줄인다.
 - **내보내기 실패 `SNAPSHOT_EXPIRED`:** 요청과 작업 실행 사이에 보관 정리로 파일이 지워진 경우다. 응답의 `oldestAvailable` 이후 버전으로 다시 요청한다.
+- **변경분 피드(ADR-045):** 달 발행마다 `trade_change` 에 기록된다(보존 90일). 피드는 기준선 이후 버전부터. 기준선 전 버전이나 90일 넘은 `since` 는 410 — 고객은 버전 지정 내보내기로 다시 받고 그 버전부터 이어 받는다.
+  - 확인: `SELECT publish_id, count() FROM aptlake.trade_change GROUP BY publish_id ORDER BY max(created_at) DESC LIMIT 5` (발행 행의 `row_counts.trade_change` 와 같아야 한다)
 - **해시 불일치(`SnapshotIntegrityError`):** 달 파일이 기록과 다르다 — 파일을 바꾸지 말고 원인을 본다(버킷에 다른 쓰기 주체가 있는지, 계정 권한).
 
 ## 백업과 복원
