@@ -1,0 +1,36 @@
+{
+ "body": {
+  "plans": [
+   {
+    "bulk": false,
+    "dailyRows": 5000,
+    "maxPageSize": 100,
+    "maxRangeMonths": 12,
+    "planId": "anonymous",
+    "rpm": 20
+   },
+   {
+    "bulk": false,
+    "dailyRows": 50000,
+    "maxPageSize": 200,
+    "maxRangeMonths": 24,
+    "planId": "free",
+    "rpm": 60
+   },
+   {
+    "bulk": true,
+    "dailyRows": 2000000,
+    "maxPageSize": 1000,
+    "maxRangeMonths": null,
+    "planId": "pro",
+    "rpm": 600
+   }
+  ]
+ },
+ "etag": false,
+ "headers": {
+  "cache-control": "public, max-age=300",
+  "content-type": "application/json"
+ },
+ "status": 200
+}

@@ -5,7 +5,9 @@ import { DataTable } from "../components/DataTable";
 import { CopyButton, ErrorBox, Kpi, sqm } from "../components/ui";
 import { esc, num } from "../lib/format";
 import { paths } from "../api/endpoints";
-import type { MyUsage } from "../api/types";
+import type { MyUsage, MyUsageMonthly, Plans } from "../api/types";
+import { useApi } from "../hooks/useApi";
+import { planRow, todayPct } from "../domain/developer";
 
 const BASE = "http://127.0.0.1:8610";
 const EXAMPLES: { title: string; desc: string; path: string }[] = [
@@ -21,10 +23,15 @@ export default function DeveloperPage() {
   // 키는 이 화면 state 에만 (저장소·URL 에 쓰지 않음, 탭을 닫으면 사라짐)
   const [key, setKey] = useState("");
   const [usage, setUsage] = useState<MyUsage | null>(null);
+  const [monthly, setMonthly] = useState<MyUsageMonthly | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const plans = useApi<Plans>(paths.plans());
   const load = () => {
     setErr(null);
-    api<MyUsage>(paths.myUsage(30), { key: key.trim() }).then(setUsage).catch((e) => { setUsage(null); setErr(errorText(e)); });
+    const k = { key: key.trim() };
+    Promise.all([api<MyUsage>(paths.myUsage(30), k), api<MyUsageMonthly>(paths.myUsageMonthly(6), k)])
+      .then(([u, m]) => { setUsage(u); setMonthly(m); })
+      .catch((e) => { setUsage(null); setMonthly(null); setErr(errorText(e)); });
   };
   const build = (p: Palette) => {
     const b = base(p);
@@ -70,18 +77,15 @@ export default function DeveloperPage() {
         <aside>
           <section className="section">
             <div className="section-head"><h2>플랜</h2></div>
-            <DataTable rows={[
-              { p: "anonymous", who: "키 없음 · IP 당", rpm: 20, rows: 5000, range: "12개월", bulk: "×" },
-              { p: "free", who: "발급 키", rpm: 60, rows: 50000, range: "24개월", bulk: "×" },
-              { p: "pro", who: "발급 키", rpm: 600, rows: 2000000, range: "전체", bulk: "Parquet" },
-              { p: "web", who: "이 웹 화면 · 브라우저 IP 당", rpm: 300, rows: 200000, range: "60개월", bulk: "×" },
-            ]} rowKey={(r) => r.p} columns={[
+            <ErrorBox error={plans.error} onRetry={plans.reload} />
+            <DataTable rows={(plans.data?.plans ?? []).map(planRow)} rowKey={(r) => r.p} empty={plans.loading ? "불러오는 중…" : "플랜 정보 없음"} columns={[
               { key: "p", header: "플랜", cell: (r) => <span className="name">{r.p}<span className="sub">{r.who}</span></span> },
               { key: "rpm", header: "분당", align: "right", cell: (r) => num(r.rpm) },
               { key: "rows", header: "일일 행", align: "right", cell: (r) => num(r.rows) },
               { key: "range", header: "기간", cell: (r) => r.range },
+              { key: "bulk", header: "대량", cell: (r) => r.bulk },
             ]} />
-            <p className="note">일일 '행' 한도는 거래 단위 레코드(거래 목록·이력·산점도)에만 적용되고, 집계 응답(월별 통계·지도·순위)은 요청 수 한도만 받습니다.
+            <p className="note">일일 '행' 한도는 거래 단위 레코드(거래 목록·이력·산점도·변경분 피드)에만 적용되고, 집계 응답(월별 통계·지도·순위)은 요청 수 한도만 받습니다.
               웹 화면은 BFF 방식으로, 브라우저에는 키가 없고 웹 서버가 서버 쪽 키를 붙입니다.</p>
           </section>
           <section className="section">
@@ -95,10 +99,24 @@ export default function DeveloperPage() {
             {usage && (
               <>
                 <div className="kpis" style={{ gridTemplateColumns: "1fr 1fr" }}>
-                  <Kpi k="플랜" v={usage.plan} d={`분당 ${num(usage.limits.rpm)} · 일 ${num(usage.limits.dailyRows)}행`} />
-                  <Kpi k="30일 요청" v={num(usage.items.reduce((a, i) => a + i.requests, 0))} d={`오류 ${num(usage.items.reduce((a, i) => a + i.errors, 0))}건`} />
+                  <Kpi k="플랜" v={usage.plan} d={`분당 ${num(usage.limits.rpm)} · 일 ${num(usage.limits.dailyRows)}행 · 페이지 ${num(usage.limits.maxPageSize)}`} />
+                  <Kpi k="오늘 남은 행 (이 키)" v={num(usage.today.rowsLeft)}
+                       d={<>사용 {num(usage.today.rowsUsed)}행 · 한국 날짜 기준<div className="progress"><span style={{ width: `${todayPct(usage)}%` }} /></div></>} />
                 </div>
-                <div className="panel panel-pad"><Chart build={build} deps={[usage]} height={200} label="일별 요청 수" /></div>
+                <div className="panel panel-pad"><Chart build={build} deps={[usage]} height={200} label="일별 요청 수 (이 고객의 모든 키)" /></div>
+                {monthly && (
+                  <>
+                    <h3 style={{ fontSize: 13, margin: "12px 0 6px" }}>달별 과금 대상 단위 (이 고객의 모든 키)</h3>
+                    <DataTable rows={monthly.items} rowKey={(m) => m.month} empty="최근 6개월 사용 기록이 없습니다." columns={[
+                      { key: "m", header: "달", cell: (m) => m.month },
+                      { key: "r", header: "요청", align: "right", cell: (m) => num(m.requests) },
+                      { key: "c", header: "차감 행", align: "right", cell: (m) => num(m.chargedRows) },
+                      { key: "x", header: "내보내기 행", align: "right", cell: (m) => `${num(m.exportRows)} (${num(m.exports)}건)` },
+                      { key: "l", header: "한도 초과", align: "right", cell: (m) => num(m.rateLimited) },
+                    ]} />
+                    <p className="note">공개 단가가 없는 학습용 서비스라 금액 대신 과금 대상이 될 단위만 보입니다. 차감 행 = 거래 단위 레코드(거래 목록·이력·산점도·변경분 피드) 수.</p>
+                  </>
+                )}
               </>
             )}
             <p className="note">키는 이 화면 메모리에만 있고 저장하지 않습니다.</p>

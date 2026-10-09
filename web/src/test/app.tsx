@@ -45,6 +45,7 @@ function route(url: URL): { status: number; body: unknown } {
   if (p === "/v1/quality/partitions") return g("quality_grid_sido");
   if (/^\/v1\/quality\/partitions\/\d{5}\/\d{4}-\d{2}$/.test(p)) return g("quality_partition");
   if (p === "/v1/quality/latency") return g("quality_latency");
+  if (p === "/v1/plans") return g("plans");
   if (p === "/v1/ops/status") return g("ops_status");
   if (p === "/v1/ops/errors") return g("ops_errors_pipeline");
   return { status: 404, body: { status: 404, code: "NOT_FOUND", title: "Not Found" } };

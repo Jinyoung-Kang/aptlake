@@ -138,5 +138,11 @@ export type Connectivity = {
   items: { key: string; name: string; role: string; ok: boolean; latencyMs: number | null; note: string | null; error: string | null }[];
   sources: { key: string; name: string; lastSuccessAt: string | null; state: string; detail: string | null }[];
 };
-export type MyUsage = { clientId: string; plan: string; limits: { rpm: number; dailyRows: number };
+/** 플랜 한도 (ADR-047). bulk = 대량 내보내기·변경분 피드 */
+export type PlanView = { planId: string; rpm: number; dailyRows: number; maxRangeMonths: number | null; maxPageSize: number; bulk: boolean };
+export type Plans = { plans: PlanView[] };
+/** limits·today 는 이 키 기준, items 는 고객(모든 키 합) 기준 */
+export type MyUsage = { clientId: string; plan: string; limits: PlanView; today: { rowsUsed: number; rowsLeft: number };
   items: { day: string; requests: number; rows: number; errors: number; p95Ms: number }[] };
+export type MonthlyUnits = { month: string; requests: number; errors: number; rateLimited: number; chargedRows: number; exports: number; exportRows: number };
+export type MyUsageMonthly = { clientId: string; basis: "client"; items: MonthlyUnits[] };

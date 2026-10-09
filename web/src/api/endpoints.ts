@@ -34,4 +34,6 @@ export const paths = {
   opsErrorsClear: () => "/v1/ops/errors/clear",
   opsConnectivity: () => "/v1/ops/connectivity",
   myUsage: (days: number) => `/v1/me/usage?days=${days}`,
+  myUsageMonthly: (months: number) => `/v1/me/usage/monthly?months=${months}`,
+  plans: () => "/v1/plans",
 };
