@@ -36,6 +36,7 @@ class Plan:
     max_range_months: int | None
     max_page_size: int
     allow_bulk: bool
+    public: bool = False  # 개발자 화면·GET /v1/plans 에 보이는 플랜 (V012)
 
 
 @dataclass

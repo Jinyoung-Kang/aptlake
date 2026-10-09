@@ -59,6 +59,7 @@ CASES: list[tuple[str, str, dict]] = [
     ("quality_partition_merged", "/v1/quality/partitions/41135/2024-07", {}),
     ("quality_partition_missing", "/v1/quality/partitions/41135/2020-01", {}),
     ("quality_latency", "/v1/quality/latency", {"from": "2026-09-01", "to": "2026-10-10"}),
+    ("plans", "/v1/plans", {}),
     ("market_overview_default", "/v1/market/overview", {}),
     ("market_overview_month", "/v1/market/overview", {"ym": "2024-06"}),
     ("market_overview_out_of_range", "/v1/market/overview", {"ym": "2030-01"}),

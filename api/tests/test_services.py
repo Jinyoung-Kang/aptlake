@@ -627,3 +627,33 @@ async def test_latency_metrics_exclusions_and_empty_state():
     assert l3["unit"] == "minute" and l3["n"] == 0 and l3["p50"] is None and len(l3["distribution"]) == 8
     with pytest.raises(ApiError):
         await quality.latency(FakeLatency([]), b, a, None)
+
+
+# ───── 플랜·사용량 (ADR-047) ─────
+async def test_usage_service_plans_today_and_monthly_merge():
+    from types import SimpleNamespace as P
+
+    from aptlake_api.features.usage import service as usage
+
+    plans = [P(plan_id="pro", rpm=600, daily_rows=2_000_000, max_range_months=None, max_page_size=1000, allow_bulk=True, public=True),
+             P(plan_id="web", rpm=300, daily_rows=200_000, max_range_months=60, max_page_size=200, allow_bulk=False, public=False),
+             P(plan_id="free", rpm=60, daily_rows=50_000, max_range_months=24, max_page_size=200, allow_bulk=False, public=True)]  # fmt: skip
+    assert [p["planId"] for p in usage.public_plans(plans)] == ["free", "pro"]
+
+    class Store:
+        async def daily(self, c, d):
+            return []
+
+        async def monthly(self, c, m):
+            return [{"month": "2026-10", "requests": 10, "errors": 2, "rate_limited": 1, "rows": 700}]
+
+        async def export_monthly(self, c, m):
+            return [{"month": "2026-09", "jobs": 1, "rows": 5}]
+
+    body = await usage.my_usage(Store(), client_id="c", plan=plans[2], rows_used_today=60_000, days=30)
+    assert body["today"] == {"rowsUsed": 60_000, "rowsLeft": 0} and body["limits"]["dailyRows"] == 50_000
+    m = await usage.monthly(Store(), "c", 6)
+    assert [(i["month"], i["chargedRows"], i["exportRows"]) for i in m["items"]] == [
+        ("2026-10", 700, 0),
+        ("2026-09", 0, 5),
+    ]

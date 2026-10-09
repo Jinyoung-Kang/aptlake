@@ -23,9 +23,23 @@ async def my_usage(
     body = await service.my_usage(
         UsageRepository(request.app.state.res.ch),
         client_id=p.client_id,
-        plan_id=p.plan.plan_id,
-        rpm=p.plan.rpm,
-        daily_rows=p.plan.daily_rows,
+        plan=p.plan,
+        rows_used_today=p.rows_used_today,
         days=days,
     )
     return OrjsonResponse(body, headers=p.limit_headers)
+
+
+@router.get("/me/usage/monthly", summary="내 고객(모든 키 합) 달별 과금 대상 단위 — 요청·차감 행·내보내기")
+async def my_usage_monthly(
+    request: Request, months: Annotated[int, Query(ge=1, le=6)] = 6, p: Principal = require_scope("read")
+) -> OrjsonResponse:
+    service.require_key(p.kind)
+    repo = UsageRepository(request.app.state.res.ch, request.app.state.res.pg)
+    return OrjsonResponse(await service.monthly(repo, p.client_id, months), headers=p.limit_headers)
+
+
+@router.get("/plans", summary="공개 플랜과 한도 (키 없이도)")
+async def plans(request: Request, p: Principal = require_scope("read")) -> OrjsonResponse:
+    body = {"plans": service.public_plans(list(request.app.state.plans.values()))}
+    return OrjsonResponse(body, headers={**p.limit_headers, "Cache-Control": "public, max-age=300"})
