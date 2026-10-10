@@ -301,6 +301,11 @@
   - Grafana 프로비저닝
   - PG 경로 지연: [qa-005-psycopg-impl-latency.txt](qa/evidence/qa-005-psycopg-impl-latency.txt)
 
+- **2026-10 추가 (Go 1.26.9·1.27.2 보안 수정, lz4-java):** 주간 점검이 Grafana·Silo·postgres(gosu)·Prometheus·Trino(launcher) 의 Go 표준 라이브러리 3건(net/http Range·HTTP/2 SETTINGS, crypto/tls ECH — 모두 서비스 거부)과 `golang.org/x/net` 1건, Trino clickhouse 플러그인의 lz4-java 1건으로 실패했다.
+  - 2026-10-10 레지스트리에서 다섯 이미지 모두 지금 태그가 최신이라 올릴 수 없었다.
+  - 이유를 확인해 예외로 두되 **만료일을 2026-11-30 으로 짧게** 잡았다 — 수정된 Go 로 빌드한 태그가 나오면 올리게 하려는 것이다. 이유: TLS 없이 127.0.0.1·내부망에서만 열린 서버(신뢰 클라이언트만 닿는 서비스 거부), 실행하지 않는 CLI(grafana-cli·promtool), 기동 때만 쓰는 gosu·launcher, 카탈로그로 만들지 않는 clickhouse 플러그인과 단일 사용자 컨테이너(lz4 의 임시 파일 경로 공격은 /tmp 를 나누는 다른 로컬 사용자가 있어야 한다).
+  - Silo 예외 파일(`infra/trivy/silo.yaml`)을 새로 만들었다. 로컬 점검에서 서드파티 9종 모두 0건.
+
 ## ADR-041 성능(QA-009): 같은 요청 합치기와 월 계열 캐시, 효과 없는 설정은 두지 않는다
 - **문제:** NFR-04(200+100 RPS 에서 months p95 < 80 ms · trades p95 < 150 ms)를 QA 스택에서 만족하지 못했다. QA 보고서는 같은 요청 합치기(A2)·ClickHouse CPU 분리·워커 수·VM CPU 조정을 권고했다.
 - **측정으로 버린 것** (QA 스택, 각 1회 — [분석](qa/evidence/qa-009-analysis.txt)):

@@ -1,0 +1,18 @@
+# pgsty/silo:RELEASE.2026-09-16T00-00-00Z (MinIO 호환 저장소) 의 남은 HIGH·CRITICAL 예외 — tools/scan_images.sh third-party 가 읽는다.
+# 새 태그로 올리면 다시 스캔해 사라진 항목은 지우고, 만료일이 지나면 다시 판단한다 (지나면 점검이 실패한다).
+
+# 2026-10 Go 표준 라이브러리(net/http Range·HTTP/2 SETTINGS, crypto/tls ECH) 3건 — 모두 서비스 거부다. 아래 이유로 닿지 않지만,
+# 수정된 Go(1.26.9·1.27.2)로 빌드한 태그가 아직 없어(2026-10-10 레지스트리 확인) 짧은 만료일로 두고 새 태그가 나오면 올린다.
+vulnerabilities:
+  - id: CVE-2026-78667
+    paths: ["usr/bin/silo", "usr/bin/mcli"]
+    expired_at: 2026-11-30
+    statement: TLS 없이 127.0.0.1(호스트)·내부망에서만 열린다 — 신뢰 클라이언트만 닿는 서비스 거부, mcli 는 minio-init·healthcheck 가 이 서버에만 쓴다
+  - id: CVE-2026-78669
+    paths: ["usr/bin/silo", "usr/bin/mcli"]
+    expired_at: 2026-11-30
+    statement: TLS 없이 127.0.0.1(호스트)·내부망에서만 열린다 — 신뢰 클라이언트만 닿는 서비스 거부, mcli 는 minio-init·healthcheck 가 이 서버에만 쓴다
+  - id: CVE-2026-97031
+    paths: ["usr/bin/silo", "usr/bin/mcli"]
+    expired_at: 2026-11-30
+    statement: TLS 없이 127.0.0.1(호스트)·내부망에서만 열린다 — 신뢰 클라이언트만 닿는 서비스 거부, mcli 는 minio-init·healthcheck 가 이 서버에만 쓴다
