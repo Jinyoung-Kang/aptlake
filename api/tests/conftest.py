@@ -32,7 +32,6 @@ def stack():
         .with_env("CLICKHOUSE_READER_PASSWORD", PW)
         .with_env("CLICKHOUSE_USAGE_PASSWORD", PW)
         .with_env("CLICKHOUSE_PUBLISHER_PASSWORD", PW)
-        .with_env("CLICKHOUSE_EXPORT_PASSWORD", PW)
         .with_volume_mapping(
             str(ROOT / "infra/clickhouse/users.d/aptlake-users.xml"), "/etc/clickhouse-server/users.d/aptlake-users.xml"
         )
@@ -69,7 +68,6 @@ def stack():
             "CH_PORT": str(ch_port),
             "CH_READER_PASSWORD": PW,
             "CH_USAGE_PASSWORD": PW,
-            "CH_EXPORT_PASSWORD": PW,
             "API_KEY_PEPPER": "test-pepper",
             "CURSOR_SIGNING_KEY": "test-cursor-key",
             "METRICS_PORT": "0",

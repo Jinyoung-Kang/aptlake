@@ -1,4 +1,5 @@
 """QA-006: 전국 전체 기간 대량 내보내기가 exporter 메모리 상한(400MB)에서 정렬하다 실패했다.
+(exporter 사용자는 ADR-044 뒤 걷어 냈다 — 여기서 ClickHouse 는 운영 규모의 달 파일을 만드는 데만 쓴다.)
 ADR-044 이후 내보내기는 ClickHouse 대신 달별 스냅숏 파일을 읽는다 — 같은 규모로, 작업자 프로세스 메모리를 잰다.
 
 내보내기 질의는 ORDER BY deal_date, trade_id 로 전체를 정렬하는데, 메모리 안에서만 정렬하면 행이 늘수록 상한에 닿는다
@@ -23,13 +24,12 @@ ROWS = 3_000_000
 
 
 @pytest.fixture(scope="module")
-def exporter():
+def serving():
     with (
         ClickHouseContainer("clickhouse/clickhouse-server:26.8", username="admin", password=PW)
         .with_env("CLICKHOUSE_READER_PASSWORD", PW)
         .with_env("CLICKHOUSE_USAGE_PASSWORD", PW)
         .with_env("CLICKHOUSE_PUBLISHER_PASSWORD", PW)
-        .with_env("CLICKHOUSE_EXPORT_PASSWORD", PW)
         .with_volume_mapping(
             str(ROOT / "infra/clickhouse/users.d/aptlake-users.xml"), "/etc/clickhouse-server/users.d/aptlake-users.xml"
         )
@@ -56,11 +56,11 @@ def exporter():
                    0, NULL, m + 40, '', '중개거래', '개인', '개인', toUInt16(1990 + h % 35), 0, 1, now64(3), NULL
             FROM numbers({ROWS}) SETTINGS max_partitions_per_insert_block = 1000""")
         yield clickhouse_connect.get_client(
-            host=host, port=port, username="exporter", password=PW, database="aptlake", send_receive_timeout=600
+            host=host, port=port, username="admin", password=PW, database="aptlake", send_receive_timeout=600
         )
 
 
-def test_qa_006_full_range_bulk_export_streams_within_worker_memory_limit(exporter, tmp_path):
+def test_qa_006_full_range_bulk_export_streams_within_worker_memory_limit(serving, tmp_path):
     """내보내기는 이제 달별 스냅숏 파일을 한 달씩 읽는다(ADR-044). 운영 규모(300만 행·69개월)의 달 파일로 전국 전체 기간을
     내보낼 때, 작업자 프로세스의 최대 메모리가 내부 앱 상한(512MB)보다 넉넉히 작아야 한다 — 별도 프로세스로 재서 확인."""
     import json
@@ -73,14 +73,14 @@ def test_qa_006_full_range_bulk_export_streams_within_worker_memory_limit(export
 
     schema = pa.schema(list(storage.EXPORT_SCHEMA) + [
         pa.field("valid_from", pa.timestamp("ms", tz="UTC")), pa.field("missing_since", pa.timestamp("ms", tz="UTC"))])  # fmt: skip
-    months = [str(r[0]) for r in exporter.query(
+    months = [str(r[0]) for r in serving.query(
         "SELECT DISTINCT toYYYYMM(deal_date) FROM trade_current ORDER BY 1").result_rows]  # fmt: skip
     files = []
     for ym in months:
         path = tmp_path / f"{ym}.parquet"
         with (
             pq.ParquetWriter(path, schema, compression="zstd") as w,
-            exporter.query_arrow_stream(
+            serving.query_arrow_stream(
                 f"SELECT {', '.join(schema.names)} FROM trade_current WHERE toYYYYMM(deal_date) = {ym} "
                 "ORDER BY deal_date, trade_id"
             ) as stream,

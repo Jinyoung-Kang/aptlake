@@ -50,3 +50,9 @@ def test_month_file_records_are_append_only_except_deleted_at(stack):
                       has_table_privilege('api_app', 'ops.dataset_month_file', 'INSERT')"""
         ).fetchone()
         assert privs == (True, False, True, False, True, False)
+
+
+def test_no_bulk_reader_account_on_serving_db(stack):
+    """대량 내보내기는 달별 스냅숏 파일에서 뽑는다 — 결과 행 상한 없는 ClickHouse 계정을 두지 않는다 (ADR-044)."""
+    users = {r[0] for r in stack["ch"].query("SELECT name FROM system.users").result_rows}
+    assert "exporter" not in users and {"api_reader", "usage_writer", "publisher"} <= users
