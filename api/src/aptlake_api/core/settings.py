@@ -16,7 +16,6 @@ class Settings(BaseSettings):
     ch_port: int = 8123
     ch_reader_password: SecretStr
     ch_usage_password: SecretStr
-    ch_export_password: SecretStr = SecretStr("")
     api_key_pepper: SecretStr
     cursor_signing_key: SecretStr
     s3_endpoint: str = "http://minio:9000"

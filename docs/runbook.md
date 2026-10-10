@@ -158,7 +158,7 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
 - API 는 ClickHouse 응답을 최대 10초(연결 3초), PostgreSQL 질의 5초·잠금 대기 2초까지만 기다리고 503 + Retry-After 로 끝낸다 (QA-007·008).
   연결 풀이 모두 매달려 있으면 빈 연결을 기다리는 시간이 더해져 한 요청이 15초 안팎 걸릴 수 있다. Redis 는 2초.
 - 긴 트랜잭션(수동 정리 작업 등)이 `ops`·`api` 표를 잠그면 그동안 수집 상태·관리 경로가 503 이다 — 데이터 경로는 키 캐시 덕에 영향이 없다.
-- 대량 내보내기(exporter 프로필)는 정렬이 150MB 를 넘으면 디스크로 나눠 정렬한다 (`max_bytes_before_external_sort`, 26.8 은 비율 설정을 0 으로 꺼야 적용, QA-006).
+- 대량 내보내기는 ClickHouse 를 읽지 않는다 — 달별 스냅숏 파일을 한 달씩 읽는다(ADR-044). 작업자 메모리는 300만 행 전체 기간에 최대 272MB.
 
 ## API 문서(/docs) 의 Swagger UI 버전 올리기
 - `api/src/aptlake_api/main.py` 의 `SWAGGER_UI` 버전과 `SWAGGER_UI_SRI` 해시를 같이 바꾼다 (해시가 틀리면 브라우저가 스크립트를 막아 화면이 빈다, QA-004):
