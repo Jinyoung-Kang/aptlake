@@ -58,7 +58,8 @@ CASES: list[tuple[str, str, dict]] = [
     ("quality_partition", "/v1/quality/partitions/41135/2024-08", {}),
     ("quality_partition_merged", "/v1/quality/partitions/41135/2024-07", {}),
     ("quality_partition_missing", "/v1/quality/partitions/41135/2020-01", {}),
-    ("quality_latency", "/v1/quality/latency", {"from": "2026-09-01", "to": "2026-10-10"}),
+    # 고정된 과거 기간 — 끝 날짜가 생성한 날과 같으면 골든 정규화가 <today> 로 바꿔 다음 날부터 실패했다
+    ("quality_latency", "/v1/quality/latency", {"from": "2026-09-20", "to": "2026-10-05"}),
     ("plans", "/v1/plans", {}),
     ("market_overview_default", "/v1/market/overview", {}),
     ("market_overview_month", "/v1/market/overview", {"ym": "2024-06"}),

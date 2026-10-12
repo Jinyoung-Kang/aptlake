@@ -2,7 +2,7 @@
  "body": {
   "dataAsOf": null,
   "datasetVersion": "gold@test.1",
-  "from": "2026-09-01",
+  "from": "2026-09-20",
   "metrics": {
    "L1": {
     "distribution": [
@@ -99,7 +99,7 @@
    }
   },
   "sido": null,
-  "to": "<today>"
+  "to": "2026-10-05"
  },
  "etag": true,
  "headers": {
