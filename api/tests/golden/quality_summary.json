@@ -42,7 +42,11 @@
    "MERGED": 1,
    "PENDING": 1,
    "QUARANTINED": 1
-  }
+  },
+  "schemaVersions": {
+   "unrecorded": 1
+  },
+  "source": "rtms"
  },
  "etag": true,
  "headers": {

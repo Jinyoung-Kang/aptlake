@@ -40,24 +40,25 @@ class OpsRepository:
             raise SourceUnavailable(reason) from e
 
     # ── 수집 상태 ──
-    async def budget_day(self, day: dt.date) -> Row | None:
+    async def budget_day(self, day: dt.date, source: str = "rtms") -> Row | None:
         return await self._one(
             """SELECT day, limit_calls, used_calls, by_priority, exhausted_reason, exhausted_at
-               FROM ops.api_budget WHERE source='rtms' AND day=%s""",
-            (day,),
+               FROM ops.api_budget WHERE source=%s AND day=%s""",
+            (source, day),
         )
 
-    async def partition_counts(self) -> dict[str, int]:
+    async def partition_counts(self, source: str = "rtms") -> dict[str, int]:
         rows = await self._all(
-            "SELECT status, count(*) AS n FROM ops.ingest_partition WHERE source = 'rtms' GROUP BY status"
+            "SELECT status, count(*) AS n FROM ops.ingest_partition WHERE source = %s GROUP BY status", (source,)
         )
         return {r["status"]: r["n"] for r in rows}
 
-    async def month_counts(self) -> Row | None:
+    async def month_counts(self, source: str = "rtms") -> Row | None:
         return await self._one(
             """SELECT count(*) FILTER (WHERE needs_publish) AS pending,
                       count(*) FILTER (WHERE published_at IS NOT NULL) AS published
-               FROM ops.month_state WHERE source = 'rtms'"""
+               FROM ops.month_state WHERE source = %s""",
+            (source,),
         )
 
     async def last_version(self) -> Row | None:
@@ -88,19 +89,18 @@ class OpsRepository:
     async def ingest_errors(self, since: dt.datetime) -> list[Row]:
         return await self._all(
             """
-            SELECT deal_ym, status, last_error, count(*) AS n, max(updated_at) AS at,
+            SELECT source, deal_ym, status, last_error, count(*) AS n, max(updated_at) AS at,
                    (array_agg(sgg_cd ORDER BY sgg_cd))[1:8] AS sample
             FROM ops.ingest_partition
-            WHERE source = 'rtms' AND status IN ('RETRY','QUARANTINED') AND last_error IS NOT NULL
-              AND updated_at >= %s
-            GROUP BY deal_ym, status, last_error ORDER BY at DESC LIMIT 200""",
+            WHERE status IN ('RETRY','QUARANTINED') AND last_error IS NOT NULL AND updated_at >= %s
+            GROUP BY source, deal_ym, status, last_error ORDER BY at DESC LIMIT 200""",
             (since,),
         )
 
     async def budget_exhaustions(self, since: dt.datetime) -> list[Row]:
         return await self._all(
-            """SELECT day, exhausted_reason, exhausted_at FROM ops.api_budget
-               WHERE source='rtms' AND exhausted_at >= %s""",
+            """SELECT source, day, exhausted_reason, exhausted_at FROM ops.api_budget
+               WHERE source IN ('rtms', 'rent') AND exhausted_at >= %s""",
             (since,),
         )
 
@@ -130,8 +130,10 @@ class OpsRepository:
         )
 
     # ── 연결 점검 ──
-    async def last_fetched(self) -> dt.datetime | None:
-        row = await self._one("SELECT max(last_fetched_at) AS at FROM ops.ingest_partition WHERE source = 'rtms'")
+    async def last_fetched(self, source: str = "rtms") -> dt.datetime | None:
+        row = await self._one(
+            "SELECT max(last_fetched_at) AS at FROM ops.ingest_partition WHERE source = %s", (source,)
+        )
         return row["at"] if row else None
 
     async def boundary_fetched(self) -> dt.datetime | None:

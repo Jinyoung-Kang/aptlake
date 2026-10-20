@@ -49,6 +49,14 @@ export function pipelineSummary(s: OpsStatus | null) {
   return { running, queued, merged, total, mergedPct: total ? (merged / total) * 100 : 0 };
 }
 
+/** 전월세 수집 요약 (ADR-050): 반영 완료 비율 — 원천별 상태라 매매와 따로 센다. */
+export function rentSummary(s: OpsStatus | null) {
+  const r = s?.summary.rent;
+  if (!r) return null;
+  const merged = r.partitions.MERGED ?? 0;
+  return { ...r, merged, mergedPct: r.totalPartitions ? (merged / r.totalPartitions) * 100 : 0 };
+}
+
 /** 출처·검색어로 거르기 (검색은 위치·메시지·상세에서, 대소문자 무시). */
 export function filterEntries(all: LogEntry[], source: string, q: string): LogEntry[] {
   const term = q.trim().toLowerCase();

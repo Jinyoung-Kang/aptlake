@@ -2,12 +2,13 @@
 import type { SggSummary } from "../api/types";
 import { num } from "../lib/format";
 
-export type Metric = "median" | "medianYoY" | "trades" | "cancelRate";
+export type Metric = "median" | "medianYoY" | "trades" | "cancelRate" | "jeonseRatio";
 export const METRICS: { value: Metric; label: string; unit: string; title: string }[] = [
   { value: "median", label: "m²당 중위가", unit: "만원/m²", title: "해제·이상치 제외 m²당 거래가 중위수" },
   { value: "medianYoY", label: "가격 변화(전년비)", unit: "%", title: "전년 같은 달 대비 중위수 변화율 — 두 달 모두 표본 30건 이상" },
   { value: "trades", label: "거래량", unit: "건", title: "해제 제외 신고 건수" },
   { value: "cancelRate", label: "해제율", unit: "%", title: "해제 건수 ÷ 신고 건수" },
+  { value: "jeonseRatio", label: "전세가율", unit: "%", title: "그 달까지 3개월 전세 보증금 m²당 중앙값 ÷ 매매 m²당 중앙값 — 양쪽 표본 5건 이상, 자체 산출" },
 ];
 
 /** URL 의 지표 이름 — 모르는 값이면 기본(중위가). 이름·단위와 칠하는 값이 어긋나지 않게 한곳에서 정한다. */
@@ -21,6 +22,7 @@ export function metricValue(s: SggSummary | undefined, metric: Metric): number |
   if (metric === "median") return s.lowSample ? null : s.median;
   if (metric === "medianYoY") return s.medianYoY;
   if (metric === "trades") return s.trades;
+  if (metric === "jeonseRatio") return s.jeonseRatio ?? null;
   return s.trades + s.cancelled > 0 ? s.cancelRate : null;
 }
 

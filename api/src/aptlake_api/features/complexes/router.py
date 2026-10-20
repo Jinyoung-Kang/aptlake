@@ -9,6 +9,7 @@ from fastapi.responses import Response
 
 from ...core.auth import Principal
 from ...core.http import require_scope, respond
+from ..rent.repository import RentRepository
 from . import service
 from .repository import ComplexRepository
 
@@ -26,7 +27,9 @@ async def complex_detail(
         request,
         "complex",
         {"k": complexKey},
-        lambda: service.detail(ComplexRepository(request.app.state.res.ch), complexKey),
+        lambda: service.detail(
+            ComplexRepository(request.app.state.res.ch), complexKey, RentRepository(request.app.state.res.ch)
+        ),
     )
 
 

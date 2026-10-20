@@ -3,7 +3,7 @@
   "apiErrorSummary": [],
   "cleared": null,
   "counts": {
-   "quality": 2
+   "quality": 3
   },
   "dataAsOf": null,
   "datasetVersion": "gold@test.1",
@@ -31,6 +31,18 @@
     "resolved": false,
     "source": "quality",
     "where": "silver/apt_trade · 202407"
+   },
+   {
+    "at": "<recent>",
+    "cleared": false,
+    "detail": "{\n  \"missing_3plus\": 2\n}",
+    "id": "dq:4",
+    "level": "WARN",
+    "message": "품질 검사 실패: missing_rows_under_3_observations",
+    "ref": null,
+    "resolved": false,
+    "source": "quality",
+    "where": "silver.apt_rent · 202407"
    }
   ],
   "notes": [],

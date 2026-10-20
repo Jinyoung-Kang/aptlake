@@ -22,6 +22,12 @@ class OpsCollector:
                 ).fetchall()
                 budget = c.execute("""SELECT used_calls::float / nullif(limit_calls, 0) FROM ops.api_budget
                                       WHERE source='rtms' ORDER BY day DESC LIMIT 1""").fetchone()
+                # 전월세 (ADR-050) — 기존 매매 지표 이름·라벨은 그대로 두고 따로 낸다 (대시보드 질의가 바뀌지 않게)
+                rent_status = c.execute(
+                    "SELECT status, count(*) FROM ops.ingest_partition WHERE source = 'rent' GROUP BY status"
+                ).fetchall()
+                rent_budget = c.execute("""SELECT used_calls::float / nullif(limit_calls, 0) FROM ops.api_budget
+                                           WHERE source='rent' ORDER BY day DESC LIMIT 1""").fetchone()
                 failed = c.execute("""SELECT count(*) FILTER (WHERE blocking), count(*) FROM ops.dq_result
                                       WHERE NOT passed AND at > now() - interval '24 hours'""").fetchone()
         except psycopg.Error:
@@ -40,6 +46,15 @@ class OpsCollector:
             "aptlake_budget_used_ratio",
             "today's RTMS call budget used / daily limit",
             value=float(budget[0] or 0) if budget else 0.0,
+        )
+        rs = GaugeMetricFamily("aptlake_rent_partitions", "rent ingest partitions by status", labels=["status"])
+        for st, n in rent_status:
+            rs.add_metric([st], n)
+        yield rs
+        yield GaugeMetricFamily(
+            "aptlake_rent_budget_used_ratio",
+            "today's rent API call budget used / daily limit",
+            value=float(rent_budget[0] or 0) if rent_budget else 0.0,
         )
         f = GaugeMetricFamily("aptlake_quality_failures_24h", "failed quality checks in 24h", labels=["blocking"])
         f.add_metric(["true"], failed[0])

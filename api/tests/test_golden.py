@@ -64,6 +64,7 @@ CASES: list[tuple[str, str, dict]] = [
     ("market_overview_default", "/v1/market/overview", {}),
     ("market_overview_month", "/v1/market/overview", {"ym": "2024-06"}),
     ("market_overview_out_of_range", "/v1/market/overview", {"ym": "2030-01"}),
+    ("market_overview_jeonse_ratio", "/v1/market/overview", {"ym": "2024-07"}),  # 전세가율이 값을 갖는 달 (ADR-050)
     ("market_ticker", "/v1/market/ticker", {}),
     ("search_complex", "/v1/search", {"q": "테스트"}),
     ("search_dong", "/v1/search", {"q": "백현"}),
@@ -71,6 +72,21 @@ CASES: list[tuple[str, str, dict]] = [
     ("distribution_empty", "/v1/regions/41135/distribution", {"ym": "2024-01"}),
     ("region_complexes", "/v1/regions/41135/complexes", {"from": "2024-07", "to": "2024-07", "limit": 10}),
     ("geo_sgg", "/v1/geo/sgg", {}),
+    # 전월세 (ADR-050)
+    ("rent_months", "/v1/regions/41135/rent/months", {"from": "2024-01", "to": "2024-12"}),
+    ("jeonse_ratio", "/v1/regions/41135/jeonse-ratio", {"from": "2024-05", "to": "2024-08"}),
+    ("rent_distribution", "/v1/regions/41135/rent/distribution", {"ym": "2024-07"}),
+    ("rent_distribution_empty", "/v1/regions/41135/rent/distribution", {"ym": "2024-01"}),
+    ("rents_first_page", "/v1/rents", {"sggCd": "41135", "from": "2024-07-01", "to": "2024-07-31", "limit": 20}),
+    (
+        "rents_jeonse",
+        "/v1/rents",
+        {"sggCd": "41135", "from": "2024-05-01", "to": "2024-07-31", "kind": "jeonse", "minArea": 80, "limit": 5},
+    ),
+    ("rent_history", "/v1/rents/r41135-202407-0000000000000000-0/history", {}),
+    ("rent_history_bad_id", "/v1/rents/41135-202407-0000000000000000-0/history", {}),
+    ("quality_summary_rent", "/v1/quality/summary", {"source": "rent"}),
+    ("quality_partition_rent", "/v1/quality/partitions/41135/2024-07", {"source": "rent"}),
     ("ops_status", "/v1/ops/status", {}),
     # API 5xx 출처는 사용량 이벤트가 비동기로 쌓여 시점에 따라 달라지므로 출처별로 나눠 고정한다
     ("ops_errors_pipeline", "/v1/ops/errors", {"hours": 24, "source": "pipeline"}),
@@ -121,13 +137,22 @@ async def seeded(apps, stack, adm, admin_key):
                       ('11110','202407','PENDING',0,NULL,NULL,NULL,NULL,NULL,NULL,0,%s,NULL,%s)""",
             (fixed, fixed, fixed, fixed, fixed, fixed, dt.datetime.now(tz=dt.UTC), fixed, fixed),
         )
+        pg.execute(  # 전월세 (ADR-050): 같은 (시군구, 계약월)이라도 원천별 상태
+            """INSERT INTO ops.ingest_partition (source, sgg_cd, deal_ym, status, attempts, rows_last, payload_sha256,
+                   last_ingest_id, last_fetched_at, last_changed_at, fetch_count, next_due_at, schema_ver, updated_at)
+               VALUES ('rent','41135','202407','MERGED',0,60, repeat('d',64),'202407-41135-r1',%s,%s,1,%s,1,%s),
+                      ('rent','41135','202408','PENDING',0,NULL,NULL,NULL,NULL,NULL,0,%s,NULL,%s)""",
+            (fixed, fixed, fixed, fixed, fixed, fixed),
+        )
         recent = dt.datetime.now(tz=dt.UTC) - dt.timedelta(hours=2)
         pg.execute(
             """INSERT INTO ops.dq_result (asset, partition, check_name, passed, severity, blocking, metric, at)
                VALUES ('bronze/rtms_raw','41135/202408','schema_v1',false,'ERROR',true,'{"bad_rows":3}',%s),
                       ('silver/apt_trade','202407','dup_free',true,'ERROR',true,'{"dups":0}',%s),
-                      ('silver/apt_trade','202407','cancel_ratio_shift',false,'WARN',false,'{"delta_pp":11.2}',%s)""",
-            (recent, fixed, recent),
+                      ('silver/apt_trade','202407','cancel_ratio_shift',false,'WARN',false,'{"delta_pp":11.2}',%s),
+                      ('silver.apt_rent','202407','missing_rows_under_3_observations',false,'WARN',false,
+                       '{"missing_3plus":2}',%s)""",
+            (recent, fixed, recent, recent),
         )
         pg.execute(
             """INSERT INTO ops.dataset_version (version, published_at, data_as_of, partitions, snapshots, row_counts)

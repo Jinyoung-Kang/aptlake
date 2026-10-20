@@ -28,6 +28,7 @@ from ...core.values import ts
 Row = dict[str, Any]
 JOB_LABEL = {
     "month_pipeline": "월 수집·반영·발행",
+    "rent_month_pipeline": "전월세 월 수집·반영·발행",
     "dims_and_index": "단지 차원·자체 지수",
     "refresh_regions": "시군구·경계 갱신",
     "iceberg_maintenance": "레이크 유지보수",
@@ -46,6 +47,7 @@ SCHEDULE_LABEL = {
     "weekly_iceberg_maintenance": "매주 레이크 유지보수",
     "monthly_regions": "매월 시군구·경계 갱신",
     "due_partitions_sensor": "수집 센서 (기한 도래 파티션)",
+    "due_rent_partitions_sensor": "전월세 수집 센서 (기한 도래 파티션)",
 }
 ACTIVE = ["QUEUED", "NOT_STARTED", "STARTING", "STARTED", "CANCELING"]
 DEFAULT_DAILY_LIMIT = 10000  # 오늘 예산 행이 아직 없을 때 (파이프라인이 첫 호출 때 만든다)
@@ -75,9 +77,9 @@ class Orchestrator(Protocol):
 
 
 class OpsStore(Protocol):
-    async def budget_day(self, day: dt.date) -> Row | None: ...
-    async def partition_counts(self) -> dict[str, int]: ...
-    async def month_counts(self) -> Row | None: ...
+    async def budget_day(self, day: dt.date, source: str = "rtms") -> Row | None: ...
+    async def partition_counts(self, source: str = "rtms") -> dict[str, int]: ...
+    async def month_counts(self, source: str = "rtms") -> Row | None: ...
     async def last_version(self) -> Row | None: ...
     async def log_view(self) -> Row | None: ...
     async def set_errors_cleared(self, clear: bool, actor: str) -> dt.datetime | None: ...
@@ -86,7 +88,7 @@ class OpsStore(Protocol):
     async def quality_failures(self, since: dt.datetime) -> list[Row]: ...
     async def api_5xx(self, since: dt.datetime) -> list[Row]: ...
     async def api_error_summary(self, since: dt.datetime) -> list[Row]: ...
-    async def last_fetched(self) -> dt.datetime | None: ...
+    async def last_fetched(self, source: str = "rtms") -> dt.datetime | None: ...
     async def boundary_fetched(self) -> dt.datetime | None: ...
     async def ping_pg(self) -> None: ...
     async def cached_dataset_version(self) -> str | None: ...
@@ -207,8 +209,39 @@ def _sensor_row(s: dict) -> dict:
 # ───────────────────────── 수집 상태 ─────────────────────────
 
 
+def _budget_view(b: Row | None, today: dt.date, budget_pct: int) -> tuple[dict[str, Any], int]:
+    daily_limit = int(b["limit_calls"]) if b else DEFAULT_DAILY_LIMIT
+    cap = daily_limit * budget_pct // 100
+    return {
+        "day": today.isoformat(),
+        "limit": daily_limit,
+        "cap": cap,
+        "used": int(b["used_calls"]) if b else 0,
+        "byPriority": b["by_priority"] if b else {},
+        "exhaustedReason": b["exhausted_reason"] if b else None,
+        "stopLabel": stop_label(b["exhausted_reason"]) if b and b["exhausted_reason"] else None,
+        "exhaustedAt": ts(b["exhausted_at"]) if b else None,
+    }, cap
+
+
+def _estimate(counts: dict[str, int], cap: int) -> dict[str, Any]:
+    # 추정: 남은 파티션(시군구×월) 1개 = 원천 호출 1회, 하루 상한만큼 쓴다고 가정한 단순 계산
+    remaining_calls = counts.get("PENDING", 0) + counts.get("RETRY", 0)
+    return {
+        "remainingCalls": remaining_calls,
+        "days": math.ceil(remaining_calls / cap) if cap else None,
+        "basis": "남은 파티션 수 ÷ 일일 호출 상한 (다른 프로그램과 키를 공유하면 더 걸림)",
+    }
+
+
 async def status(
-    dag: Orchestrator, store: OpsStore, *, today: dt.date, budget_pct: int, now: dt.datetime
+    dag: Orchestrator,
+    store: OpsStore,
+    *,
+    today: dt.date,
+    budget_pct: int,
+    now: dt.datetime,
+    rent_budget_pct: int | None = None,
 ) -> tuple[dict, int]:
     pipeline: dict[str, Any] = {"available": True}
     active: list[dict] = []
@@ -226,38 +259,34 @@ async def status(
             "reason": f"오케스트레이터(Dagster)에 연결할 수 없음 — {e}. 수집 스택이 꺼져 있으면(make serve) 정상입니다.",
         }
 
-    b = await store.budget_day(today)
+    budget, cap = _budget_view(await store.budget_day(today), today, budget_pct)
     counts = await store.partition_counts()
     months = await store.month_counts()
     ver = await store.last_version()
-    daily_limit = int(b["limit_calls"]) if b else DEFAULT_DAILY_LIMIT
-    cap = daily_limit * budget_pct // 100
-    remaining_calls = counts.get("PENDING", 0) + counts.get("RETRY", 0)
+    summary: dict[str, Any] = {
+        "partitions": counts,
+        "totalPartitions": sum(counts.values()),
+        "publishedMonths": months["published"] if months else 0,
+        "publishPending": months["pending"] if months else 0,
+        "budget": budget,
+        "backfillEstimate": _estimate(counts, cap),
+        "lastPublish": {"version": ver["version"], "at": ts(ver["published_at"])} if ver else None,
+    }
+    if rent_budget_pct is not None:  # 전월세 (ADR-050): 상태·예산은 원천별
+        r_budget, r_cap = _budget_view(await store.budget_day(today, "rent"), today, rent_budget_pct)
+        r_counts = await store.partition_counts("rent")
+        r_months = await store.month_counts("rent")
+        summary["rent"] = {
+            "partitions": r_counts,
+            "totalPartitions": sum(r_counts.values()),
+            "publishedMonths": r_months["published"] if r_months else 0,
+            "publishPending": r_months["pending"] if r_months else 0,
+            "budget": r_budget,
+            "backfillEstimate": _estimate(r_counts, r_cap),
+        }
     return {
         "pipeline": pipeline,
-        "summary": {
-            "partitions": counts,
-            "totalPartitions": sum(counts.values()),
-            "publishedMonths": months["published"] if months else 0,
-            "publishPending": months["pending"] if months else 0,
-            "budget": {
-                "day": today.isoformat(),
-                "limit": daily_limit,
-                "cap": cap,
-                "used": int(b["used_calls"]) if b else 0,
-                "byPriority": b["by_priority"] if b else {},
-                "exhaustedReason": b["exhausted_reason"] if b else None,
-                "stopLabel": stop_label(b["exhausted_reason"]) if b and b["exhausted_reason"] else None,
-                "exhaustedAt": ts(b["exhausted_at"]) if b else None,
-            },
-            # 추정: 남은 파티션(시군구×월) 1개 = 원천 호출 1회, 하루 상한만큼 쓴다고 가정한 단순 계산
-            "backfillEstimate": {
-                "remainingCalls": remaining_calls,
-                "days": math.ceil(remaining_calls / cap) if cap else None,
-                "basis": "남은 파티션 수 ÷ 일일 호출 상한 (다른 프로그램과 키를 공유하면 더 걸림)",
-            },
-            "lastPublish": {"version": ver["version"], "at": ts(ver["published_at"])} if ver else None,
-        },
+        "summary": summary,
         "jobs": {"active": active, "recent": recent},
         "schedules": schedules,
         "serverTime": now.isoformat(),
@@ -344,15 +373,24 @@ async def _pipeline_entries(dag: Orchestrator, since: dt.datetime, include_resol
     return entries, False
 
 
+# 원천(ADR-050) → 오류 로그의 '어디서' 앞말. 매매는 예전 문구 그대로, 항목 ID 도 예전 모양 그대로(비우기 기준과 이어지게)
+SOURCE_WHERE = {"rtms": "원천 수집", "rent": "전월세 수집"}
+
+
+def _src_prefix(r: Row) -> str:
+    src = r.get("source", "rtms")
+    return "" if src == "rtms" else f"{src}:"
+
+
 def _ingest_entry(r: Row) -> dict:
     label = "격리" if r["status"] == "QUARANTINED" else "재시도 대기"
     ym = f"{r['deal_ym'][:4]}-{r['deal_ym'][4:]}"
     return {
-        "id": f"ingest:{r['deal_ym']}:{r['status']}:{zlib.crc32(r['last_error'].encode()):08x}",
+        "id": f"ingest:{_src_prefix(r)}{r['deal_ym']}:{r['status']}:{zlib.crc32(r['last_error'].encode()):08x}",
         "at": ts(r["at"]),
         "level": "ERROR" if r["status"] == "QUARANTINED" else "WARN",
         "source": "ingest",
-        "where": f"원천 수집 · {ym} · 시군구 {r['n']}개 {label}",
+        "where": f"{SOURCE_WHERE.get(r.get('source', 'rtms'), '원천 수집')} · {ym} · 시군구 {r['n']}개 {label}",
         "message": redact(r["last_error"]).splitlines()[0][:300],
         "detail": redact(r["last_error"])
         + f"\n\n대상 시군구(최대 8개): {', '.join(r['sample'])}"
@@ -364,11 +402,11 @@ def _ingest_entry(r: Row) -> dict:
 
 def _budget_entry(r: Row) -> dict:
     return {
-        "id": f"budget:{r['day']}",
+        "id": f"budget:{_src_prefix(r)}{r['day']}",
         "at": ts(r["exhausted_at"]),
         "level": "WARN",
         "source": "ingest",
-        "where": f"원천 호출 예산 · {r['day']}",
+        "where": f"{'전월세 ' if r.get('source') == 'rent' else ''}원천 호출 예산 · {r['day']}",
         "message": f"{stop_label(r['exhausted_reason'])} ({redact(r['exhausted_reason'])})",
         "detail": "공공데이터포털 한도는 인증키 단위라 같은 키를 쓰는 다른 프로그램의 호출도 합산됩니다.",
         "ref": None,
@@ -540,27 +578,36 @@ CHECKS = [
 ]
 
 
-async def _sources(store: OpsStore, today: dt.date, budget_pct: int) -> list[dict[str, Any]]:
-    fetched = await store.last_fetched()
-    b = await store.budget_day(today)
-    boundary = await store.boundary_fetched()
+async def _source(store: OpsStore, today: dt.date, budget_pct: int, key: str, name: str) -> dict[str, Any]:
+    fetched = await store.last_fetched(key)
+    b = await store.budget_day(today, key)
     cap = b["limit_calls"] * budget_pct // 100 if b else None
     if b and b["exhausted_reason"]:
-        rtms_state = stop_label(b["exhausted_reason"])
+        state = stop_label(b["exhausted_reason"])
     elif b and cap is not None and b["used_calls"] >= cap:
-        rtms_state = f"오늘 호출 상한({budget_pct}%) 도달 — 자정(KST) 뒤 재개"
+        state = f"오늘 호출 상한({budget_pct}%) 도달 — 자정(KST) 뒤 재개"
     else:
-        rtms_state = "수집 가능"
+        state = "수집 가능"
+    return {
+        "key": key,
+        "name": name,
+        "lastSuccessAt": ts(fetched),
+        "state": state,
+        "detail": f"오늘 호출 {b['used_calls']:,} / 상한 {cap:,} (일 한도 {b['limit_calls']:,})"
+        if b
+        else "오늘 호출 기록 없음",
+    }
+
+
+async def _sources(
+    store: OpsStore, today: dt.date, budget_pct: int, rent_budget_pct: int | None = None
+) -> list[dict[str, Any]]:
+    boundary = await store.boundary_fetched()
+    out = [await _source(store, today, budget_pct, "rtms", "국토교통부 아파트 매매 실거래가 (상세)")]
+    if rent_budget_pct is not None:
+        out.append(await _source(store, today, rent_budget_pct, "rent", "국토교통부 아파트 전월세 실거래가"))
     return [
-        {
-            "key": "rtms",
-            "name": "국토교통부 아파트 매매 실거래가",
-            "lastSuccessAt": ts(fetched),
-            "state": rtms_state,
-            "detail": f"오늘 호출 {b['used_calls']:,} / 상한 {cap:,} (일 한도 {b['limit_calls']:,})"
-            if b
-            else "오늘 호출 기록 없음",
-        },
+        *out,
         {
             "key": "vworld",
             "name": "국토정보플랫폼 V-World 시군구 경계",
@@ -572,7 +619,13 @@ async def _sources(store: OpsStore, today: dt.date, budget_pct: int) -> list[dic
 
 
 async def connectivity(
-    dag: Orchestrator, store: OpsStore, *, today: dt.date, budget_pct: int, now: Callable[[], dt.datetime]
+    dag: Orchestrator,
+    store: OpsStore,
+    *,
+    today: dt.date,
+    budget_pct: int,
+    now: Callable[[], dt.datetime],
+    rent_budget_pct: int | None = None,
 ) -> tuple[dict, int]:
     """구성요소마다 가장 가벼운 질의 한 번 (동시 실행, 각 2초 제한).
 
@@ -602,7 +655,7 @@ async def connectivity(
 
     # 원천 API: 직접 호출하지 않고 마지막 성공 수집·오늘 예산으로 판단
     try:
-        sources = await _sources(store, today, budget_pct)
+        sources = await _sources(store, today, budget_pct, rent_budget_pct)
     except Exception as e:  # noqa: BLE001 — 운영 DB 장애는 위 점검 항목에 이미 나타난다
         sources = [
             {

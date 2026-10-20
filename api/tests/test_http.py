@@ -330,7 +330,7 @@ async def test_connectivity_check(apps, adm, admin_key):
         assert got["clickhouse"]["note"].startswith(
             "최근 계약월 2024-12 · 메모리 "
         )  # api_reader 는 두 시스템 열만 읽을 수 있다
-        assert {s["key"] for s in body["sources"]} == {"rtms", "vworld"}  # 외부 원천은 호출하지 않고 기록으로
+        assert {s["key"] for s in body["sources"]} == {"rtms", "rent", "vworld"}  # 외부 원천은 호출하지 않고 기록으로
     finally:
         await public.state.dagster.aclose()
         public.state.dagster = real

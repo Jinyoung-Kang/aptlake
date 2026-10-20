@@ -1,0 +1,62 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "rentId": "r41135-202407-0000000000000000-0",
+  "versions": [
+   {
+    "changes": [],
+    "current": false,
+    "state": {
+     "buildYear": 2009,
+     "contractTerm": null,
+     "contractType": null,
+     "previousDepositManwon": null,
+     "previousMonthlyRentManwon": null,
+     "renewalRightUsed": null
+    },
+    "validFrom": "2024-08-02T00:00:00+00:00",
+    "validTo": "2024-08-22T00:00:00+00:00",
+    "version": 1
+   },
+   {
+    "changes": [
+     {
+      "field": "contractType",
+      "from": null,
+      "to": "갱신"
+     },
+     {
+      "field": "contractTerm",
+      "from": null,
+      "to": "24.08~26.08"
+     },
+     {
+      "field": "previousDepositManwon",
+      "from": null,
+      "to": 55000
+     }
+    ],
+    "current": true,
+    "state": {
+     "buildYear": 2009,
+     "contractTerm": "24.08~26.08",
+     "contractType": "갱신",
+     "previousDepositManwon": 55000,
+     "previousMonthlyRentManwon": null,
+     "renewalRightUsed": null
+    },
+    "validFrom": "2024-08-22T00:00:00+00:00",
+    "validTo": null,
+    "version": 2
+   }
+  ]
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

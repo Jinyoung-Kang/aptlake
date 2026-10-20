@@ -1,0 +1,97 @@
+{
+ "body": {
+  "binWidth": 5,
+  "byArea": [
+   {
+    "band": "60–85",
+    "jeonse": 39,
+    "jeonseMedianDeposit": 61900.0,
+    "jeonseMedianPerM2": 729.1,
+    "wolse": 20,
+    "wolseMedianDeposit": 5000.0,
+    "wolseMedianRent": 199.5
+   }
+  ],
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "histogram": [
+   {
+    "hi": 710.0,
+    "lo": 705.0,
+    "n": 3
+   },
+   {
+    "hi": 715.0,
+    "lo": 710.0,
+    "n": 5
+   },
+   {
+    "hi": 720.0,
+    "lo": 715.0,
+    "n": 4
+   },
+   {
+    "hi": 725.0,
+    "lo": 720.0,
+    "n": 4
+   },
+   {
+    "hi": 730.0,
+    "lo": 725.0,
+    "n": 4
+   },
+   {
+    "hi": 735.0,
+    "lo": 730.0,
+    "n": 5
+   },
+   {
+    "hi": 740.0,
+    "lo": 735.0,
+    "n": 4
+   },
+   {
+    "hi": 745.0,
+    "lo": 740.0,
+    "n": 4
+   },
+   {
+    "hi": 750.0,
+    "lo": 745.0,
+    "n": 4
+   },
+   {
+    "hi": 755.0,
+    "lo": 750.0,
+    "n": 2
+   }
+  ],
+  "month": "2024-07",
+  "notes": [
+   "히스토그램·분위수는 전세 계약의 보증금 ㎡당(만원/㎡), 이상치·면적 0 제외. 면적대 중앙값은 이상치만 제외.",
+   "면적대 경계는 매매 분포·자체 지수 모형과 같은 40·60·85·135㎡.",
+   "전세 = 월세가 0 인 계약 (원천에 전세·월세 구분 항목이 없어 정의로 나눈다)"
+  ],
+  "provisional": false,
+  "stats": {
+   "contracts": 60,
+   "jeonse": 40,
+   "jeonseSample": 39,
+   "median": 729.1,
+   "p05": 709.0,
+   "p25": 717.9,
+   "p75": 740.3,
+   "p95": 749.2,
+   "wolse": 20,
+   "wolseMedianDeposit": 5000.0,
+   "wolseMedianRent": 199.5
+  }
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

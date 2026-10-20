@@ -1,0 +1,14 @@
+{
+ "body": {
+  "code": "INVALID_RENT_ID",
+  "status": 400,
+  "title": "Invalid Rent Id",
+  "traceId": "<trace>",
+  "type": "about:blank"
+ },
+ "etag": false,
+ "headers": {
+  "content-type": "application/problem+json"
+ },
+ "status": 400
+}

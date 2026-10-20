@@ -7,7 +7,7 @@ import { DASH, kst, kstShort, num, relative, ymLabel } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { paths } from "../api/endpoints";
 import type { OpsErrors, OpsJob, OpsStatus } from "../api/types";
-import { entryState, entryText, filterEntries, JOB_STATUS, jobDuration, LOG_SOURCES, logFileName, logText, pipelineSummary, PRIORITY_TONE, queueOrder, recentOrder, SOURCE_LABEL } from "../domain/ops";
+import { entryState, entryText, filterEntries, JOB_STATUS, jobDuration, LOG_SOURCES, logFileName, logText, pipelineSummary, rentSummary, PRIORITY_TONE, queueOrder, recentOrder, SOURCE_LABEL } from "../domain/ops";
 import { useLogClear } from "../hooks/useLogClear";
 import { useNow } from "../hooks/useNow";
 import { useToggleSet } from "../hooks/useToggleSet";
@@ -54,6 +54,7 @@ export default function OpsPage({ route }: { route: Route }) {
   const s = status.data;
   const b = s?.summary.budget;
   const { running, queued, mergedPct } = pipelineSummary(s);
+  const rent = rentSummary(s);
   const entries = useMemo(() => filterEntries(errs.data?.entries ?? [], source, q), [errs.data, source, q]);
   const allText = () => logText(entries, { hours, source, q, nowIso: new Date().toISOString() });
   const download = () => saveText(logFileName(new Date().toISOString()), `${allText()}\n`);
@@ -83,6 +84,18 @@ export default function OpsPage({ route }: { route: Route }) {
                d={`${relative(s.summary.lastPublish?.at)} · 발행 대기 ${num(s.summary.publishPending)}개월`} />
         </div>
       ) : status.loading ? <Skeleton h={90} /> : null}
+      {rent && (
+        // 전월세 (ADR-050): 호출 예산·수집 상태가 원천별 — 포털 한도도 API 별로 따로 센다
+        <div className="kpis">
+          <Kpi k={`전월세 오늘 호출 (${rent.budget.day})`} v={`${num(rent.budget.used)} / ${num(rent.budget.cap)}`}
+               d={<>{rent.budget.exhaustedReason ? <Badge tone="warn" title={rent.budget.stopLabel ?? rent.budget.exhaustedReason}>{rent.budget.exhaustedReason.startsWith("KeyRejected") ? "인증키 거부 · 활용신청 확인" : "원천 한도 소진 · 자정 뒤 재개"}</Badge> : `일 한도 ${num(rent.budget.limit)}의 80%`}
+                   <div className={`progress ${rent.budget.used >= rent.budget.cap ? "warn" : ""}`}><span style={{ width: `${Math.min(100, (rent.budget.used / Math.max(rent.budget.cap, 1)) * 100)}%` }} /></div></>} />
+          <Kpi k="전월세 수집 진행 (시군구×월)" v={`${num(rent.mergedPct, 1)}%`}
+               d={<>남은 {num(rent.backfillEstimate.remainingCalls)}개 · 추정 {rent.backfillEstimate.days ?? DASH}일<div className="progress"><span style={{ width: `${rent.mergedPct}%` }} /></div></>}
+               title={`추정 근거: ${rent.backfillEstimate.basis}`} />
+          <Kpi k="전월세 발행" v={`${num(rent.publishedMonths)}개월`} d={`발행 대기 ${num(rent.publishPending)}개월 · 격리 ${num(rent.partitions.QUARANTINED ?? 0)}`} />
+        </div>
+      )}
 
       <section className="section">
         <div className="section-head"><h2>작업 큐 · 스케줄</h2><span className="sub">Dagster 실행 기록 (읽기 전용)</span></div>

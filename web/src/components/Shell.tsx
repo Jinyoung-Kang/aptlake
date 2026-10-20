@@ -14,6 +14,7 @@ export const NAV = [
   { path: "/market", label: "시장 개요" },
   { path: "/region", label: "지역 분석" },
   { path: "/trades", label: "거래 목록" },
+  { path: "/rents", label: "전월세" },
   { path: "/index", label: "가격지수" },
   { path: "/quality", label: "데이터 품질" },
   { path: "/dev", label: "개발자" },

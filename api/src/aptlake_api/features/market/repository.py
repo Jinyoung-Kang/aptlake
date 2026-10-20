@@ -8,6 +8,8 @@ from typing import Any, cast
 from clickhouse_connect.driver.asyncclient import AsyncClient
 from psycopg_pool import AsyncConnectionPool
 
+from ..rent.repository import RentRepository
+
 Row = dict[str, Any]
 
 
@@ -45,6 +47,10 @@ class MarketRepository:
                WHERE region_id = '00' AND month IN ({m:Date}, {pm:Date}, {py:Date})""",
             {"m": m, "pm": pm, "py": py},
         )
+
+    async def ratio_by_sgg(self, a: dt.date, b: dt.date) -> tuple[list[Row], list[Row]]:
+        """시군구별 (매매, 전세) ㎡당 중앙값·표본 — 전세가율 지도 (ADR-050)."""
+        return await RentRepository(self.ch).ratio_by_sgg(a, b)
 
     async def index_tail(self, method: str, regions: list[str], per_region: int) -> list[Row]:
         return await self._q(

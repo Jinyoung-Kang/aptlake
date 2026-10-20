@@ -24,6 +24,8 @@ export type AreaSummary = {
 export type SggSummary = {
   sggCd: string; trades: number; cancelled: number; cancelRate: number | null; median: number | null;
   sample: number; lowSample: boolean; medianYoY: number | null; tradesYoY: number | null; tradesMoM: number | null;
+  /** 전세가율(%) — 그 달까지 3개월 창, 양쪽 표본 5건 이상일 때만 (ADR-050) */
+  jeonseRatio?: number | null;
 };
 
 export type Overview = {
@@ -73,8 +75,53 @@ export type ComplexDetail = {
   recentTrades: Trade[];
   /** [계약일, 전용면적, 층, 거래금액(만원), m²당(만원), 해제(0/1), 이상치(0/1)] */
   history: [string, number, number | null, number, number, number, number][];
+  /** 전월세 요약 (ADR-050) — 전월세가 아직 발행되지 않았으면 없음 */
+  rent?: ComplexRent;
 };
 export type ComplexHit = { complexKey: string; sggCd: string; umdName: string; aptName: string; buildYear: number | null; validTrades: number };
+
+// ───── 전월세 (ADR-050) ─────
+export type RentMonthRow = {
+  dealYm: string; contracts: number; jeonse: number; wolse: number; renewals: number; newContracts: number; typeUnknown: number;
+  renewalRightUsed: number; jeonseSample: number; outliers: number;
+  jeonseP25PerM2: number | null; jeonseMedianPerM2: number | null; jeonseP75PerM2: number | null;
+  wolseMedianRent: number | null; wolseMedianDeposit: number | null; provisional?: boolean; lowSample?: boolean;
+};
+export type RentMonths = { region: { sggCd: string; name: string; fullName: string }; items: RentMonthRow[];
+  definitions: Record<string, string>; notes: string[]; disclaimer: string };
+export type JeonseRatioRow = {
+  dealYm: string; windowFrom: string; tradeMedianPerM2: number | null; tradeSample: number;
+  jeonseMedianPerM2: number | null; jeonseSample: number; ratioPct: number | null; provisional?: boolean;
+};
+export type JeonseRatio = { region: { sggCd: string; name: string }; items: JeonseRatioRow[];
+  definition: { windowMonths: number; minSample: number; unit: string }; notes: string[] };
+export type Rent = {
+  rentId: string; dealDate: string; kind: "jeonse" | "wolse"; depositManwon: number; monthlyRentManwon: number;
+  areaM2: number; floor: number | null; depositPerM2: number | null; contractType: string | null; contractTerm: string | null;
+  renewalRightUsed: string | null; previousDepositManwon: number | null; previousMonthlyRentManwon: number | null;
+  outlier: boolean; version: number; missingSince: string | null;
+  complex: { complexKey: string; aptName: string; umdName: string; jibun: string | null; buildYear: number | null };
+};
+export type RentSummary = { count: number; jeonse: number; wolse: number; jeonseMedianDeposit: number | null;
+  jeonseMedianPerM2: number | null; wolseMedianRent: number | null };
+export type RentPage = { items: Rent[]; summary: RentSummary | null; page: { nextCursor: string | null }; definitions: Record<string, string> };
+export type RentVersion = { version: number; validFrom: string; validTo: string | null; current: boolean; changes: { field: string; from: unknown; to: unknown }[] };
+export type RentDistribution = {
+  month: string; provisional?: boolean;
+  stats: { contracts: number; jeonse: number; wolse: number; jeonseSample: number; p05: number | null; p25: number | null;
+           median: number | null; p75: number | null; p95: number | null; wolseMedianRent: number | null; wolseMedianDeposit: number | null } | null;
+  histogram: { lo: number; hi: number; n: number }[]; binWidth?: number;
+  byArea: { band: string; jeonse: number; jeonseMedianDeposit: number | null; jeonseMedianPerM2: number | null;
+            wolse: number; wolseMedianRent: number | null; wolseMedianDeposit: number | null }[];
+  notes?: string[];
+};
+export type ComplexRent = {
+  window: { from: string; to: string }; contracts: number;
+  byArea: { band: string; jeonse: number; jeonseMedianDeposit: number | null; jeonseMedianPerM2: number | null;
+            wolse: number; wolseMedianRent: number | null; wolseMedianDeposit: number | null;
+            tradeSample: number; tradeMedianPerM2: number | null; ratioPct: number | null }[];
+  recent: Rent[]; notes: string[];
+};
 
 // ───── 시장·지도 ─────
 export type GeoSgg = { type: "FeatureCollection"; source: string; features: { id: string; properties: { sggCd: string; name?: string }; geometry: unknown }[] };
@@ -91,7 +138,10 @@ export type RegionIndex = {
 // ───── 품질 ─────
 export type FailedCheck = { asset: string; partition: string | null; check: string; severity: string; blocking: boolean; metric: unknown; at: string; resolved: boolean };
 export type QualitySummary = {
+  source?: "rtms" | "rent";
   partitions: Record<string, number>;
+  /** 마지막 적재 원본의 원천 스키마 판별 파티션 수 ('unrecorded' = 판 기록 이전 적재) */
+  schemaVersions?: Record<string, number>;
   freshness: { lastFetchedAt: string | null; lastChangedAt: string | null };
   dataset: { version: string; publishedAt: string; dataAsOf: string } | null;
   failedChecks7d: FailedCheck[];
@@ -127,6 +177,9 @@ export type OpsStatus = {
     budget: { day: string; limit: number; cap: number; used: number; byPriority: Record<string, number>; exhaustedReason: string | null; exhaustedAt: string | null; stopLabel?: string | null };
     backfillEstimate: { remainingCalls: number; days: number | null; basis: string };
     lastPublish: { version: string; at: string } | null;
+    /** 전월세 수집 (ADR-050) — 상태·예산은 원천별 */
+    rent?: { partitions: Record<string, number>; totalPartitions: number; publishedMonths: number; publishPending: number;
+             budget: OpsStatus["summary"]["budget"]; backfillEstimate: OpsStatus["summary"]["backfillEstimate"] };
   };
   jobs: { active: OpsJob[]; recent: OpsJob[] }; schedules: OpsSchedule[]; serverTime: string;
 };

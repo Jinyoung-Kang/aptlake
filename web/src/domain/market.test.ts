@@ -17,6 +17,10 @@ describe("시장 지도", () => {
     expect(metricOf(null)).toBe("median");
     // 모르는 값이면 기본 지표 — 이름은 중위가인데 색은 해제율로 칠하는 일이 없게 (main 은 화면이 깨졌다)
     expect([metricOf("foo"), metricOf("trades")]).toEqual(["median", "trades"]);
+    // 전세가율(ADR-050): 표본 기준 미달·전월세 없음은 자료 없음
+    expect(metricValue(sgg({ jeonseRatio: 68.4 }), "jeonseRatio")).toBe(68.4);
+    expect([metricValue(sgg({ jeonseRatio: null }), "jeonseRatio"), metricValue(sgg({}), "jeonseRatio")]).toEqual([null, null]);
+    expect(metricOf("jeonseRatio")).toBe("jeonseRatio");
   });
   it("분위 경계: 같은 값은 하나로, 값이 적으면 경계 없음", () => {
     expect(quantileBins([1, 2, 3, 4, 5, 6], 6)).toEqual([2, 3, 4, 5, 6]);

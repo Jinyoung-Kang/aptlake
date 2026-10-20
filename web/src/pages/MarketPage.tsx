@@ -59,6 +59,7 @@ function MapPanel({ data, metric, geo }: { data: Overview; metric: Metric; geo: 
           const yoy = s.medianYoY == null ? DASH : `${s.medianYoY > 0 ? "▲ +" : s.medianYoY < 0 ? "▼ " : ""}${s.medianYoY.toFixed(1)}%`;
           return `${title}<br/>${M2}당 중위가 <b>${s.lowSample || s.median == null ? DASH : num(s.median)}</b> 만원/${M2}` +
             `<br/>전년비 ${yoy} · 거래 ${num(s.trades)}건 · 해제율 ${s.cancelRate == null ? DASH : `${s.cancelRate.toFixed(1)}%`}` +
+            `<br/>전세가율 ${s.jeonseRatio == null ? DASH : `${s.jeonseRatio.toFixed(1)}%`} <span class="tt-muted">(3개월)</span>` +
             `<br/><span class="tt-muted">표본 ${num(s.sample)}건 — 클릭하면 지역 분석</span>`;
         },
       },
