@@ -272,13 +272,7 @@ async def _fetch_all(
                     summary.source_stopped = f"{type(e).__name__}: {e}"
                 summary.skipped_budget.append(sgg)
                 ops_db.mark_failed(deal_ym, sgg, f"budget: {e}")
-                # 예산 소진·원천 중단은 파티션 결함이 아니므로 attempts 를 되돌린다
-                with ops_db.conn() as c:
-                    c.execute(
-                        """UPDATE ops.ingest_partition SET attempts = greatest(attempts - 1, 0),
-                                 status='RETRY' WHERE sgg_cd=%s AND deal_ym=%s""",
-                        (sgg, deal_ym),
-                    )
+                ops_db.release_attempt(deal_ym, sgg)  # 예산 소진·원천 중단은 파티션 결함이 아니다
             except FetchFailed as e:
                 status = ops_db.mark_failed(deal_ym, sgg, str(e), quarantine_now=e.code is not None)
                 (summary.quarantined if status == "QUARANTINED" else summary.retry)[sgg] = str(e)
@@ -364,6 +358,7 @@ def ingest_month(
                 sha=r.sha256,
                 ingest_id=iid,
                 fetched_at=dt.datetime.fromtimestamp(r.fetched_at, tz=dt.UTC),
+                schema_ver=schema_version_of(r.items),
             )
             summary.loaded.append(r.sgg_cd)
     return summary

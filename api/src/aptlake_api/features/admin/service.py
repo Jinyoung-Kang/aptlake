@@ -35,7 +35,7 @@ class AdminStore(Protocol):
         detail: dict,
     ) -> bool: ...
     async def revoke_key(self, key_id: str, actor: Actor) -> bool: ...
-    async def retry_partition(self, sgg: str, ym: str, actor: Actor) -> bool: ...
+    async def retry_partition(self, sgg: str, ym: str, actor: Actor, source: str) -> bool: ...
 
 
 class KeyCache(Protocol):
@@ -79,14 +79,18 @@ async def revoke_key(store: AdminStore, cache: KeyCache, key_id: str, actor: Act
     return {"keyId": key_id, "revoked": True}
 
 
-async def retry_partition(store: AdminStore, sgg: str, deal_ym: str, actor: Actor) -> dict:
+SENSORS = {"rtms": "due_partitions_sensor", "rent": "due_rent_partitions_sensor"}
+
+
+async def retry_partition(store: AdminStore, sgg: str, deal_ym: str, actor: Actor, source: str = "rtms") -> dict:
     ym = deal_ym.replace("-", "")
-    if not await store.retry_partition(sgg, ym, actor):
+    if not await store.retry_partition(sgg, ym, actor, source):
         raise ApiError(
             409, "PARTITION_NOT_QUARANTINED", "Conflict", "격리·재시도 상태의 파티션만 재시도할 수 있습니다."
         )
-    return {
+    out = {
         "partition": f"{sgg}/{deal_ym}",
         "status": "RETRY",
-        "note": "due_partitions_sensor 가 다음 주기(≤5분)에 수집 실행을 요청합니다.",
+        "note": f"{SENSORS[source]} 가 다음 주기(≤5분)에 수집 실행을 요청합니다.",
     }
+    return out if source == "rtms" else {**out, "source": source}  # 매매 응답 모양은 그대로

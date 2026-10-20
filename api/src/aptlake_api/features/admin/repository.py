@@ -78,19 +78,20 @@ class AdminRepository:
             await audit(c, actor, "key.revoke", key_id)
         return True
 
-    async def retry_partition(self, sgg: str, ym: str, actor: Actor) -> bool:
+    async def retry_partition(self, sgg: str, ym: str, actor: Actor, source: str = "rtms") -> bool:
         async with self.pg.connection() as c, c.transaction():
             row = await (
                 await c.execute(
                     """UPDATE ops.ingest_partition SET status='RETRY', attempts=0, next_due_at=now(), last_error=NULL,
                           updated_at=now()
-                   WHERE sgg_cd=%s AND deal_ym=%s AND status IN ('QUARANTINED','RETRY') RETURNING status""",
-                    (sgg, ym),
+                   WHERE source=%s AND sgg_cd=%s AND deal_ym=%s AND status IN ('QUARANTINED','RETRY')
+                   RETURNING status""",
+                    (source, sgg, ym),
                 )
             ).fetchone()
             if row is None:
                 return False
-            await audit(c, actor, "partition.retry", f"{sgg}/{ym}")
+            await audit(c, actor, "partition.retry", f"{sgg}/{ym}" if source == "rtms" else f"{source}:{sgg}/{ym}")
         return True
 
 

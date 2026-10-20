@@ -82,6 +82,43 @@ def test_record_is_all_or_nothing(use_pg):
         assert c.execute("SELECT count(*) FROM ops.dataset_version WHERE version = 'gold@t.3'").fetchone() == (0,)
 
 
+def test_sources_have_separate_state_machines(use_pg):
+    """원천 차원(V013): 같은 (시군구, 계약월)이라도 매매·전월세 상태·발행 대기는 따로다."""
+    ops_db.ensure_partitions("202501", ["11110"])
+    ops_db.ensure_partitions("202501", ["11110"], source="rent")
+    ops_db.mark_loaded("202501", "11110", rows=3, sha="b" * 64, ingest_id="rent-iid", fetched_at=ops_db_now(use_pg),
+                       schema_ver=1, source="rent")  # fmt: skip
+    assert [p["sgg_cd"] for p in ops_db.loaded_partitions("202501", source="rent")] == ["11110"]
+    assert ops_db.loaded_partitions("202501") == []  # 매매는 그대로 PENDING
+    assert ops_db.partition_states("202501")["11110"].status == "PENDING"
+    ops_db.mark_month_merged("202501", 7, source="rent")
+    assert ops_db.month_needs_publish("202501", source="rent") and not ops_db.month_needs_publish("202501")
+    assert "202501" in ops_db.months_needing_publish("rent") and "202501" not in ops_db.months_needing_publish()
+    ops_db.mark_month_published("202501", "gold@t.9", source="rent")
+    assert not ops_db.month_needs_publish("202501", source="rent")
+    with psycopg.connect(use_pg) as c:
+        assert c.execute(
+            "SELECT schema_ver FROM ops.ingest_partition WHERE source='rent' AND sgg_cd='11110' AND deal_ym='202501'"
+        ).fetchone() == (1,)
+
+
+def test_rent_publish_does_not_count_as_trade_publish_for_lag(use_pg):
+    """전월세 달 발행(source='rent')이 같은 달을 '발행'한 것으로 보이면 매매 수집→발행 지연(L3)이 빠진다."""
+    base, rent, p2 = (f"f0000000-0000-0000-0000-00000000001{i}" for i in range(3))
+    with psycopg.connect(use_pg, autocommit=True) as c:
+        c.execute("""INSERT INTO ops.ingest_partition (sgg_cd, deal_ym, status, last_changed_at)
+                     VALUES ('11110', '202608', 'MERGED', now() - interval '1 day')""")
+    ops_db.record_dataset_version("gold@t.10", ops_db_now(use_pg), ["202608"], {}, {}, None, base, [mf("202608", base)],
+                                  baseline=True)  # fmt: skip
+    with psycopg.connect(use_pg, autocommit=True) as c:  # 기준선 뒤 새로 수집
+        c.execute("UPDATE ops.ingest_partition SET last_changed_at = clock_timestamp() WHERE deal_ym = '202608'")
+    ops_db.record_dataset_version("gold@t.11", ops_db_now(use_pg), ["202608"], {}, {}, None, rent, [], source="rent")
+    ops_db.record_dataset_version("gold@t.12", ops_db_now(use_pg), ["202608"], {}, {}, None, p2, [mf("202608", p2)])
+    with psycopg.connect(use_pg) as c:
+        assert c.execute("SELECT sgg_cd FROM ops.publish_lag WHERE publish_id = %s", (p2,)).fetchall() == [("11110",)]
+        assert c.execute("SELECT source FROM ops.dataset_version WHERE version = 'gold@t.11'").fetchone() == ("rent",)
+
+
 def ops_db_now(su: str):
     with psycopg.connect(su) as c:
         return c.execute("SELECT now()").fetchone()[0]
