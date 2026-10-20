@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 
+from .rtms.client import TRADE_URL
+
 
 class Secret(str):
     def __repr__(self) -> str:  # 로그·예외 메시지로 새지 않게
@@ -39,6 +41,7 @@ class Settings:
     ch_host: str
     ch_port: int
     ch_publisher_password: Secret = field(repr=False)
+    rtms_trade_url: str
     rtms_daily_limit: int
     rtms_budget_pct: int
     backfill_from: str
@@ -72,6 +75,8 @@ def settings() -> Settings:
         ch_host=_env("CH_HOST", "clickhouse"),
         ch_port=int(_env("CH_PORT", "8123")),
         ch_publisher_password=Secret(_env("CH_PUBLISHER_PASSWORD", "")),
+        # 비우면 매매 상세판(TradeDev). 기본판으로 되돌릴 때만 그 주소를 넣는다 (ADR-049)
+        rtms_trade_url=_env("RTMS_TRADE_URL", "") or TRADE_URL,
         rtms_daily_limit=int(_env("RTMS_DAILY_LIMIT", "10000")),
         rtms_budget_pct=int(_env("RTMS_BUDGET_PCT", "80")),
         backfill_from=_env("BACKFILL_FROM", "2021-01").replace("-", ""),

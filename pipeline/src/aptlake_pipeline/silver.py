@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 import pyarrow as pa
 
 from . import ops_db
-from .lake import catalog, eq, execute, isin
+from .lake import ENRICH_COLUMNS, catalog, ensure_columns, eq, execute, isin
 from .rtms.fingerprint import assign_keys, display_text
 from .rtms.parse import to_typed
 
@@ -61,10 +61,13 @@ STAGE_SCHEMA = pa.schema(
         ("ingest_id", pa.string()),
         ("ingested_at", pa.timestamp("us", tz="UTC")),
         ("fetch_seq", pa.int32()),
+        # 상세판 보강 전용 열 (lake.ENRICH_COLUMNS 와 같은 순서) — 지문·속성 해시에 넣지 않는다 (ADR-049)
+        *((c, pa.string()) for c in ENRICH_COLUMNS),
     ]
 )
 
-DATA_COLS = [f.name for f in STAGE_SCHEMA if f.name not in ("ingest_id", "ingested_at", "fetch_seq")]
+STAGE_COLS = [f.name for f in STAGE_SCHEMA]
+DATA_COLS = [c for c in STAGE_COLS if c not in ("ingest_id", "ingested_at", "fetch_seq")]
 _SGG = re.compile(r"\d{5}")
 _YM = re.compile(r"\d{6}")
 _IID = re.compile(r"[0-9A-Za-z\-T]{10,60}")
@@ -131,6 +134,7 @@ def _stage_rows(deal_ym: str, parts: list[dict]) -> list[dict]:
                     "ingest_id": iid,
                     "ingested_at": fetched_at,
                     "fetch_seq": fetch_seq,
+                    **{c: getattr(t, c) for c in ENRICH_COLUMNS},
                 }
             )
     return rows
@@ -162,13 +166,19 @@ def merge_sql(deal_ym: str, parts_values: str) -> str:
     if not _YM.fullmatch(deal_ym):
         raise ValueError(deal_ym)
     cols = ", ".join(DATA_COLS)
-    null_cols = ", ".join(
-        f"CAST(NULL AS {t}) AS {c}" for c, t in _trino_types().items() if c not in ("trade_key", "dup_seq")
-    )
+    # 세 갈래(UNION ALL)는 위치로 맞춰지므로 stage 열을 이름으로 적어 순서를 고정한다. 'st.*' 는 표의 실제 열 순서를 따라,
+    # 열을 더한 표(뒤에 붙음)와 갈래의 순서가 어긋날 수 있었다. MISSING 갈래는 키·수집 열만 있고 나머지는 NULL
+    stage_cols = ", ".join(f"st.{c}" for c in STAGE_COLS)
+    types = _trino_types()
+    from_missing = {"trade_key": "c.trade_key", "dup_seq": "c.dup_seq", "ingest_id": "p.ingest_id",
+                    "ingested_at": "p.ingested_at", "fetch_seq": "p.fetch_seq"}  # fmt: skip
+    missing_cols = ", ".join(from_missing.get(c) or f"CAST(NULL AS {types[c]})" for c in STAGE_COLS)
     insert_cols = (
         f"{cols}, version, valid_from, valid_to, is_current, ingest_id, last_seen_ingest, "
         "last_seen_at, missing_since, missing_fetch_seq"
     )
+    # 보강 전용 열은 '속성 같음' 분기에서도 채운다 — 새 버전을 만들지 않고 현재행 그대로 (기본판 행이면 NULL 이라 그대로)
+    enrich = "".join(f",\n    {c} = coalesce(src.{c}, t.{c})" for c in ENRICH_COLUMNS)
     insert_vals = (
         ", ".join(f"src.{c}" for c in DATA_COLS)
         + ", src.new_version, src.ingested_at, NULL, true, src.ingest_id, src.ingest_id, "
@@ -179,7 +189,7 @@ MERGE INTO lake.silver.apt_trade t
 USING (
     WITH p (sgg_cd, ingest_id, ingested_at, fetch_seq) AS (VALUES {parts_values}),
     s AS (
-        SELECT st.* FROM lake.stage.apt_trade st
+        SELECT {stage_cols} FROM lake.stage.apt_trade st
         WHERE st.deal_ym = '{deal_ym}' AND st.sgg_cd IN (SELECT sgg_cd FROM p)
     ),
     cur AS (
@@ -193,8 +203,7 @@ USING (
     FROM s JOIN cur c ON c.trade_key = s.trade_key AND c.dup_seq = s.dup_seq
     WHERE c.attr_hash <> s.attr_hash
     UNION ALL
-    SELECT c.trade_key, c.dup_seq, 'MISSING', NULL, c.trade_key, c.dup_seq, {null_cols},
-           p.ingest_id, p.ingested_at, p.fetch_seq
+    SELECT c.trade_key, c.dup_seq, 'MISSING', NULL, {missing_cols}
     FROM cur c
     JOIN p ON p.sgg_cd = c.sgg_cd
     LEFT JOIN s ON s.trade_key = c.trade_key AND s.dup_seq = c.dup_seq
@@ -208,7 +217,7 @@ WHEN MATCHED AND t.attr_hash <> src.attr_hash THEN UPDATE SET
     is_current = false, valid_to = src.ingested_at
 WHEN MATCHED THEN UPDATE SET
     last_seen_ingest = src.ingest_id, last_seen_at = src.ingested_at,
-    missing_since = NULL, missing_fetch_seq = NULL
+    missing_since = NULL, missing_fetch_seq = NULL{enrich}
 WHEN NOT MATCHED AND src.action <> 'MISSING' THEN INSERT ({insert_cols})
     VALUES ({insert_vals})
 """
@@ -226,20 +235,52 @@ def _trino_types() -> dict[str, str]:
     return {f.name: m[f.type] for f in STAGE_SCHEMA if f.name in DATA_COLS}
 
 
+# 단지 일련번호(apt_seq): 이번 달 stage 에서 그 단지가 일련번호 하나만 가질 때만 비어 있는 곳을 채운다.
+# 여러 개거나 이미 다른 값이면 바꾸지 않고 경고 검사(complex_aptseq_conflicts)에 센다 — 공개 단지 ID 는 complex_key 그대로
 COMPLEX_MERGE = """
 MERGE INTO lake.silver.apt_complex t
 USING (
     SELECT complex_key, min(sgg_cd) AS sgg_cd, min(umd_nm) AS umd_nm, min(jibun) AS jibun, min(apt_nm) AS apt_nm,
-           max(build_year) AS build_year, bool_or(land_leasehold) AS land_leasehold, min(deal_date) AS first_seen
+           max(build_year) AS build_year, bool_or(land_leasehold) AS land_leasehold, min(deal_date) AS first_seen,
+           CASE WHEN count(DISTINCT apt_seq) = 1 THEN min(apt_seq) END AS apt_seq
     FROM lake.stage.apt_trade WHERE deal_ym = '{deal_ym}'
     GROUP BY complex_key
 ) s
 ON t.complex_key = s.complex_key
-WHEN MATCHED AND ((t.build_year IS NULL AND s.build_year IS NOT NULL) OR s.first_seen < t.first_seen) THEN UPDATE SET
-    build_year = coalesce(t.build_year, s.build_year), first_seen = least(t.first_seen, s.first_seen)
-WHEN NOT MATCHED THEN INSERT (complex_key, sgg_cd, umd_nm, jibun, apt_nm, build_year, land_leasehold, first_seen)
-    VALUES (s.complex_key, s.sgg_cd, s.umd_nm, s.jibun, s.apt_nm, s.build_year, s.land_leasehold, s.first_seen)
+WHEN MATCHED AND ((t.build_year IS NULL AND s.build_year IS NOT NULL) OR s.first_seen < t.first_seen
+                  OR (t.apt_seq IS NULL AND s.apt_seq IS NOT NULL)) THEN UPDATE SET
+    build_year = coalesce(t.build_year, s.build_year), first_seen = least(t.first_seen, s.first_seen),
+    apt_seq = coalesce(t.apt_seq, s.apt_seq)
+WHEN NOT MATCHED THEN INSERT (complex_key, sgg_cd, umd_nm, jibun, apt_nm, build_year, land_leasehold, first_seen, apt_seq)
+    VALUES (s.complex_key, s.sgg_cd, s.umd_nm, s.jibun, s.apt_nm, s.build_year, s.land_leasehold, s.first_seen,
+            s.apt_seq)
 """
+
+
+def aptseq_conflicts(deal_ym: str) -> dict[str, int]:
+    """이번 달 stage 기준: 한 단지(complex_key)에 일련번호가 여럿이거나 차원 값과 다른 단지 수(conflicts),
+    한 일련번호가 단지 키 여럿에 걸친 수(split — 같은 단지의 이름·지번 표기 차이로 단지 키가 갈라진 것)."""
+    if not _YM.fullmatch(deal_ym):
+        raise ValueError(deal_ym)
+    conflicts = execute(f"""SELECT count(*) FROM (
+                              SELECT s.complex_key FROM lake.stage.apt_trade s
+                              LEFT JOIN lake.silver.apt_complex c ON c.complex_key = s.complex_key
+                              WHERE s.deal_ym = '{deal_ym}' AND s.apt_seq IS NOT NULL
+                              GROUP BY s.complex_key
+                              HAVING count(DISTINCT s.apt_seq) > 1 OR max(c.apt_seq) <> min(s.apt_seq))""")[0][0]
+    split = execute(f"""SELECT count(*) FROM (
+                          SELECT apt_seq FROM lake.stage.apt_trade WHERE deal_ym = '{deal_ym}' AND apt_seq IS NOT NULL
+                          GROUP BY apt_seq HAVING count(DISTINCT complex_key) > 1)""")[0][0]
+    return {"conflicts": conflicts, "split": split}
+
+
+def _aptseq_check(metric: dict[str, int], mode: str | None = None) -> dict:
+    return {
+        "name": "complex_aptseq_conflicts",
+        "passed": metric["conflicts"] == 0,
+        "blocking": False,
+        "metric": {**metric, **({"mode": mode} if mode else {})},
+    }
 
 
 def _cancel_ratio(deal_ym: str) -> float | None:
@@ -265,6 +306,7 @@ def merge_month(deal_ym: str, run_id: str | None = None) -> MergeSummary:
     for p in parts:  # 0건 파티션도 '사라진 거래' 판정에 참여해야 한다
         ingested.setdefault(p["sgg_cd"], dt.datetime.now(tz=dt.UTC))
 
+    ensure_columns()  # 배포 뒤 첫 반영: 보강 열이 아직 없는 표에 더한다 (있으면 카탈로그 조회만)
     stage = catalog().load_table(STAGE)
     arrow = pa.Table.from_pylist(rows, schema=STAGE_SCHEMA)
     stage.overwrite(arrow, overwrite_filter=eq("deal_ym", deal_ym))
@@ -357,6 +399,7 @@ def post_merge_checks(
             "blocking": False,
             "metric": {"groups": sum(1 for r in rows if r["dup_seq"] == 1), "rows": len(rows)},
         },
+        _aptseq_check(aptseq_conflicts(deal_ym)),
     ]
 
 
@@ -429,4 +472,5 @@ def verify_month(deal_ym: str) -> list[dict]:
             "blocking": False,
             "metric": {"groups": groups, "mode": "publish_only"},
         },
+        _aptseq_check(aptseq_conflicts(deal_ym), "publish_only"),
     ]

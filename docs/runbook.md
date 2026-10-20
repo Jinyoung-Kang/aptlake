@@ -1,7 +1,8 @@
 # 운영 절차
 
 ## 처음 기동
-1. `make init` → `.env` 의 `DATA_GO_KR_KEY`(공공데이터포털 Decoding 키: 아파트 매매 실거래가 자료 + 행정안전부_법정동코드 활용신청), `REB_API_KEY`(R-ONE) 입력
+1. `make init` → `.env` 의 `DATA_GO_KR_KEY`(공공데이터포털 Decoding 키: **아파트 매매 실거래가 상세 자료** + 행정안전부_법정동코드 활용신청), `REB_API_KEY`(R-ONE) 입력
+   - 활용신청이 승인되기 전에 부르면 사유 코드 20 → `KeyRejected` 로 **그날 수집이 멈춘다**. 새 API 는 `tools/` 의 탐침으로 먼저 확인한다: `uv run --project pipeline python tools/probe_tradedev.py 11110:202407` (키는 출력하지 않음)
 2. `make up` → `make lake-init` → `make backfill-start`
 3. `make admin-key` 로 관리자 키 발급 (30일 만료, 1회 표시)
 
@@ -16,7 +17,12 @@
 
 ## 인증키가 거부됐을 때 (수집 상태: "인증키 거부 · 키 확인 필요")
 - 포털이 미승인·미등록 키·기간 만료·미등록 IP(사유 코드 20·30·31·32, 또는 사유 없는 401·403)를 주면 파티션을 격리하지 않고 **그날 실행을 멈춘다** (`ops.api_budget.exhausted_reason` 이 `KeyRejected: …`).
-- 공공데이터포털 마이페이지에서 키 상태·활용신청(아파트 매매 실거래가 자료)을 확인하고, 새 키면 `.env` 의 `DATA_GO_KR_KEY` 를 바꾼 뒤 `make pipeline-redeploy`. 그날 멈춤은 KST 자정에 풀린다.
+- 공공데이터포털 마이페이지에서 키 상태·활용신청(아파트 매매 실거래가 상세 자료)을 확인하고, 새 키면 `.env` 의 `DATA_GO_KR_KEY` 를 바꾼 뒤 `make pipeline-redeploy`. 그날 멈춤은 KST 자정에 풀린다.
+
+## 매매 원천 판(기본판·상세판) — ADR-049
+- 기본은 상세판(`RTMSDataSvcAptTradeDev`). 상세판에 문제가 생기면 `.env` 에 `RTMS_TRADE_URL=https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade` 를 넣고 `make pipeline-redeploy` — 공통 20개 항목이 같아 거래 ID 는 그대로이고, 보강 열(`apt_seq`·도로명 등)은 이미 채운 값이 남는다.
+- 두 판이 섞인 정도: `docker compose --profile lake exec -T trino trino --user analyst --execute "SELECT schema_ver, count(DISTINCT sgg_cd || deal_ym) FROM lake.bronze.rtms_raw GROUP BY 1"` (재수집 주기 안에 v2 로 바뀐다, 최대 90일).
+- 단지 일련번호 충돌 경고(`complex_aptseq_conflicts`): 차원 값은 바꾸지 않는다. `metric` 의 `conflicts`(한 단지에 일련번호 여럿·차원과 다름)·`split`(한 일련번호가 단지 키 여럿 — 이름·지번 표기 차이) 수만 본다.
 
 ## 격리(QUARANTINED) 파티션 재시도
 ```bash
