@@ -17,6 +17,7 @@ import unicodedata
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from typing import Protocol
 
 from .parse import TypedTrade
 
@@ -60,7 +61,20 @@ def key_umd(sgg_cd: str, umd_nm: str | None, aliases: UmdAliases | None = None) 
     return norm_text(old) if old is not None else n
 
 
-def complex_key(t: TypedTrade, aliases: UmdAliases | None = None) -> str:
+class Place(Protocol):
+    """단지 키 재료 — 매매·전월세 행 모두 (ADR-050: 두 원천이 같은 단지 키로 이어진다)."""
+
+    @property
+    def sgg_cd(self) -> str: ...
+    @property
+    def umd_nm(self) -> str: ...
+    @property
+    def jibun(self) -> str | None: ...
+    @property
+    def apt_nm(self) -> str: ...
+
+
+def complex_key(t: Place, aliases: UmdAliases | None = None) -> str:
     return "c_" + _h(t.sgg_cd, key_umd(t.sgg_cd, t.umd_nm, aliases), norm_jibun(t.jibun), norm_text(t.apt_nm))[:20]
 
 

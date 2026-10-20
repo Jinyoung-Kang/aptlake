@@ -1,4 +1,4 @@
-"""Bronze 수집 (FR-101~104).
+"""Bronze 수집 (FR-101~104) — 매매·전월세 공통, 다른 점은 원천 설정(sources.SourceSpec)으로 받는다 (ADR-050).
 
 한 계약월 파티션 실행 = 그 달의 대상 시군구들을 동시 4개·초당 10회 이하로 호출.
   1) 원본 해시가 마지막 적재본과 같으면 → 변화 없음 (관측 횟수만 증가)
@@ -6,6 +6,7 @@
   3) 파티션별 검사(스키마·필수 필드·건수 급감)에 실패하면 그 시군구만 QUARANTINED → 나머지는 계속
   4) 통과한 행은 bronze.rtms_raw 에 한 번의 커밋으로 append. 같은 원본 해시가 이미 있으면 건너뜀
      (실행이 커밋 직후 죽어 재실행돼도 bronze 중복 0)
+검사 이름은 원천과 관계없이 같다(자산 이름 asset 으로 구분).
 """
 
 from __future__ import annotations
@@ -29,20 +30,12 @@ from .budget import BudgetExhausted
 from .config import settings
 from .lake import catalog, eq
 from .rtms.client import FetchFailed, FetchResult, RtmsClient, SourceUnavailable
-from .rtms.fingerprint import UmdAliases, key_umd, norm_jibun, norm_text
-from .rtms.parse import (
-    REQUIRED_FIELDS,
-    SCHEMA_VERSION,
-    TypedTrade,
-    fields_for,
-    parse_page,
-    schema_version_of,
-    to_typed,
-)
+from .rtms.fingerprint import UmdAliases, key_umd
+from .rtms.parse import parse_page
+from .sources import TRADE, SourceSpec
 
 log = logging.getLogger(__name__)
 
-BRONZE = "bronze.rtms_raw"
 RAW_BUCKET = "raw"
 ROW_DROP_RATIO = 0.7  # 이전 적재 대비 30% 넘게 줄면 의심 → 격리
 ROW_DROP_MIN_PREV = 20  # 작은 파티션은 자연 변동이 커서 제외
@@ -86,35 +79,31 @@ class CheckOutcome:
     metric: dict
 
 
-def _identity(t: TypedTrade) -> tuple:
-    """법정동 이름을 뺀 거래 지문 재료 — 이름만 바뀐 같은 거래를 찾는 데 쓴다."""
-    area = "" if t.area_m2 is None else f"{t.area_m2:.4f}"
-    return (t.sgg_cd, norm_jibun(t.jibun), norm_text(t.apt_nm), area, t.deal_date, t.price_manwon, t.floor)
-
-
-def renamed_trades(prev_items: list[dict], items: list[dict], aliases: UmdAliases | None) -> list[list[str]]:
-    """직전 원본과 다른 값은 모두 같은데 (대응표를 적용해도) 법정동 이름만 다른 거래: [[옛 이름, 새 이름], ...]."""
+def renamed_trades(
+    prev_items: list[dict], items: list[dict], aliases: UmdAliases | None, spec: SourceSpec = TRADE
+) -> list[list[str]]:
+    """직전 원본과 다른 값은 모두 같은데 (대응표를 적용해도) 법정동 이름만 다른 행: [[옛 이름, 새 이름], ...]."""
     prev: dict[tuple, dict[str, str]] = defaultdict(dict)
     for i in prev_items:
         with contextlib.suppress(ValueError, KeyError):
-            t = to_typed(i)
-            prev[_identity(t)][key_umd(t.sgg_cd, t.umd_nm, aliases)] = t.umd_nm
+            t = spec.to_typed(i)
+            prev[spec.identity(t)][key_umd(t.sgg_cd, t.umd_nm, aliases)] = t.umd_nm
     out = []
     for i in items:
         with contextlib.suppress(ValueError, KeyError):  # 파싱 실패는 다른 검사가 센다
-            t = to_typed(i)
-            before = prev.get(_identity(t))
+            t = spec.to_typed(i)
+            before = prev.get(spec.identity(t))
             if before and key_umd(t.sgg_cd, t.umd_nm, aliases) not in before:
                 out.append([next(iter(before.values())), t.umd_nm])
     return out
 
 
-def row_matches_schema(row: dict[str, str], schema_ver: int) -> bool:
+def row_matches_schema(row: dict[str, str], schema_ver: int, spec: SourceSpec = TRADE) -> bool:
     """bronze 행이 적힌 판(schema_ver)의 항목 안에 있고 타입 변환이 되는가 (모르는 판이면 False)."""
     try:
-        if set(row) - set(fields_for(schema_ver)):
+        if set(row) - set(spec.fields_for(schema_ver)):
             return False
-        to_typed(row)
+        spec.to_typed(row)
     except (ValueError, KeyError):
         return False
     return True
@@ -125,6 +114,7 @@ def validate(
     rows_last: int | None,
     prev_items: list[dict] | None = None,
     aliases: UmdAliases | None = None,
+    spec: SourceSpec = TRADE,
 ) -> list[CheckOutcome]:
     """파티션 단위 bronze 검사. blocking 실패가 하나라도 있으면 그 파티션은 적재하지 않는다.
 
@@ -132,15 +122,15 @@ def validate(
     지문 키에 법정동 이름이 들어가므로, 그대로 받으면 같은 거래가 새 거래로 중복되고 옛 거래는 '사라짐'이 된다.
     """
     items = result.items
-    renamed = renamed_trades(prev_items, items, aliases) if prev_items else []
-    # 지금 받는 판(상세판)의 항목 밖은 원천 스키마 변경 → 격리. 기본판 행(항목이 V1 뿐)도 통과한다 (되돌리기 대비)
-    unknown = sorted({k for i in items for k in i} - set(fields_for(SCHEMA_VERSION)))
-    missing = sorted({f for i in items for f in REQUIRED_FIELDS if f not in i})
+    renamed = renamed_trades(prev_items, items, aliases, spec) if prev_items else []
+    # 지금 받는 판(매매 상세판)의 항목 밖은 원천 스키마 변경 → 격리. 기본판 행(항목이 V1 뿐)도 통과한다 (되돌리기 대비)
+    unknown = sorted({k for i in items for k in i} - set(spec.fields_for(spec.latest_version)))
+    missing = sorted({f for i in items for f in spec.required if f not in i})
     parse_errors: list[str] = []
     wrong_partition = 0
     for i in items:
         try:
-            t = to_typed(i)
+            t = spec.to_typed(i)
             if t.sgg_cd != result.sgg_cd or t.deal_date.strftime("%Y%m") != result.deal_ym:
                 wrong_partition += 1
         except (ValueError, KeyError) as e:
@@ -153,7 +143,7 @@ def validate(
             "bronze_schema_matches_v1",
             not unknown and not missing,
             True,
-            {"unknown_fields": unknown, "missing_required": missing, "schema_ver": schema_version_of(items)},
+            {"unknown_fields": unknown, "missing_required": missing, "schema_ver": spec.version_of(items)},
         ),
         CheckOutcome(
             "rows_parse_and_belong_to_partition",
@@ -180,8 +170,9 @@ def validate(
 class RawArchive:
     """raw 버킷 (Object Lock) — ingest 계정은 Put/Get 만 가능."""
 
-    def __init__(self) -> None:
+    def __init__(self, prefix: str = TRADE.raw_prefix) -> None:
         s = settings()
+        self.prefix = prefix  # 원천별 접두어 (매매 rtms/, 전월세 rtms_rent/) — 내용 해시 키라 원천이 섞이지 않게
         self.s3 = boto3.client(
             "s3",
             endpoint_url=s.s3_endpoint,
@@ -195,7 +186,7 @@ class RawArchive:
         """보관한 원본(내용 해시 키)의 행. 없으면 None — 비교만 건너뛴다(적재를 막지 않음)."""
         out: list[dict] = []
         for n in range(1, 1000):
-            key = f"rtms/deal_ym={deal_ym}/sgg_cd={sgg_cd}/{sha}/p{n}.xml"
+            key = f"{self.prefix}/deal_ym={deal_ym}/sgg_cd={sgg_cd}/{sha}/p{n}.xml"
             try:
                 body = self.s3.get_object(Bucket=RAW_BUCKET, Key=key)["Body"].read()
             except ClientError as e:
@@ -207,7 +198,7 @@ class RawArchive:
 
     def put(self, result: FetchResult) -> str:
         sha = result.sha256
-        prefix = f"rtms/deal_ym={result.deal_ym}/sgg_cd={result.sgg_cd}/{sha}"
+        prefix = f"{self.prefix}/deal_ym={result.deal_ym}/sgg_cd={result.sgg_cd}/{sha}"
         for n, body in enumerate(result.pages, start=1):
             key = f"{prefix}/p{n}.xml"
             try:
@@ -220,9 +211,9 @@ class RawArchive:
         return f"s3://{RAW_BUCKET}/{prefix}/"
 
 
-def _bronze_rows(result: FetchResult, ingest_id: str, uri: str) -> list[dict]:
+def _bronze_rows(result: FetchResult, ingest_id: str, uri: str, spec: SourceSpec = TRADE) -> list[dict]:
     fetched = dt.datetime.fromtimestamp(result.fetched_at, tz=dt.UTC)
-    ver = schema_version_of(result.items) or SCHEMA_VERSION  # 검사(validate)를 통과한 행만 오므로 None 이 아니다
+    ver = spec.version_of(result.items) or spec.latest_version  # 검사(validate)를 통과한 행만 오므로 None 이 아니다
     rows, ord_ = [], 0
     for page in result.parsed:
         for item in page.items:
@@ -250,7 +241,12 @@ def ingest_id_for(result: FetchResult) -> str:
 
 
 async def _fetch_all(
-    client: RtmsClient, deal_ym: str, sgg_codes: list[str], concurrency: int, summary: IngestSummary
+    client: RtmsClient,
+    deal_ym: str,
+    sgg_codes: list[str],
+    concurrency: int,
+    summary: IngestSummary,
+    source: str = TRADE.name,
 ) -> list[FetchResult]:
     sem = asyncio.Semaphore(concurrency)
     stop = asyncio.Event()
@@ -261,7 +257,7 @@ async def _fetch_all(
             if stop.is_set():
                 summary.skipped_budget.append(sgg)
                 return
-            ops_db.mark_fetching(deal_ym, sgg)
+            ops_db.mark_fetching(deal_ym, sgg, source=source)
             try:
                 r = await client.fetch(sgg, deal_ym)
                 results.append(r)
@@ -271,10 +267,10 @@ async def _fetch_all(
                 if isinstance(e, SourceUnavailable):
                     summary.source_stopped = f"{type(e).__name__}: {e}"
                 summary.skipped_budget.append(sgg)
-                ops_db.mark_failed(deal_ym, sgg, f"budget: {e}")
-                ops_db.release_attempt(deal_ym, sgg)  # 예산 소진·원천 중단은 파티션 결함이 아니다
+                ops_db.mark_failed(deal_ym, sgg, f"budget: {e}", source=source)
+                ops_db.release_attempt(deal_ym, sgg, source=source)  # 예산 소진·원천 중단은 파티션 결함이 아니다
             except FetchFailed as e:
-                status = ops_db.mark_failed(deal_ym, sgg, str(e), quarantine_now=e.code is not None)
+                status = ops_db.mark_failed(deal_ym, sgg, str(e), quarantine_now=e.code is not None, source=source)
                 (summary.quarantined if status == "QUARANTINED" else summary.retry)[sgg] = str(e)
 
     await asyncio.gather(*(one(s) for s in sgg_codes))
@@ -282,38 +278,43 @@ async def _fetch_all(
 
 
 def ingest_month(
-    deal_ym: str, sgg_codes: list[str], reserve: Callable[[int], None], run_id: str | None = None
+    deal_ym: str,
+    sgg_codes: list[str],
+    reserve: Callable[[int], None],
+    run_id: str | None = None,
+    spec: SourceSpec = TRADE,
 ) -> IngestSummary:
     s = settings()
+    src = spec.name
     summary = IngestSummary(deal_ym=deal_ym, requested=len(sgg_codes))
-    ops_db.reset_fetching(deal_ym)
-    ops_db.ensure_partitions(deal_ym, sgg_codes)
-    states = ops_db.partition_states(deal_ym)
+    ops_db.reset_fetching(deal_ym, source=src)
+    ops_db.ensure_partitions(deal_ym, sgg_codes, source=src)
+    states = ops_db.partition_states(deal_ym, source=src)
 
     async def run() -> list[FetchResult]:
-        client = RtmsClient(str(s.data_go_kr_key), reserve, tps=s.fetch_tps, url=s.rtms_trade_url)
+        client = RtmsClient(str(s.data_go_kr_key), reserve, tps=s.fetch_tps, url=spec.url(s))
         try:
-            return await _fetch_all(client, deal_ym, sgg_codes, s.fetch_concurrency, summary)
+            return await _fetch_all(client, deal_ym, sgg_codes, s.fetch_concurrency, summary, src)
         finally:
             await client.aclose()
 
     results = asyncio.run(run())
-    archive = RawArchive()
+    archive = RawArchive(spec.raw_prefix)
     aliases = ops_db.umd_aliases()
     pending: list[tuple[FetchResult, str, list[dict]]] = []
     for r in sorted(results, key=lambda x: x.sgg_cd):
         st = states[r.sgg_cd]
         fetched_at = dt.datetime.fromtimestamp(r.fetched_at, tz=dt.UTC)
         if st.payload_sha256 == r.sha256:
-            ops_db.mark_unchanged(deal_ym, r.sgg_cd, fetched_at, st.status)
+            ops_db.mark_unchanged(deal_ym, r.sgg_cd, fetched_at, st.status, source=src)
             summary.unchanged.append(r.sgg_cd)
             continue
         uri = archive.put(r)  # 격리 대상도 증거로 원본은 보관
         prev = archive.items(deal_ym, r.sgg_cd, st.payload_sha256) if st.payload_sha256 else None
-        checks = validate(r, st.rows_last, prev, aliases)
+        checks = validate(r, st.rows_last, prev, aliases, spec)
         for c in checks:
             ops_db.record_dq(
-                "bronze.rtms_raw",
+                spec.bronze,
                 f"{r.sgg_cd}/{deal_ym}",
                 c.name,
                 c.passed,
@@ -324,14 +325,14 @@ def ingest_month(
             )
         failed = [c.name for c in checks if c.blocking and not c.passed]
         if failed:
-            ops_db.mark_failed(deal_ym, r.sgg_cd, f"blocking check failed: {failed}", quarantine_now=True)
+            ops_db.mark_failed(deal_ym, r.sgg_cd, f"blocking check failed: {failed}", quarantine_now=True, source=src)
             summary.quarantined[r.sgg_cd] = ",".join(failed)
             continue
         ingest_id = ingest_id_for(r)
-        pending.append((r, ingest_id, _bronze_rows(r, ingest_id, uri)))
+        pending.append((r, ingest_id, _bronze_rows(r, ingest_id, uri, spec)))
 
     if pending:
-        table = catalog().load_table(BRONZE)
+        table = catalog().load_table(spec.bronze)
         shas = {r.sha256 for r, _, _ in pending}
         existing = (
             set(
@@ -358,7 +359,8 @@ def ingest_month(
                 sha=r.sha256,
                 ingest_id=iid,
                 fetched_at=dt.datetime.fromtimestamp(r.fetched_at, tz=dt.UTC),
-                schema_ver=schema_version_of(r.items),
+                schema_ver=spec.version_of(r.items),
+                source=src,
             )
             summary.loaded.append(r.sgg_cd)
     return summary

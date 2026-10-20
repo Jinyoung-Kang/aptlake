@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from typing import Any
@@ -66,6 +67,40 @@ DDL: list[str] = [
         complex_key varchar, sgg_cd varchar, umd_nm varchar, jibun varchar, apt_nm varchar,
         build_year integer, land_leasehold boolean, first_seen date, apt_seq varchar
     ) WITH (format_version = 2)""",
+    # ── 전월세 (ADR-050): 매매와 같은 계층·같은 bronze 스키마. 금액은 만원, 계약 구분·갱신요구권은 원천 원문 ──
+    """CREATE TABLE IF NOT EXISTS lake.bronze.rtms_rent_raw (
+        ingest_id       varchar,
+        sgg_cd          varchar,
+        deal_ym         varchar,
+        page_no         integer,
+        fetched_at      timestamp(6) with time zone,
+        payload_uri     varchar,
+        payload_sha256  varchar,
+        row_json        varchar,
+        row_ord         integer,
+        schema_ver      integer
+    ) WITH (format_version = 2, partitioning = ARRAY['deal_ym', 'sgg_cd'])""",
+    """CREATE TABLE IF NOT EXISTS lake.stage.apt_rent (
+        rent_key varchar, dup_seq integer, rent_id varchar, attr_hash varchar, complex_key varchar,
+        sgg_cd varchar, deal_ym varchar, umd_nm varchar, apt_nm varchar, jibun varchar,
+        deal_date date, deposit_manwon bigint, monthly_rent_manwon bigint, area_m2 decimal(9,4), floor integer,
+        build_year integer, contract_type varchar, contract_term varchar, use_rr_right varchar,
+        pre_deposit_manwon bigint, pre_monthly_rent_manwon bigint,
+        ingest_id varchar, ingested_at timestamp(6) with time zone, fetch_seq integer,
+        apt_seq varchar, road_nm varchar
+    ) WITH (format_version = 2, partitioning = ARRAY['deal_ym'])""",
+    """CREATE TABLE IF NOT EXISTS lake.silver.apt_rent (
+        rent_key varchar, dup_seq integer, rent_id varchar, version integer,
+        valid_from timestamp(6) with time zone, valid_to timestamp(6) with time zone, is_current boolean,
+        complex_key varchar, sgg_cd varchar, deal_ym varchar, umd_nm varchar, apt_nm varchar, jibun varchar,
+        deal_date date, deposit_manwon bigint, monthly_rent_manwon bigint, area_m2 decimal(9,4), floor integer,
+        build_year integer, contract_type varchar, contract_term varchar, use_rr_right varchar,
+        pre_deposit_manwon bigint, pre_monthly_rent_manwon bigint,
+        attr_hash varchar, ingest_id varchar, last_seen_ingest varchar,
+        last_seen_at timestamp(6) with time zone,
+        missing_since timestamp(6) with time zone, missing_fetch_seq integer,
+        apt_seq varchar, road_nm varchar
+    ) WITH (format_version = 2, partitioning = ARRAY['year(deal_date)'], sorted_by = ARRAY['sgg_cd', 'deal_date'])""",
     """CREATE TABLE IF NOT EXISTS lake.silver.region (
         sgg_cd varchar, sido_cd varchar, sido_nm varchar, sgg_nm varchar, full_nm varchar,
         source varchar, fetched_at timestamp(6) with time zone
@@ -124,10 +159,23 @@ def execute(sql: str, params: Sequence[Any] | None = None, user: str = "pipeline
         return cur.fetchall()
 
 
+DDL_TABLES = [m.group(1) for stmt in DDL if (m := re.search(r"CREATE TABLE IF NOT EXISTS lake\.(\S+) \(", stmt))]
+
+
 def ensure_tables() -> None:
     for stmt in DDL:
         execute(stmt)
     ensure_columns()
+
+
+def ensure_schema() -> None:
+    """표가 하나라도 없으면 표 정의 전체를(멱등), 다 있으면 보강 열만 확인한다. 카탈로그 조회뿐이라 실행마다 불러도 싸다 —
+    표 정의는 시군구 갱신 때만 다시 적용되므로, 배포 뒤 첫 실행(전월세 첫 수집 등)이 없는 표에 쓰다 실패하지 않게."""
+    cat = catalog()
+    if all(cat.table_exists(t) for t in DDL_TABLES):
+        ensure_columns()
+    else:
+        ensure_tables()
 
 
 def ensure_columns() -> None:

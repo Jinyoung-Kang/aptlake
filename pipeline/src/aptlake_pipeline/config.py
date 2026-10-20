@@ -44,6 +44,8 @@ class Settings:
     rtms_trade_url: str
     rtms_daily_limit: int
     rtms_budget_pct: int
+    rent_daily_limit: int
+    rent_budget_pct: int
     backfill_from: str
     provisional_days: int
     fetch_concurrency: int
@@ -52,6 +54,17 @@ class Settings:
     @property
     def rtms_daily_cap(self) -> int:
         return self.rtms_daily_limit * self.rtms_budget_pct // 100
+
+    @property
+    def rent_daily_cap(self) -> int:
+        """전월세 호출 상한 — 포털 일일 한도는 활용신청(API)별이라 매매와 따로 센다 (ADR-050)."""
+        return self.rent_daily_limit * self.rent_budget_pct // 100
+
+    def daily_cap(self, source: str) -> int:
+        return self.rent_daily_cap if source == "rent" else self.rtms_daily_cap
+
+    def daily_limit(self, source: str) -> int:
+        return self.rent_daily_limit if source == "rent" else self.rtms_daily_limit
 
 
 @lru_cache(maxsize=1)
@@ -79,6 +92,8 @@ def settings() -> Settings:
         rtms_trade_url=_env("RTMS_TRADE_URL", "") or TRADE_URL,
         rtms_daily_limit=int(_env("RTMS_DAILY_LIMIT", "10000")),
         rtms_budget_pct=int(_env("RTMS_BUDGET_PCT", "80")),
+        rent_daily_limit=int(_env("RENT_DAILY_LIMIT", "10000")),
+        rent_budget_pct=int(_env("RENT_BUDGET_PCT", "80")),
         backfill_from=_env("BACKFILL_FROM", "2021-01").replace("-", ""),
         provisional_days=int(_env("PROVISIONAL_DAYS", "60")),
         # 기획서 10장: 파티션 동시 4, 초당 호출 ≤ 10 (명세 30 tps 의 1/3)

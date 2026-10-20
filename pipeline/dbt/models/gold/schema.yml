@@ -84,6 +84,101 @@ models:
           arguments: { columns: [trade_id, version] }
           config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
 
+  # ── 전월세 (ADR-050) — 매매와 같은 방식: 월 파티션 범위에서만, 실패하면 같은 실행의 발행이 막힌다 ──
+  - name: rent_serving
+    description: 현재 전월세 계약 (서빙 발행 원본). 전세 = 월세 0.
+    data_tests:
+      - unique_combination:
+          arguments: { columns: [rent_key, dup_seq] }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "is_jeonse = (monthly_rent_manwon = 0)" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+    columns:
+      - name: rent_id
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+          - unique: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+      - name: sgg_cd
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+          - relationships:
+              arguments: { to: "source('silver', 'region')", field: sgg_cd }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - name: deposit_manwon
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+          - value_between:
+              arguments: { min_value: -1, max_value: 10000000 }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - name: monthly_rent_manwon
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+          - value_between:
+              arguments: { min_value: -1, max_value: 100000 }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - name: area_m2
+        data_tests:
+          - value_between:
+              arguments: { min_value: 0, max_value: 1000 }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)", severity: warn }
+      - name: contract_type
+        data_tests:
+          - accepted_values:
+              arguments: { values: ["신규", "갱신"] }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)", severity: warn }
+      - name: use_rr_right
+        data_tests:
+          - accepted_values:
+              arguments: { values: ["사용"] }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)", severity: warn }
+
+  - name: rent_version
+    description: 전월세 계약 버전 이력 (SCD2)
+    data_tests:
+      - unique_combination:
+          arguments: { columns: [rent_id, version] }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+
+  - name: region_rent_month
+    description: 시군구 × 계약월 전월세 계약 수·전세 보증금 ㎡당 분위수·월세 중앙값
+    data_tests:
+      - unique_combination:
+          arguments: { columns: [sgg_cd, deal_ym] }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "jeonse + wolse = contracts" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "renewals + new_contracts <= contracts and rr_used <= contracts and jeonse_priced <= jeonse" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "low_sample or (jeonse_p25_ppm2 <= jeonse_median_ppm2 and jeonse_median_ppm2 <= jeonse_p75_ppm2)" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+    columns:
+      - name: sgg_cd
+        data_tests:
+          - not_null: { config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" } }
+
+  - name: region_rent_rollup_month
+    description: 시도·전국 × 계약월 전월세 통계 (계약 단위에서 다시 계산한 정확 분위수)
+    data_tests:
+      - unique_combination:
+          arguments: { columns: [region_id, deal_ym] }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "jeonse + wolse = contracts" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+      - expression_is_true:
+          arguments: { expression: "low_sample or (jeonse_p25_ppm2 <= jeonse_median_ppm2 and jeonse_median_ppm2 <= jeonse_p75_ppm2)" }
+          config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+    columns:
+      - name: level
+        data_tests:
+          - accepted_values:
+              arguments: { values: ["nation", "sido"] }
+              config: { where: "deal_ym = coalesce(nullif('{{ var('deal_ym') }}', ''), deal_ym)" }
+
   - name: complex_summary
     description: 단지 차원 + 현재 유효 거래 수
     columns:

@@ -4,11 +4,11 @@
 우선순위는 화려한 UI 보다 **아키텍처·성능·보안의 안정성**. 설계 결정은 [docs/decisions.md](docs/decisions.md)(ADR), 운영 절차는 [docs/runbook.md](docs/runbook.md).
 
 ## 구조
-- `pipeline/` — Dagster + PyIceberg + Trino MERGE(SCD2) + dbt(gold) → ClickHouse 발행. 원천: 국토부 실거래(RTMS — 매매 상세판 TradeDev, ADR-049), 행안부 법정동코드, R-ONE, V-World
+- `pipeline/` — Dagster + PyIceberg + Trino MERGE(SCD2) + dbt(gold) → ClickHouse 발행. 원천: 국토부 실거래(RTMS — 매매 상세판 TradeDev ADR-049 · 전월세 ADR-050, 원천별 상태·예산·센서), 행안부 법정동코드, R-ONE, V-World
 - `api/` — FastAPI. 공개(8610)·내부(8611, 관리 라우트) 앱 분리, 키는 HMAC 저장, 스코프 read/bulk/admin/ops
 - `web/` — React 19 + ECharts, nginx BFF(3610)가 서버 쪽 웹 키를 붙인다 (브라우저에 키 없음)
 - `infra/` — postgres·minio·lakekeeper·trino·clickhouse·prometheus·grafana 설정, `docker-compose.yml` 17개 서비스
-- 계층: bronze(원본, (계약월, 시군구) 파티션) → stage → silver(SCD2) → gold(dbt) → ClickHouse(서빙). 발행마다 데이터셋 버전 `gold@YYYY-MM-DD.n`
+- 계층: bronze(원본, (계약월, 시군구) 파티션) → stage → silver(SCD2) → gold(dbt) → ClickHouse(서빙). 발행마다 데이터셋 버전 `gold@YYYY-MM-DD.n` (매매·전월세 공통 번호, 발행 기록에 원천)
 
 ## 명령
 - 검사: `make lint` (ruff·mypy·tsc), 테스트: `make test-pipeline`, `make test-api`(Testcontainers, Docker 필요)
@@ -16,7 +16,7 @@
 - 배포:
   - 파이프라인: `make pipeline-redeploy` (진행 중 실행이 끝난 뒤 교체, 센서 자동 재개). `docker compose restart dagster` 로 실행 중 작업을 죽이지 말 것
   - API·웹: `docker compose up -d --build api api-internal web` (ch-migrate·db-migrate 가 먼저 멱등 적용됨)
-- 수동 작업은 큐를 거친다: `make month ym=YYYYMM`, `make index`, `make maintenance`
+- 수동 작업은 큐를 거친다: `make month ym=YYYYMM`(매매), `make rent-month ym=YYYYMM`(전월세), `make index`, `make maintenance`
 - Trino 직접 질의 (호스트 포트 없음): `docker compose --profile lake exec -T trino trino --user analyst --execute "..."` (`SHOW CREATE TABLE` 등 소유 권한은 `--user pipeline`)
 - ClickHouse 관리 질의: 비밀번호는 `.env` 의 `CLICKHOUSE_ADMIN_PASSWORD` 를 셸 변수로만 넘기고 **절대 출력하지 않는다**
 

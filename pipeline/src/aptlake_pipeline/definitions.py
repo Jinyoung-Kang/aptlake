@@ -9,6 +9,9 @@
 흐름 (month_pipeline): bronze.rtms_raw → silver.apt_trade → gold.* (dbt build) → serving.clickhouse_month
   - bronze·silver 는 blocking asset check 로 하위 전파를 막는다 (FR-301/302)
   - dbt 테스트 실패 시 dbt build 가 실패 → 같은 실행의 ClickHouse 발행이 실행되지 않는다 (FR-303)
+전월세 (rent_month_pipeline, ADR-050): bronze.rtms_rent_raw → silver.apt_rent → gold.rent_* → serving.clickhouse_rent_month.
+  수집·검사·MERGE·발행 코드는 매매와 같고, 원천 설정(sources)·MERGE 설정(silver.MergeSpec)만 다르다.
+  상태·예산·센서는 원천별(ops 원천 'rent', 예산 budget:rent:{day}), 실행 큐(동시 1)와 원천 호출 풀(rtms)은 함께 쓴다.
 """
 
 import datetime as dt
@@ -54,6 +57,7 @@ from .budget import PRIORITIES, Budget, ceilings, kst_today
 from .config import settings
 from .lake import eq, isin
 from .scheduling import Planned, plan_runs, run_calls
+from .sources import RENT, TRADE, SourceSpec
 
 log = logging.getLogger(__name__)
 
@@ -75,20 +79,24 @@ DBT_DIR = Path(os.environ.get("DBT_PROJECT_DIR", Path(__file__).resolve().parent
 dbt_project = DbtProject(project_dir=DBT_DIR, profiles_dir=DBT_DIR)
 
 
-def _budget() -> Budget:
+def _budget(source: str = TRADE.name) -> Budget:
+    """원천별 일일 예산 — 포털 한도가 활용신청(API)별이라 매매·전월세를 따로 센다."""
     s = settings()
-    return Budget(redis.Redis.from_url(str(s.redis_url)), str(s.pg_dsn), "rtms", s.rtms_daily_limit, s.rtms_daily_cap)
+    return Budget(
+        redis.Redis.from_url(str(s.redis_url)), str(s.pg_dsn), source, s.daily_limit(source), s.daily_cap(source)
+    )
 
 
-def _recheck_pending() -> bool:
+def _recheck_pending(source: str = TRADE.name) -> bool:
     with ops_db.conn() as c:
         return bool(
             c.execute(
                 """SELECT 1 FROM ops.ingest_partition
-               WHERE source = 'rtms' AND next_due_at <= now() AND status IN ('MERGED','RETRY')
+               WHERE source = %s AND next_due_at <= now() AND status IN ('MERGED','RETRY')
                  AND to_date(deal_ym, 'YYYYMM') BETWEEN (date_trunc('month', now()) - interval '12 months')
                                                     AND (date_trunc('month', now()) - interval '3 months')
-               LIMIT 1"""
+               LIMIT 1""",
+                (source,),
             ).fetchone()
         )
 
@@ -169,41 +177,41 @@ class BronzeConfig(Config):
     fetch: bool = True
 
 
-BRONZE_CHECKS = [
-    AssetCheckSpec(
-        "loaded_rows_match_schema_v1",
-        asset=AssetKey(["bronze", "rtms_raw"]),
-        blocking=True,
-        description="silver 로 넘어갈 LOADED 파티션의 bronze 행이 그 행의 원천 스키마 판(v1 기본판·v2 상세판)과 일치하고 모두 파싱된다",
-    ),
-    AssetCheckSpec(
-        "quarantine_rate_below_20pct",
-        asset=AssetKey(["bronze", "rtms_raw"]),
-        blocking=True,
-        description="한 달 수집에서 격리 비율이 20% 이상이면 원천 측 체계적 문제로 보고 하위 반영을 멈춘다",
-    ),
-]
+def _bronze_checks(key: AssetKey) -> list[AssetCheckSpec]:
+    return [
+        AssetCheckSpec(
+            "loaded_rows_match_schema_v1",
+            asset=key,
+            blocking=True,
+            description="silver 로 넘어갈 LOADED 파티션의 bronze 행이 그 행의 원천 스키마 판과 일치하고 모두 파싱된다"
+            " (매매는 v1 기본판·v2 상세판이 섞일 수 있다)",
+        ),
+        AssetCheckSpec(
+            "quarantine_rate_below_20pct",
+            asset=key,
+            blocking=True,
+            description="한 달 수집에서 격리 비율이 20% 이상이면 원천 측 체계적 문제로 보고 하위 반영을 멈춘다",
+        ),
+    ]
 
 
-@asset(
-    key=AssetKey(["bronze", "rtms_raw"]),
-    group_name="bronze",
-    partitions_def=monthly,
-    pool="rtms",
-    deps=[AssetKey(["silver", "region"])],
-    check_specs=BRONZE_CHECKS,
-    output_required=False,
-    description="실거래 원본: s3://raw 에 원본 XML 불변 보관 + bronze.rtms_raw append (FR-101~104)",
-)
-def bronze_rtms(context: AssetExecutionContext, config: BronzeConfig):
+BRONZE_KEY = AssetKey(["bronze", "rtms_raw"])
+RENT_BRONZE_KEY = AssetKey(["bronze", "rtms_rent_raw"])
+BRONZE_CHECKS = _bronze_checks(BRONZE_KEY)
+
+
+def _bronze(context: AssetExecutionContext, config: BronzeConfig, spec: SourceSpec):
+    """bronze 수집 한 달 (매매·전월세 공통). 반영할 변경이나 발행 대기가 없으면 물질화하지 않아 하위 단계를 건너뛴다."""
     ym = context.partition_key
+    src = spec.name
     if config.priority not in (*PRIORITIES, "retry"):
         raise ValueError(f"unknown priority {config.priority}")
     targets = config.sgg_codes or ops_db.leaf_regions()
     if not targets:
         raise RuntimeError("no regions — materialize silver/region first")
-    budget = _budget()
-    ceil = ceilings(settings().rtms_daily_cap, len(ops_db.leaf_regions()), _recheck_pending())
+    lake.ensure_schema()  # 배포 뒤 첫 실행: 새 표(전월세)·보강 열이 없으면 만든다 (있으면 카탈로그 조회만)
+    budget = _budget(src)
+    ceil = ceilings(settings().daily_cap(src), len(ops_db.leaf_regions()), _recheck_pending(src))
     prio = "recheck" if config.priority == "retry" else config.priority
     limit = ceil.for_priority(prio)
 
@@ -212,7 +220,7 @@ def bronze_rtms(context: AssetExecutionContext, config: BronzeConfig):
 
     if config.fetch:
         try:
-            summary = ingest.ingest_month(ym, targets, reserve, run_id=context.run_id)
+            summary = ingest.ingest_month(ym, targets, reserve, run_id=context.run_id, spec=spec)
             if summary.source_stopped:
                 # 한도 초과·인증키 오류 모두 그날 수집을 멈춘다 (센서가 자정까지 실행을 만들지 않음, 사유는 수집 상태 화면에)
                 context.log.warning(f"source stopped for today: {summary.source_stopped}")
@@ -222,22 +230,22 @@ def bronze_rtms(context: AssetExecutionContext, config: BronzeConfig):
     else:
         summary = ingest.IngestSummary(deal_ym=ym)
     context.log.info(
-        f"{ym}: loaded={len(summary.loaded)} unchanged={len(summary.unchanged)} "
+        f"{src} {ym}: loaded={len(summary.loaded)} unchanged={len(summary.unchanged)} "
         f"quarantined={len(summary.quarantined)} retry={len(summary.retry)} "
         f"budget_skipped={len(summary.skipped_budget)} calls={summary.calls}"
     )
 
-    loaded = ops_db.loaded_partitions(ym)
+    loaded = ops_db.loaded_partitions(ym, source=src)
     fetched = len(summary.loaded) + len(summary.unchanged) + len(summary.quarantined)
     q_rate = (len(summary.quarantined) / fetched) if fetched else 0.0
-    schema_ok, bad = _verify_loaded_bronze(ym, loaded)
+    schema_ok, bad = _verify_loaded_bronze(ym, loaded, spec)
     for name, passed, metric in (
         ("loaded_rows_match_schema_v1", schema_ok, {"bad_rows": bad}),
         ("quarantine_rate_below_20pct", q_rate < 0.2, {"quarantined": len(summary.quarantined), "fetched": fetched}),
     ):
-        ops_db.record_dq("bronze.rtms_raw", ym, name, passed, blocking=True, metric=metric, run_id=context.run_id)
+        ops_db.record_dq(spec.bronze, ym, name, passed, blocking=True, metric=metric, run_id=context.run_id)
         yield AssetCheckResult(check_name=name, passed=passed, metadata=metric, severity=AssetCheckSeverity.ERROR)
-    publish_pending = ops_db.month_needs_publish(ym)
+    publish_pending = ops_db.month_needs_publish(ym, source=src)
     # 반영할 변경이 있거나 발행이 밀린 달일 때만 물질화 → 둘 다 없으면 같은 실행의 하위 자산은 건너뜀
     if loaded or publish_pending:
         yield Output(
@@ -257,17 +265,47 @@ def bronze_rtms(context: AssetExecutionContext, config: BronzeConfig):
         )
 
 
-def _verify_loaded_bronze(ym: str, loaded: list[dict]) -> tuple[bool, int]:
+@asset(
+    key=BRONZE_KEY,
+    group_name="bronze",
+    partitions_def=monthly,
+    pool="rtms",
+    deps=[AssetKey(["silver", "region"])],
+    check_specs=BRONZE_CHECKS,
+    output_required=False,
+    description="매매 실거래 원본(상세판): s3://raw 에 원본 XML 불변 보관 + bronze.rtms_raw append (FR-101~104)",
+)
+def bronze_rtms(context: AssetExecutionContext, config: BronzeConfig):
+    yield from _bronze(context, config, TRADE)
+
+
+@asset(
+    key=RENT_BRONZE_KEY,
+    group_name="bronze",
+    partitions_def=monthly,
+    pool="rtms",  # 원천 호출은 원천이 달라도 한 번에 하나 — 초당 호출 상한을 함께 지킨다
+    deps=[AssetKey(["silver", "region"])],
+    check_specs=_bronze_checks(RENT_BRONZE_KEY),
+    output_required=False,
+    description="전월세 실거래 원본: s3://raw/rtms_rent 에 원본 XML 불변 보관 + bronze.rtms_rent_raw append (ADR-050)",
+)
+def bronze_rtms_rent(context: AssetExecutionContext, config: BronzeConfig):
+    yield from _bronze(context, config, RENT)
+
+
+def _verify_loaded_bronze(ym: str, loaded: list[dict], spec: SourceSpec = TRADE) -> tuple[bool, int]:
     iids = {p["last_ingest_id"] for p in loaded if p["rows_last"]}
     if not iids:
         return True, 0
-    tbl = lake.catalog().load_table("bronze.rtms_raw")
+    tbl = lake.catalog().load_table(spec.bronze)
     arrow = tbl.scan(
         row_filter=eq("deal_ym", ym) & isin("ingest_id", iids), selected_fields=("row_json", "schema_ver")
     ).to_arrow()
-    # 행의 판(v1 기본판·v2 상세판)마다 그 판의 항목 집합으로 — 전환 뒤 재수집 주기(최대 90일) 동안 두 판이 섞인다
+    # 행의 판마다 그 판의 항목 집합으로 — 매매는 상세판 전환 뒤 재수집 주기(최대 90일) 동안 v1·v2 가 섞인다
     bad = sum(
-        1 for rec in arrow.to_pylist() if not ingest.row_matches_schema(json.loads(rec["row_json"]), rec["schema_ver"])
+        1
+        for rec in arrow.to_pylist()
+        if not ingest.row_matches_schema(json.loads(rec["row_json"]), rec["schema_ver"], spec)
     )
     return bad == 0, bad
 
@@ -289,28 +327,19 @@ SILVER_CHECKS = [
 ]
 
 
-@asset(
-    key=SILVER_KEY,
-    group_name="silver",
-    partitions_def=monthly,
-    pool="trino_write",
-    deps=[AssetKey(["bronze", "rtms_raw"])],
-    check_specs=SILVER_CHECKS,
-    retry_policy=TRANSIENT_RETRY,
-    output_required=False,
-    description="지문 키 + dup_seq, 한 문장 MERGE 로 SCD2 반영, 사라진 거래 missing_since (FR-201~205)",
-)
-def silver_apt_trade(context: AssetExecutionContext):
+def _silver(context: AssetExecutionContext, spec: silver.MergeSpec):
+    """silver 반영 한 달 (매매·전월세 공통)."""
     ym = context.partition_key
-    summary = silver.merge_month(ym, run_id=context.run_id)
+    src = spec.source.name
+    summary = silver.merge_month(ym, run_id=context.run_id, spec=spec)
     if not summary.partitions:
-        if ops_db.month_needs_publish(ym):
+        if ops_db.month_needs_publish(ym, source=src):
             # silver 는 이미 반영돼 있고 발행만 밀린 달 → 현재 상태로 blocking 검사를 다시 한 뒤 하위로 넘긴다
-            context.log.info(f"{ym}: nothing to merge, publish pending")
-            for c in silver.verify_month(ym):
+            context.log.info(f"{src} {ym}: nothing to merge, publish pending")
+            for c in silver.verify_month(ym, spec):
                 blocking = c["blocking"]
                 ops_db.record_dq(
-                    "silver.apt_trade",
+                    spec.asset,
                     ym,
                     c["name"],
                     c["passed"],
@@ -327,7 +356,7 @@ def silver_apt_trade(context: AssetExecutionContext):
                 )
             yield Output(None, metadata={"partitions": 0, "publish_pending": True})
         else:
-            context.log.info(f"{ym}: nothing to merge")
+            context.log.info(f"{src} {ym}: nothing to merge")
         return
     for c in summary.checks:
         yield AssetCheckResult(
@@ -344,6 +373,44 @@ def silver_apt_trade(context: AssetExecutionContext):
             "silver_snapshot": str(summary.silver_snapshot),
         },
     )
+
+
+@asset(
+    key=SILVER_KEY,
+    group_name="silver",
+    partitions_def=monthly,
+    pool="trino_write",
+    deps=[BRONZE_KEY],
+    check_specs=SILVER_CHECKS,
+    retry_policy=TRANSIENT_RETRY,
+    output_required=False,
+    description="지문 키 + dup_seq, 한 문장 MERGE 로 SCD2 반영, 사라진 거래 missing_since (FR-201~205)",
+)
+def silver_apt_trade(context: AssetExecutionContext):
+    yield from _silver(context, silver.TRADE_MERGE)
+
+
+RENT_SILVER_KEY = AssetKey(["silver", "apt_rent"])
+
+
+@asset(
+    key=RENT_SILVER_KEY,
+    group_name="silver",
+    partitions_def=monthly,
+    pool="trino_write",
+    deps=[RENT_BRONZE_KEY],
+    check_specs=[
+        AssetCheckSpec("silver_no_duplicate_current_keys", asset=RENT_SILVER_KEY, blocking=True),
+        AssetCheckSpec("silver_matches_stage_per_partition", asset=RENT_SILVER_KEY, blocking=True),
+        AssetCheckSpec("missing_rows_under_3_observations", asset=RENT_SILVER_KEY),
+        AssetCheckSpec("dup_fingerprint_groups", asset=RENT_SILVER_KEY),
+    ],
+    retry_policy=TRANSIENT_RETRY,
+    output_required=False,
+    description="전월세 계약 지문 키 + dup_seq, 매매와 같은 한 문장 MERGE(SCD2), 원천에서 사라진 계약 missing_since (ADR-050)",
+)
+def silver_apt_rent(context: AssetExecutionContext):
+    yield from _silver(context, silver.RENT_MERGE)
 
 
 # ───────────────────────── Gold (dbt) ─────────────────────────
@@ -368,6 +435,23 @@ class Translator(DagsterDbtTranslator):
     retry_policy=TRANSIENT_RETRY,
 )
 def gold_monthly(context: AssetExecutionContext, dbt: DbtCliResource):
+    ym = context.partition_key
+    if not _YM.fullmatch(ym):
+        raise ValueError(ym)
+    yield from dbt.cli(["build", "--vars", json.dumps({"deal_ym": ym})], context=context).stream()
+
+
+@dbt_assets(
+    manifest=dbt_project.manifest_path,
+    select="rent_serving rent_version region_rent_month region_rent_rollup_month",
+    partitions_def=monthly,
+    dagster_dbt_translator=Translator(),
+    name="gold_rent_monthly",
+    pool="trino_write",
+    retry_policy=TRANSIENT_RETRY,
+)
+def gold_rent_monthly(context: AssetExecutionContext, dbt: DbtCliResource):
+    """전월세 gold 월 파티션 (ADR-050). 매매와 같은 방식 — 검사 실패면 같은 실행의 발행이 막힌다."""
     ym = context.partition_key
     if not _YM.fullmatch(ym):
         raise ValueError(ym)
@@ -412,6 +496,30 @@ def clickhouse_month(context: AssetExecutionContext) -> MaterializeResult:
     )
     publish.commit_version(version, [ym], counts, context.run_id, publish_id, [month_file])
     ops_db.mark_month_published(ym, version)
+    return MaterializeResult(metadata={"dataset_version": version, **counts})
+
+
+@asset(
+    key=AssetKey(["serving", "clickhouse_rent_month"]),
+    group_name="serving",
+    partitions_def=monthly,
+    pool="publish",
+    retry_policy=TRANSIENT_RETRY,
+    deps=[
+        AssetKey(["gold", "region_rent_month"]),
+        AssetKey(["gold", "region_rent_rollup_month"]),
+        AssetKey(["gold", "rent_serving"]),
+        AssetKey(["gold", "rent_version"]),
+    ],
+    description="전월세 gold 월 파티션 → ClickHouse 네 표 스테이징 → 대조 → REPLACE PARTITION, 데이터셋 버전 증가 (ADR-050)",
+)
+def clickhouse_rent_month(context: AssetExecutionContext) -> MaterializeResult:
+    ym = context.partition_key
+    version = publish.next_dataset_version()
+    counts = publish.publish_rent_month(ym, version)
+    # 버전 번호는 매매와 하나로 오른다(API 캐시 키) — 발행 기록의 원천만 'rent' 라 매매 달 발행으로 보이지 않는다
+    publish.commit_version(version, [ym], counts, context.run_id, str(uuid.uuid4()), source="rent")
+    ops_db.mark_month_published(ym, version, source="rent")
     return MaterializeResult(metadata={"dataset_version": version, **counts})
 
 
@@ -525,25 +633,39 @@ maintenance_job = define_asset_job(
 )
 
 
-def _run_request(p: Planned, now: dt.datetime) -> RunRequest:
+rent_month_pipeline = define_asset_job(
+    "rent_month_pipeline",
+    selection=AssetSelection.assets(RENT_BRONZE_KEY, RENT_SILVER_KEY, AssetKey(["serving", "clickhouse_rent_month"]))
+    | AssetSelection.assets(gold_rent_monthly),
+)
+# 원천 → (잡 이름, bronze op 이름). 실행 설정·진행 중 실행을 원천별로 읽는다
+PIPELINES = {
+    TRADE.name: ("month_pipeline", "bronze__rtms_raw"),
+    RENT.name: ("rent_month_pipeline", "bronze__rtms_rent_raw"),
+}
+
+
+def _run_request(p: Planned, now: dt.datetime, source: str = TRADE.name) -> RunRequest:
+    _, op = PIPELINES[source]
+    prefix = "" if source == TRADE.name else f"{source}-"  # 매매 run_key 는 그대로
     if not p.fetch:  # 발행 전용 — 원천 호출 없이 하위 단계만
         return RunRequest(
-            run_key=f"{p.ym}-publish-{now:%Y%m%d%H%M}",
+            run_key=f"{prefix}{p.ym}-publish-{now:%Y%m%d%H%M}",
             partition_key=p.ym,
-            run_config={"ops": {"bronze__rtms_raw": {"config": {"priority": "retry", "fetch": False}}}},
+            run_config={"ops": {op: {"config": {"priority": "retry", "fetch": False}}}},
             tags={"dagster/priority": PRIORITY_TAG["retry"], "aptlake/priority": "publish-only"},
         )
     return RunRequest(
-        run_key=f"{p.ym}-{now:%Y%m%d%H%M}",
+        run_key=f"{prefix}{p.ym}-{now:%Y%m%d%H%M}",
         partition_key=p.ym,
-        run_config={"ops": {"bronze__rtms_raw": {"config": {"priority": p.priority, "sgg_codes": list(p.sgg_codes)}}}},
+        run_config={"ops": {op: {"config": {"priority": p.priority, "sgg_codes": list(p.sgg_codes)}}}},
         tags={"dagster/priority": PRIORITY_TAG[p.priority], "aptlake/priority": p.priority},
     )
 
 
-@sensor(job=month_pipeline, minimum_interval_seconds=300, default_status=DefaultSensorStatus.STOPPED)
-def due_partitions_sensor(context: SensorEvaluationContext):
-    """수집 기한이 된 (시군구, 월)을 월별로 묶어 실행 요청. 증분 > 재시도 > 재확인 > 백필 순, 예산 안에서만."""
+def _tick(context: SensorEvaluationContext, source: str):
+    """한 원천의 센서 한 틱 — 상태를 읽어 계획(scheduling.plan_runs)을 실행 요청으로 바꾼다."""
+    job_name, op = PIPELINES[source]
     leaf = ops_db.leaf_regions()
     if not leaf:
         return SkipReason("no regions yet")
@@ -553,7 +675,7 @@ def due_partitions_sensor(context: SensorEvaluationContext):
     # 5분마다 약 1.8만 행 INSERT … ON CONFLICT 를 되풀이하지 않도록 모양의 지문을 센서 커서에 둔다
     shape = hashlib.sha256(f"{keys[0]}:{keys[-1]}:{','.join(leaf)}".encode()).hexdigest()[:16]
     if context.cursor != shape:
-        ops_db.ensure_grid(list(keys), leaf)
+        ops_db.ensure_grid(list(keys), leaf, source=source)
         context.update_cursor(shape)
     with ops_db.conn() as c:
         # 파티션 정의 범위 안의 달, 현존 수집 대상 시군구만 — 범위 밖 행(시험용 합성 파티션, 시작 월 변경,
@@ -564,35 +686,47 @@ def due_partitions_sensor(context: SensorEvaluationContext):
                WHERE ((next_due_at <= now() AND status IN ('PENDING','RETRY','MERGED','LOADED'))
                       -- 죽은 실행이 남긴 FETCHING (1시간 넘게 갱신 없음) 도 다시 수집
                       OR (status = 'FETCHING' AND updated_at < now() - interval '1 hour'))
-                 AND source = 'rtms' AND deal_ym BETWEEN %s AND %s AND sgg_cd = ANY(%s)
+                 AND source = %s AND deal_ym BETWEEN %s AND %s AND sgg_cd = ANY(%s)
                GROUP BY deal_ym, status""",
-            (keys[0], keys[-1], list(leaf)),
+            (source, keys[0], keys[-1], list(leaf)),
         ).fetchall()
     active = context.instance.get_runs(
         filters=RunsFilter(
-            job_name="month_pipeline",
+            job_name=job_name,
             statuses=[DagsterRunStatus.QUEUED, DagsterRunStatus.STARTING, DagsterRunStatus.STARTED],
         )
     )
     in_flight = {r.tags.get("dagster/partition") for r in active}
     # 아직 끝나지 않은 요청의 예상 호출 수도 예산에서 뺀다 (틱마다 같은 예산을 다시 쓰지 않도록)
-    queued_calls = sum(run_calls(r.run_config, len(leaf)) for r in active)
-    used = _budget().snapshot().get("used", 0)
+    queued_calls = sum(run_calls(r.run_config, len(leaf), op) for r in active)
+    used = _budget(source).snapshot().get("used", 0)
     planned = plan_runs(
         due,
         today=today,
         in_flight=in_flight,
         used=used,
         queued_calls=queued_calls,
-        ceilings=ceilings(settings().rtms_daily_cap, len(leaf), _recheck_pending()),
-        needing_publish=ops_db.months_needing_publish(),
+        ceilings=ceilings(settings().daily_cap(source), len(leaf), _recheck_pending(source)),
+        needing_publish=ops_db.months_needing_publish(source),
         partition_keys=keys,
     )
     now = dt.datetime.now(tz=dt.UTC)
-    requests = [_run_request(p, now) for p in planned]
+    requests = [_run_request(p, now, source) for p in planned]
     if not requests:
         return SkipReason(f"nothing due within budget (used {used}, queued {queued_calls})")
     return requests
+
+
+@sensor(job=month_pipeline, minimum_interval_seconds=300, default_status=DefaultSensorStatus.STOPPED)
+def due_partitions_sensor(context: SensorEvaluationContext):
+    """매매: 수집 기한이 된 (시군구, 월)을 월별로 묶어 실행 요청. 증분 > 재시도 > 재확인 > 백필 순, 예산 안에서만."""
+    return _tick(context, TRADE.name)
+
+
+@sensor(job=rent_month_pipeline, minimum_interval_seconds=300, default_status=DefaultSensorStatus.STOPPED)
+def due_rent_partitions_sensor(context: SensorEvaluationContext):
+    """전월세: 매매와 같은 규칙, 예산은 따로(budget:rent). 실행 큐(동시 1)는 함께 쓴다 (ADR-050)."""
+    return _tick(context, RENT.name)
 
 
 definitions_schedules = [
@@ -637,13 +771,17 @@ defs = Definitions(
         gold_dimensions,
         clickhouse_month,
         clickhouse_dimensions,
+        bronze_rtms_rent,
+        silver_apt_rent,
+        gold_rent_monthly,
+        clickhouse_rent_month,
         snapshot_baseline,
         index_reference,
         price_index,
         iceberg_maintenance,
     ],
-    jobs=[month_pipeline, dims_and_index, regions_job, maintenance_job, snapshot_baseline_job],
-    sensors=[due_partitions_sensor],
+    jobs=[month_pipeline, rent_month_pipeline, dims_and_index, regions_job, maintenance_job, snapshot_baseline_job],
+    sensors=[due_partitions_sensor, due_rent_partitions_sensor],
     schedules=definitions_schedules,
     resources={"dbt": DbtCliResource(project_dir=dbt_project)},
 )

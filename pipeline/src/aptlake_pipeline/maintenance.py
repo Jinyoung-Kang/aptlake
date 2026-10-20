@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from .lake import execute
+from .lake import catalog, execute
 
 TABLES = [
     "bronze.rtms_raw",
@@ -30,6 +30,14 @@ TABLES = [
     "gold.complex_summary",
     "gold.price_index",
     "gold.index_reference",
+    # 전월세 (ADR-050)
+    "bronze.rtms_rent_raw",
+    "stage.apt_rent",
+    "silver.apt_rent",
+    "gold.rent_serving",
+    "gold.rent_version",
+    "gold.region_rent_month",
+    "gold.region_rent_rollup_month",
 ]
 RETENTION = "7d"
 MAX_WRITERS = 90  # Trino iceberg.max-partitions-per-writer 기본값 100 보다 작게
@@ -101,7 +109,11 @@ def _optimize(table: str) -> int:
 def run() -> dict[str, dict[str, int | str]]:
     out: dict[str, dict[str, int | str]] = {}
     failed: dict[str, str] = {}
+    cat = catalog()
     for t in TABLES:
+        if not cat.table_exists(t):  # 아직 첫 실행 전인 표(예: 배포 직후 전월세 gold) — 실패가 아니라 건너뜀
+            out[t] = {"skipped": "not created yet"}
+            continue
         try:
             before = _stats(t)
             statements = _optimize(t)
