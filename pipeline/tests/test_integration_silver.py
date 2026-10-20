@@ -255,7 +255,7 @@ def test_rent_scd2_lifecycle_uses_the_same_merge(env):
     load([rent(), rent(), rent("1,000", "50")], "rent", "bronze.rtms_rent_raw")
     rent_merge()
     first = rows()
-    assert [r[:5] for r in first] == [(1000, 50, 0, 1, True), (30000, 0, 0, 1, True), (30000, 0, 1, 1, True)]
+    assert [tuple(r[:5]) for r in first] == [(1000, 50, 0, 1, True), (30000, 0, 0, 1, True), (30000, 0, 1, 1, True)]
     assert all(r[7] == f"{SGG}-1" for r in first)
     with ops_db.conn() as c:
         c.execute("UPDATE ops.ingest_partition SET status='LOADED' WHERE source='rent' AND sgg_cd=%s", (SGG,))
