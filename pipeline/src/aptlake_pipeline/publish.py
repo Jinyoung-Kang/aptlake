@@ -9,6 +9,8 @@ region_month 는 연 단위 파티션이다(ADR-037) — 그 해의 다른 달�
 다시 세어, 대조 뒤 스테이징이 다시 만들어졌으면(서빙 표 이관 등) 하나도 교체하지 않는다.
 예전에는 표마다 적재·대조·교체를 차례로 해서, 세 번째 표 대조가 실패하면 앞의 두 표만 새 데이터가 되는 창이 있었다.
 차원·지수(소형): 새 테이블에 적재 → 대조 → EXCHANGE TABLES (원자적 교체).
+전월세 달(ADR-050)도 같은 방식으로 네 표(region_rent_month(연 파티션)·rent_rollup_month·rent_current·rent_version)를
+스테이징·대조한 뒤 함께 교체한다. 스냅숏 파일·변경 피드는 아직 매매에만 있다.
 월·차원·지수 어느 발행이든 끝나면 데이터셋 버전을 올리고(ops.dataset_version + Redis), API 캐시 키·ETag 가
 버전을 포함하므로 이전 결과 캐시는 자연히 무효가 된다.
 """
@@ -30,6 +32,25 @@ from .lake import current_snapshot_id, execute
 
 DB = "aptlake"
 INGEST_SOURCE = {"trade": "rtms", "rent": "rent"}  # 발행 기록의 원천 → 수집 상태의 원천 (데이터 기준 시각)
+# 발행 기록에 남기는 입력 Iceberg 스냅샷 (계보) — 원천별
+LINEAGE_TABLES = {
+    "trade": (
+        "bronze.rtms_raw",
+        "silver.apt_trade",
+        "gold.region_month",
+        "gold.trade_serving",
+        "gold.trade_version",
+        "gold.complex_summary",
+        "gold.price_index",
+    ),
+    "rent": (
+        "bronze.rtms_rent_raw",
+        "silver.apt_rent",
+        "gold.region_rent_month",
+        "gold.rent_serving",
+        "gold.rent_version",
+    ),
+}
 _YM = re.compile(r"\d{6}")
 
 
@@ -132,18 +153,26 @@ def _count(client: Client, sql: str) -> int:
     return int(row[0])
 
 
+# 서빙 표 → (파티션 열, 연 단위 파티션인가). 시군구 × 월 표는 연 단위(ADR-037), 나머지는 월 단위
+_PARTS: dict[str, tuple[str, bool]] = {
+    "region_month": ("month", True),
+    "rollup_month": ("month", False),
+    "trade_current": ("deal_date", False),
+    "trade_version": ("deal_date", False),
+    "region_rent_month": ("month", True),
+    "rent_rollup_month": ("month", False),
+    "rent_current": ("deal_date", False),
+    "rent_version": ("deal_date", False),
+}
+
+
 def _partition(table: str, deal_ym: str) -> str:
-    """서빙 표의 파티션 값 — region_month 는 연(YYYY), 나머지는 월(YYYYMM)."""
-    return deal_ym[:4] if table == "region_month" else deal_ym
+    """서빙 표의 파티션 값 — 연 단위 표는 연(YYYY), 나머지는 월(YYYYMM)."""
+    return deal_ym[:4] if _PARTS[table][1] else deal_ym
 
 
 def _part_col(table: str) -> str:
-    return {
-        "region_month": "month",
-        "rollup_month": "month",
-        "trade_current": "deal_date",
-        "trade_version": "deal_date",
-    }[table]
+    return _PARTS[table][0]
 
 
 def publish_month(
@@ -371,6 +400,123 @@ def _stage_month(client: Client, deal_ym: str, dataset_ver: str, counts: dict[st
     )
 
 
+RENT_TABLES = ["region_rent_month", "rent_rollup_month", "rent_current", "rent_version"]
+_RENT_STAT_COLS = [
+    "contracts", "jeonse", "wolse", "renewals", "new_contracts", "rr_used", "jeonse_priced", "outliers",
+    "jeonse_p25_ppm2", "jeonse_median_ppm2", "jeonse_p75_ppm2", "wolse_median_rent", "wolse_median_deposit",
+]  # fmt: skip
+
+
+def publish_rent_month(deal_ym: str, dataset_ver: str) -> dict[str, int]:
+    """전월세 달 발행 (ADR-050): 네 표 모두 스테이징·대조 → 교체 직전 다시 확인 → 넷 다 맞을 때만 교체."""
+    if not _YM.fullmatch(deal_ym):
+        raise ValueError(deal_ym)
+    client = ch()
+    counts: dict[str, int] = {}
+    try:
+        _stage_rent_month(client, deal_ym, dataset_ver, counts)
+        for t in RENT_TABLES:
+            _verify_staged(client, t, deal_ym, counts[t])
+    except Exception:
+        _drop_staged(client, RENT_TABLES, deal_ym)  # 대조 실패·적재 오류 → 네 표 모두 서빙은 이전 그대로
+        raise
+    for t in RENT_TABLES:
+        _swap(client, t, deal_ym, counts[t])
+    return counts
+
+
+def _stage_rent_month(client: Client, deal_ym: str, dataset_ver: str, counts: dict[str, int]) -> None:
+    stat_sel = ", ".join(_RENT_STAT_COLS)
+    rm = _rows(f"""SELECT sgg_cd, deal_ym, {stat_sel}, low_sample
+                   FROM lake.gold.region_rent_month WHERE deal_ym = '{deal_ym}'""")
+    counts["region_rent_month"] = _stage(
+        client,
+        "region_rent_month",
+        deal_ym,
+        [[r[0], _month_date(r[1]), *r[2:15], int(r[15]), dataset_ver] for r in rm],
+        ["sgg_cd", "month", *_RENT_STAT_COLS, "low_sample", "dataset_ver"],
+        {"n": "count()", "contracts": "sum(contracts)", "jeonse": "sum(jeonse)"},
+        {"n": len(rm), "contracts": sum(r[2] for r in rm), "jeonse": sum(r[3] for r in rm)},
+    )
+
+    ru = _rows(f"""SELECT region_id, level, deal_ym, {stat_sel}, low_sample
+                   FROM lake.gold.region_rent_rollup_month WHERE deal_ym = '{deal_ym}'""")
+    counts["rent_rollup_month"] = _stage(
+        client,
+        "rent_rollup_month",
+        deal_ym,
+        [[r[0], r[1], _month_date(r[2]), *r[3:16], int(r[16]), dataset_ver] for r in ru],
+        ["region_id", "level", "month", *_RENT_STAT_COLS, "low_sample", "dataset_ver"],
+        {"n": "count()", "contracts": "sum(contracts)"},
+        {"n": len(ru), "contracts": sum(r[3] for r in ru)},
+    )
+
+    rc_cols = [
+        "rent_id", "sgg_cd", "deal_date", "complex_key", "apt_nm", "umd_nm", "jibun", "area_m2", "floor",
+        "deposit_manwon", "monthly_rent_manwon", "is_jeonse", "deposit_ppm2", "contract_type", "contract_term",
+        "use_rr_right", "pre_deposit_manwon", "pre_monthly_rent_manwon", "build_year", "is_outlier", "version",
+        "valid_from", "missing_since",
+    ]  # fmt: skip
+    rc = _rows(f"""SELECT rent_id, sgg_cd, deal_date, complex_key, apt_nm, umd_nm, coalesce(jibun, ''), area_m2, floor,
+                          deposit_manwon, monthly_rent_manwon, is_jeonse, coalesce(deposit_ppm2, 0),
+                          coalesce(contract_type, ''), coalesce(contract_term, ''), coalesce(use_rr_right, ''),
+                          pre_deposit_manwon, pre_monthly_rent_manwon, build_year, is_outlier, version, valid_from,
+                          missing_since
+                   FROM lake.gold.rent_serving WHERE deal_ym = '{deal_ym}'""")
+    counts["rent_current"] = _stage(
+        client,
+        "rent_current",
+        deal_ym,
+        [
+            [
+                *r[:7],
+                Decimal(str(r[7])) if r[7] is not None else Decimal(0),
+                r[8],
+                r[9],
+                r[10],
+                int(r[11]),
+                float(r[12]),
+                *r[13:19],
+                int(r[19]),
+                r[20],
+                r[21],
+                r[22],
+            ]
+            for r in rc
+        ],
+        rc_cols,
+        {"n": "count()", "deposit": "sum(deposit_manwon)", "jeonse": "sum(is_jeonse)"},
+        {"n": len(rc), "deposit": sum(r[9] for r in rc), "jeonse": sum(int(r[11]) for r in rc)},
+    )
+
+    rv = _rows(f"""SELECT rent_id, deal_date, version, valid_from, valid_to, is_current, coalesce(contract_type, ''),
+                          coalesce(contract_term, ''), coalesce(use_rr_right, ''), pre_deposit_manwon,
+                          pre_monthly_rent_manwon, build_year
+                   FROM lake.gold.rent_version WHERE deal_ym = '{deal_ym}'""")
+    counts["rent_version"] = _stage(
+        client,
+        "rent_version",
+        deal_ym,
+        [[*r[:5], int(r[5]), *r[6:]] for r in rv],
+        [
+            "rent_id",
+            "deal_date",
+            "version",
+            "valid_from",
+            "valid_to",
+            "is_current",
+            "contract_type",
+            "contract_term",
+            "use_rr_right",
+            "pre_deposit_manwon",
+            "pre_monthly_rent_manwon",
+            "build_year",
+        ],  # fmt: skip
+        {"n": "count()", "current": "sum(is_current)"},
+        {"n": len(rv), "current": sum(int(r[5]) for r in rv)},
+    )
+
+
 def _exchange(client: Client, table: str, columns: list[str], rows: list[list[Any]]) -> int:
     """소형 테이블 전체 교체: {table}_next 에 적재 → 건수 확인 → EXCHANGE TABLES."""
     nxt = f"{DB}.{table}_next"
@@ -494,18 +640,7 @@ def commit_version(
             "SELECT max(last_fetched_at) AS t FROM ops.ingest_partition WHERE source = %s", (INGEST_SOURCE[source],)
         ).fetchone()
     as_of = (row["t"] if row else None) or dt.datetime.now(tz=dt.UTC)
-    snaps = {
-        t: current_snapshot_id(t)
-        for t in (
-            "bronze.rtms_raw",
-            "silver.apt_trade",
-            "gold.region_month",
-            "gold.trade_serving",
-            "gold.trade_version",
-            "gold.complex_summary",
-            "gold.price_index",
-        )
-    }
+    snaps = {t: current_snapshot_id(t) for t in LINEAGE_TABLES[source]}
     ops_db.record_dataset_version(
         version, as_of, partitions, snaps, row_counts, run_id, publish_id, files or [], baseline, source
     )

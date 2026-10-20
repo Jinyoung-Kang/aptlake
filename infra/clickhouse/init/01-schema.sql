@@ -203,8 +203,103 @@ CREATE TABLE IF NOT EXISTS aptlake.usage_event
 -- 이미 만들어진 표에도 (ch-migrate 는 기동마다 이 파일을 멱등 적용)
 ALTER TABLE aptlake.usage_event ADD COLUMN IF NOT EXISTS error LowCardinality(String) DEFAULT '' AFTER trace_id;
 
+-- ── 전월세 (ADR-050): 매매와 같은 발행 방식 (스테이징 → 대조 → 파티션 교체). 금액은 만원, 전세 = 월세 0 ──
+CREATE TABLE IF NOT EXISTS aptlake.rent_current
+(
+    rent_id                  String,
+    sgg_cd                   LowCardinality(String),
+    deal_date                Date,
+    complex_key              String,
+    apt_nm                   String,
+    umd_nm                   LowCardinality(String),
+    jibun                    String,
+    area_m2                  Decimal(9, 4),
+    floor                    Nullable(Int16),
+    deposit_manwon           UInt32,
+    monthly_rent_manwon      UInt32,
+    is_jeonse                UInt8,
+    deposit_ppm2             Float64,
+    contract_type            LowCardinality(String),   -- 원천 원문 '신규'·'갱신', '' = 미상
+    contract_term            String,                   -- 원천 원문 'YY.MM~YY.MM'
+    use_rr_right             LowCardinality(String),   -- 원천 원문 '사용', '' = 미상
+    pre_deposit_manwon       Nullable(UInt32),
+    pre_monthly_rent_manwon  Nullable(UInt32),
+    build_year               Nullable(UInt16),
+    is_outlier               UInt8,
+    version                  UInt16,
+    valid_from               DateTime64(3, 'UTC'),
+    missing_since            Nullable(DateTime64(3, 'UTC')),
+    INDEX idx_complex complex_key TYPE bloom_filter GRANULARITY 4
+-- 매매 trade_current 와 같은 입도 (ADR-038): 질의 대부분이 (시군구, 한 달) 범위
+) ENGINE = MergeTree PARTITION BY toYYYYMM(deal_date) ORDER BY (sgg_cd, deal_date, rent_id)
+  SETTINGS index_granularity = 1024;
+
+CREATE TABLE IF NOT EXISTS aptlake.rent_version
+(
+    rent_id                  String,
+    deal_date                Date,
+    version                  UInt16,
+    valid_from               DateTime64(3, 'UTC'),
+    valid_to                 Nullable(DateTime64(3, 'UTC')),
+    is_current               UInt8,
+    contract_type            LowCardinality(String),
+    contract_term            String,
+    use_rr_right             LowCardinality(String),
+    pre_deposit_manwon       Nullable(UInt32),
+    pre_monthly_rent_manwon  Nullable(UInt32),
+    build_year               Nullable(UInt16)
+) ENGINE = MergeTree PARTITION BY toYYYYMM(deal_date) ORDER BY (rent_id, valid_from);
+
+-- 시군구 × 월: 매매 region_month 처럼 연 단위 파티션 (ADR-037)
+CREATE TABLE IF NOT EXISTS aptlake.region_rent_month
+(
+    sgg_cd                LowCardinality(String),
+    month                 Date,
+    contracts             UInt32,
+    jeonse                UInt32,
+    wolse                 UInt32,
+    renewals              UInt32,
+    new_contracts         UInt32,
+    rr_used               UInt32,
+    jeonse_priced         UInt32,
+    outliers              UInt32,
+    jeonse_p25_ppm2       Nullable(Float64),
+    jeonse_median_ppm2    Nullable(Float64),
+    jeonse_p75_ppm2       Nullable(Float64),
+    wolse_median_rent     Nullable(Float64),
+    wolse_median_deposit  Nullable(Float64),
+    low_sample            UInt8,
+    dataset_ver           LowCardinality(String)
+) ENGINE = MergeTree PARTITION BY toYear(month) ORDER BY (sgg_cd, month);
+
+CREATE TABLE IF NOT EXISTS aptlake.rent_rollup_month
+(
+    region_id             LowCardinality(String),   -- 시도 2자리, 전국 '00'
+    level                 LowCardinality(String),   -- 'sido' | 'nation'
+    month                 Date,
+    contracts             UInt32,
+    jeonse                UInt32,
+    wolse                 UInt32,
+    renewals              UInt32,
+    new_contracts         UInt32,
+    rr_used               UInt32,
+    jeonse_priced         UInt32,
+    outliers              UInt32,
+    jeonse_p25_ppm2       Nullable(Float64),
+    jeonse_median_ppm2    Nullable(Float64),
+    jeonse_p75_ppm2       Nullable(Float64),
+    wolse_median_rent     Nullable(Float64),
+    wolse_median_deposit  Nullable(Float64),
+    low_sample            UInt8,
+    dataset_ver           LowCardinality(String)
+) ENGINE = MergeTree PARTITION BY toYYYYMM(month) ORDER BY (region_id, month);
+
 -- 발행 스테이징 (같은 구조)
 CREATE TABLE IF NOT EXISTS aptlake.region_month_staging  AS aptlake.region_month;
 CREATE TABLE IF NOT EXISTS aptlake.rollup_month_staging  AS aptlake.rollup_month;
 CREATE TABLE IF NOT EXISTS aptlake.trade_current_staging AS aptlake.trade_current;
 CREATE TABLE IF NOT EXISTS aptlake.trade_version_staging AS aptlake.trade_version;
+CREATE TABLE IF NOT EXISTS aptlake.rent_current_staging      AS aptlake.rent_current;
+CREATE TABLE IF NOT EXISTS aptlake.rent_version_staging      AS aptlake.rent_version;
+CREATE TABLE IF NOT EXISTS aptlake.region_rent_month_staging AS aptlake.region_rent_month;
+CREATE TABLE IF NOT EXISTS aptlake.rent_rollup_month_staging AS aptlake.rent_rollup_month;

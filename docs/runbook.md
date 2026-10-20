@@ -24,6 +24,17 @@
 - 두 판이 섞인 정도: `docker compose --profile lake exec -T trino trino --user analyst --execute "SELECT schema_ver, count(DISTINCT sgg_cd || deal_ym) FROM lake.bronze.rtms_raw GROUP BY 1"` (재수집 주기 안에 v2 로 바뀐다, 최대 90일).
 - 단지 일련번호 충돌 경고(`complex_aptseq_conflicts`): 차원 값은 바꾸지 않는다. `metric` 의 `conflicts`(한 단지에 일련번호 여럿·차원과 다름)·`split`(한 일련번호가 단지 키 여럿 — 이름·지번 표기 차이) 수만 본다.
 
+## 전월세 (ADR-050)
+- **처음 켤 때 (한 번):** 공공데이터포털에서 '국토교통부_아파트 전월세 실거래가 자료' 활용신청 승인 확인(같은 `DATA_GO_KR_KEY`) → `uv run --project pipeline python tools/probe_rent.py 11110:202407` 로 응답 확인(호출 1회).
+  1. 수집 멈춤: `make backfill-stop` 후 `SELECT count(*) FROM runs WHERE status IN ('STARTED','STARTING')` = 0 확인 (dagster DB)
+  2. `docker compose up -d --build api api-internal web` — V013(원천 차원)·전월세 서빙 표가 먼저 적용된다. **V013 뒤에는 옛 파이프라인이 발행 대기 기록에서 실패**하므로 바로 다음 단계로
+  3. `make pipeline-redeploy` — 두 센서(`due_partitions_sensor`·`due_rent_partitions_sensor`)가 다시 켜진다. 전월세 레이크 표는 첫 실행이 만든다
+  4. 백필: 69개월 × 256 = 17,664회, 전월세 예산(기본 8,000회/일)으로 약 2.2일. 실행 큐(동시 1)를 매매와 함께 쓴다
+- 예산·상태는 원천별이다: `SELECT * FROM ops.api_budget WHERE source = 'rent' ORDER BY day DESC`, `SELECT status, count(*) FROM ops.ingest_partition WHERE source = 'rent' GROUP BY 1`.
+- 격리 재시도는 `?source=rent`: `curl -X POST -H "X-API-Key: $ADMIN" "http://127.0.0.1:8611/v1/admin/partitions/41135/2026-08/retry?source=rent"`.
+- 원본은 `s3://raw/rtms_rent/deal_ym=…/sgg_cd=…/<sha>/`, 품질 기록의 자산 이름은 `bronze.rtms_rent_raw`·`silver.apt_rent`.
+- 수동 한 달: `make rent-month ym=202408`.
+
 ## 격리(QUARANTINED) 파티션 재시도
 ```bash
 curl -X POST -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/partitions/41135/2026-08/retry

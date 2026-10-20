@@ -1,4 +1,4 @@
-"""국토교통부 아파트 매매 실거래가 API 클라이언트 (FR-101, FR-104).
+"""국토교통부 아파트 실거래가 API 클라이언트 — 매매(상세판)·전월세 공통 (FR-101, FR-104).
 
 - 한 (시군구, 계약월) = numOfRows 9999 로 보통 1 페이지 (W1 측정: 1,099건도 1회 응답).
 - 호출 전 예산 차감 (Budget.reserve). 초당 호출 수는 토큰 버킷으로 제한.
@@ -30,6 +30,8 @@ from .parse import Page, SourceError, parse_page, portal_error_code
 # 기본판은 되돌릴 때 쓰는 값(설정 RTMS_TRADE_URL).
 TRADE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
 TRADE_URL_BASIC = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade"
+# 전월세 (ADR-050): 같은 LAWD_CD × DEAL_YMD 요청·봉투·오류 코드, 일일 한도는 활용신청별로 따로
+RENT_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent/getRTMSDataSvcAptRent"
 PAGE_SIZE = 9999
 RETRYABLE_CODES = {"01", "02", "04", "05"}
 QUOTA_CODES = {"22"}

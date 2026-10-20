@@ -66,7 +66,8 @@ def _cleanup():
     from aptlake_pipeline.lake import execute
 
     # 실제 운영 DB·레이크를 같이 쓰므로 반영 단계가 남기는 흔적(단지 차원·발행 대기 표시)까지 모두 지운다
-    for t in ("bronze.rtms_raw", "stage.apt_trade", "silver.apt_trade", "silver.apt_complex"):
+    for t in ("bronze.rtms_raw", "stage.apt_trade", "silver.apt_trade", "silver.apt_complex",
+              "bronze.rtms_rent_raw", "stage.apt_rent", "silver.apt_rent"):  # fmt: skip
         execute(f"DELETE FROM lake.{t} WHERE sgg_cd = '{SGG}'")
     with ops_db.conn() as c:
         c.execute("DELETE FROM ops.ingest_partition WHERE sgg_cd = %s", (SGG,))
@@ -78,7 +79,7 @@ def _cleanup():
 _seq = {"n": 0}
 
 
-def load(items: list[dict]) -> None:
+def load(items: list[dict], source: str = "rtms", bronze: str = "bronze.rtms_raw") -> None:
     """수집 1회를 흉내: bronze 에 새 ingest 로 append, ops 상태 LOADED."""
     from aptlake_pipeline import ops_db
     from aptlake_pipeline.ingest import BRONZE_SCHEMA
@@ -102,12 +103,12 @@ def load(items: list[dict]) -> None:
         }
         for n, i in enumerate(items)
     ]
-    catalog().load_table("bronze.rtms_raw").append(pa.Table.from_pylist(rows, schema=BRONZE_SCHEMA))
+    catalog().load_table(bronze).append(pa.Table.from_pylist(rows, schema=BRONZE_SCHEMA))
     with ops_db.conn() as c:
         c.execute(
             """UPDATE ops.ingest_partition SET status='LOADED', last_ingest_id=%s, fetch_count=fetch_count+1,
-                     rows_last=%s WHERE sgg_cd=%s AND deal_ym=%s""",
-            (iid, len(items), SGG, YM),
+                     rows_last=%s WHERE source=%s AND sgg_cd=%s AND deal_ym=%s""",
+            (iid, len(items), source, SGG, YM),
         )
 
 
@@ -218,6 +219,58 @@ def test_tradedev_recollection_fills_enrichment_without_new_versions(env):
         dict(execute(f"SELECT apt_nm, apt_seq FROM lake.silver.apt_complex WHERE sgg_cd = '{SGG}'"))["테스트단지"]
         == f"{SGG}-1"
     )
+
+
+def rent(deposit="30,000", monthly="0", floor="5", ctype="신규", day="10") -> dict:
+    return {
+        "sggCd": SGG, "umdNm": "테스트동", "aptNm": "테스트단지", "jibun": "1-1", "excluUseAr": "84.9",
+        "dealYear": "2099", "dealMonth": "1", "dealDay": day, "deposit": deposit, "monthlyRent": monthly,
+        "floor": floor, "buildYear": "2000", "contractTerm": "99.01~01.01", "contractType": ctype,
+        "useRRRight": " ", "preDeposit": " ", "preMonthlyRent": " ", "aptSeq": f"{SGG}-1", "roadnm": "테스트로 1",
+        "roadnmsggcd": SGG, "roadnmcd": "1234567", "roadnmseq": "1", "roadnmbcd": "0", "roadnmbonbun": "00001",
+        "roadnmbubun": "00000",
+    }  # fmt: skip
+
+
+def test_rent_scd2_lifecycle_uses_the_same_merge(env):
+    """전월세(ADR-050): 매매와 같은 한 문장 MERGE — 같은 지문 계약 dup_seq, 재반영 불변, 계약 구분 변경 → 새 버전,
+    사라짐 → missing. 매매 표·상태는 건드리지 않는다."""
+    from aptlake_pipeline import ops_db, silver
+    from aptlake_pipeline.lake import execute
+
+    _cleanup()
+    with ops_db.conn() as c:
+        c.execute("INSERT INTO ops.ingest_partition (source, sgg_cd, deal_ym) VALUES ('rent', %s, %s)", (SGG, YM))
+
+    def rent_merge():
+        s = silver.merge_month(YM, run_id="itest", spec=silver.RENT_MERGE)
+        assert all(c["passed"] for c in s.checks if c["blocking"]), s.checks
+        return s
+
+    def rows():
+        return execute(f"""SELECT deposit_manwon, monthly_rent_manwon, dup_seq, version, is_current, contract_type,
+                                  missing_since IS NOT NULL, apt_seq
+                           FROM lake.silver.apt_rent WHERE sgg_cd = '{SGG}' ORDER BY 1, 2, 3, 4""")
+
+    load([rent(), rent(), rent("1,000", "50")], "rent", "bronze.rtms_rent_raw")
+    rent_merge()
+    first = rows()
+    assert [r[:5] for r in first] == [(1000, 50, 0, 1, True), (30000, 0, 0, 1, True), (30000, 0, 1, 1, True)]
+    assert all(r[7] == f"{SGG}-1" for r in first)
+    with ops_db.conn() as c:
+        c.execute("UPDATE ops.ingest_partition SET status='LOADED' WHERE source='rent' AND sgg_cd=%s", (SGG,))
+    rent_merge()
+    assert rows() == first  # 같은 입력 재반영 → 불변
+
+    load([rent(ctype="갱신"), rent()], "rent", "bronze.rtms_rent_raw")  # 한 건 계약 구분 바뀜, 월세 계약은 사라짐
+    s = rent_merge()
+    cur = [r for r in rows() if r[4]]
+    assert sorted((r[0], r[3], r[5], r[6]) for r in cur) == [(1000, 1, "신규", True), (30000, 1, "신규", False),
+                                                           (30000, 2, "갱신", False)]  # fmt: skip
+    assert {c["name"] for c in s.checks} == {"silver_no_duplicate_current_keys", "silver_matches_stage_per_partition",
+                                             "missing_rows_under_3_observations", "dup_fingerprint_groups"}  # fmt: skip
+    assert execute(f"SELECT count(*) FROM lake.silver.apt_trade WHERE sgg_cd = '{SGG}'")[0][0] == 0
+    assert ops_db.month_needs_publish(YM, source="rent") and not ops_db.month_needs_publish(YM)
 
 
 def test_budget_reserve_is_atomic_under_concurrency():

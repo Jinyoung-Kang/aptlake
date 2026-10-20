@@ -37,15 +37,16 @@ def priority_for(ym: str, today: dt.date) -> str:
     return "incremental" if age < 3 else "recheck" if age < 12 else "backfill"
 
 
-def _fetch_config(run_config: Mapping[str, Any]) -> Mapping[str, Any]:
+def _fetch_config(run_config: Mapping[str, Any], op: str) -> Mapping[str, Any]:
     ops = run_config.get("ops")
-    cfg = ops.get("bronze__rtms_raw", {}).get("config", {}) if isinstance(ops, dict) else {}
+    cfg = ops.get(op, {}).get("config", {}) if isinstance(ops, dict) else {}
     return cfg if isinstance(cfg, dict) else {}
 
 
-def run_calls(run_config: Mapping[str, Any], n_leaf: int) -> int:
-    """큐에 있는 실행이 쓸 원천 호출 수 (발행 전용 실행은 0, 시군구 목록이 없으면 전체)."""
-    cfg = _fetch_config(run_config)
+def run_calls(run_config: Mapping[str, Any], n_leaf: int, op: str = "bronze__rtms_raw") -> int:
+    """큐에 있는 실행이 쓸 원천 호출 수 (발행 전용 실행은 0, 시군구 목록이 없으면 전체).
+    op: 그 원천의 bronze op 이름 — 매매·전월세 예산은 따로라 각자 자기 잡의 실행만 센다."""
+    cfg = _fetch_config(run_config, op)
     if cfg.get("fetch") is False:
         return 0
     return len(list(cfg.get("sgg_codes") or [])) or n_leaf

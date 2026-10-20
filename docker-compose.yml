@@ -244,6 +244,7 @@ services:
       PROMETHEUS_MULTIPROC_DIR: /tmp/prom
       # 수집 상태 화면의 '오늘 호출 상한' 표시 — 파이프라인과 같은 값
       RTMS_BUDGET_PCT: ${RTMS_BUDGET_PCT:-80}
+      RENT_BUDGET_PCT: ${RENT_BUDGET_PCT:-80}
     depends_on:
       db-migrate: { condition: service_completed_successfully }
       ch-migrate: { condition: service_completed_successfully }
@@ -317,6 +318,8 @@ services:
       RTMS_TRADE_URL: ${RTMS_TRADE_URL:-}
       RTMS_DAILY_LIMIT: ${RTMS_DAILY_LIMIT:-10000}
       RTMS_BUDGET_PCT: ${RTMS_BUDGET_PCT:-80}
+      RENT_DAILY_LIMIT: ${RENT_DAILY_LIMIT:-10000}
+      RENT_BUDGET_PCT: ${RENT_BUDGET_PCT:-80}
       BACKFILL_FROM: ${BACKFILL_FROM:-2021-01}
       CATALOG_URI: http://lakekeeper:8181/catalog
       CATALOG_WAREHOUSE: aptlake

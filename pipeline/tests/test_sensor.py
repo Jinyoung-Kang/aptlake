@@ -42,24 +42,30 @@ def world(monkeypatch):
         w.conn = FakeConn(w.due)
         yield w.conn
 
-    def ensure_grid(keys, leaf):
+    def ensure_grid(keys, leaf, source="rtms"):
         w.grid_calls += 1
+        w.grid_source = source
 
     monkeypatch.setattr(d.ops_db, "leaf_regions", lambda: w.leaf)
     monkeypatch.setattr(d.ops_db, "conn", conn)
     monkeypatch.setattr(d.ops_db, "ensure_grid", ensure_grid)
-    monkeypatch.setattr(d.ops_db, "months_needing_publish", lambda: w.publish)
+    monkeypatch.setattr(d.ops_db, "months_needing_publish", lambda source="rtms": w.publish)
     monkeypatch.setattr(d, "kst_today", lambda: TODAY)
     monkeypatch.setattr(d, "monthly", SimpleNamespace(get_partition_keys=lambda: list(KEYS)))
-    monkeypatch.setattr(d, "_budget", lambda: SimpleNamespace(snapshot=lambda: {"used": w.used}))
-    monkeypatch.setattr(d, "_recheck_pending", lambda: w.recheck_pending)
-    monkeypatch.setattr(d, "settings", lambda: SimpleNamespace(rtms_daily_cap=w.cap))
+    monkeypatch.setattr(d, "_budget", lambda source="rtms": SimpleNamespace(snapshot=lambda: {"used": w.used}))
+    monkeypatch.setattr(d, "_recheck_pending", lambda source="rtms": w.recheck_pending)
+    monkeypatch.setattr(d, "settings", lambda: SimpleNamespace(daily_cap=lambda source: w.cap))
     instance = DagsterInstance.ephemeral()
-    monkeypatch.setattr(instance, "get_runs", lambda filters=None, **_: w.active)
 
-    def run(cursor=None):
+    def get_runs(filters=None, **_):
+        w.job_filter = filters.job_name if filters else None
+        return w.active
+
+    monkeypatch.setattr(instance, "get_runs", get_runs)
+
+    def run(cursor=None, sensor=d.due_partitions_sensor):
         ctx = build_sensor_context(instance=instance, cursor=cursor)
-        out = d.due_partitions_sensor(ctx)
+        out = sensor(ctx)
         w.cursor = ctx.cursor
         return out
 
@@ -67,11 +73,11 @@ def world(monkeypatch):
     return w
 
 
-def plan(out) -> list[tuple]:
+def plan(out, op="bronze__rtms_raw") -> list[tuple]:
     assert isinstance(out, list) and all(isinstance(r, RunRequest) for r in out)
     rows = []
     for r in out:
-        cfg = r.run_config["ops"]["bronze__rtms_raw"]["config"]
+        cfg = r.run_config["ops"][op]["config"]
         rows.append(
             (r.partition_key, r.tags["aptlake/priority"], tuple(cfg.get("sgg_codes", ())), cfg.get("fetch", True))
         )
@@ -101,7 +107,7 @@ def test_priority_order_and_per_priority_ceilings(world):
     ]
     # 범위 밖 달·현존하지 않는 시군구는 조회에서부터 뺀다 (ADR-033)
     sql, params = world.conn.sql[0]
-    assert params == (KEYS[0], KEYS[-1], LEAF) and "BETWEEN" in sql
+    assert params == ("rtms", KEYS[0], KEYS[-1], LEAF) and "BETWEEN" in sql and "source = %s" in sql
 
 
 def test_recheck_reserve_shrinks_backfill_ceiling(world):
@@ -146,3 +152,29 @@ def test_grid_registered_only_when_shape_changes(world):
     world.leaf = [*LEAF, "41131"]
     world.run(cursor=first)
     assert world.grid_calls == 2 and world.cursor != first
+
+
+def test_rent_sensor_plans_its_own_job_with_its_own_budget(world):
+    """전월세 센서(ADR-050): 같은 계획 규칙, 상태·예산·진행 중 실행은 전월세 것만, 실행 설정은 전월세 bronze op."""
+    world.due = [due("202610", "PENDING", LEAF), due("202509", "PENDING", LEAF)]
+    world.publish = ["202603"]
+    out = world.run(sensor=d.due_rent_partitions_sensor)
+    assert plan(out, op="bronze__rtms_rent_raw") == [
+        ("202610", "incremental", tuple(LEAF), True),
+        ("202509", "backfill", tuple(LEAF), True),
+        ("202603", "publish-only", (), False),
+    ]
+    assert all(r.run_key.startswith("rent-") for r in out)  # 매매 실행과 run_key 가 겹치지 않게
+    assert world.conn.sql[0][1][0] == "rent" and world.job_filter == "rent_month_pipeline"
+    assert world.grid_source == "rent"
+
+
+def test_queued_calls_count_only_the_sources_own_runs():
+    """예산이 원천별이라 진행 중 실행의 예상 호출도 자기 bronze op 설정으로만 센다."""
+    from aptlake_pipeline.scheduling import run_calls
+
+    rent_cfg = {"ops": {"bronze__rtms_rent_raw": {"config": {"sgg_codes": ["11110"]}}}}
+    assert run_calls(rent_cfg, 256, "bronze__rtms_rent_raw") == 1
+    assert (
+        run_calls({"ops": {"bronze__rtms_rent_raw": {"config": {"fetch": False}}}}, 256, "bronze__rtms_rent_raw") == 0
+    )

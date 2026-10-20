@@ -6,6 +6,8 @@ sources:
     tables:
       - name: rtms_raw
         meta: { dagster: { asset_key: ["bronze", "rtms_raw"] } }
+      - name: rtms_rent_raw
+        meta: { dagster: { asset_key: ["bronze", "rtms_rent_raw"] } }
   - name: silver
     database: lake
     schema: silver
@@ -14,5 +16,7 @@ sources:
         meta: { dagster: { asset_key: ["silver", "apt_trade"] } }
       - name: apt_complex
         meta: { dagster: { asset_key: ["silver", "apt_complex"] } }
+      - name: apt_rent
+        meta: { dagster: { asset_key: ["silver", "apt_rent"] } }
       - name: region
         meta: { dagster: { asset_key: ["silver", "region"] } }

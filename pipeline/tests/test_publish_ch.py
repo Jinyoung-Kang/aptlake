@@ -320,3 +320,65 @@ def test_publish_records_changes_against_last_recorded_month_file(ch, monkeypatc
         parameters={"p": p2},
     ).first_row
     assert row == (1, 50000)  # 그 발행 시점 값을 함께 남긴다
+
+
+def _rent_gold(ym: str, contracts: int) -> dict[str, list[tuple]]:
+    """gold 전월세 네 표가 Trino 에서 돌려줄 행 (열 순서는 publish._stage_rent_month 의 SELECT 와 같다)."""
+    d = D(int(ym[:4]), int(ym[4:]), 15)
+    vf = dt.datetime(2026, 10, 20, 1, 2, 3)
+    stats = (contracts, 2, contracts - 2, 1, contracts - 2, 1, 2, 0, 900.0, 1000.0, 1100.0, None, None)
+    return {
+        "region_rent_month": [("11110", ym, *stats, False)],
+        "region_rent_rollup_month": [("11", "sido", ym, *stats, False), ("00", "nation", ym, *stats, False)],
+        "rent_serving": [
+            (
+                f"r11110-{ym}-{i:016x}-0",
+                "11110",
+                d,
+                "c_0123456789abcdef0123",
+                "단지",
+                "동",
+                "1",
+                Decimal("84.9"),
+                5,
+                30000 + i,
+                0 if i < 2 else 50,
+                i < 2,
+                353.4,
+                "신규" if i else "",
+                "24.08~26.08",
+                "",
+                None,
+                None,
+                2004,
+                False,
+                1,
+                vf,
+                None,
+            )
+            for i in range(contracts)
+        ],  # fmt: skip
+        "rent_version": [
+            (f"r11110-{ym}-{i:016x}-0", d, 1, vf, None, True, "신규", "", "", None, None, 2004)
+            for i in range(contracts)
+        ],  # fmt: skip
+    }
+
+
+def test_rent_month_publish_swaps_four_tables_together(ch, monkeypatch):
+    """전월세 달 발행 (ADR-050): 네 표를 함께 스테이징·대조·교체, 시군구×월 표는 연 파티션(같은 해 다른 달 보존)."""
+    for t in publish.RENT_TABLES:
+        ch.command(f"TRUNCATE TABLE {t}")
+    monkeypatch.setattr(publish, "ch", lambda: ch)
+    for ym, n in (("202407", 5), ("202408", 6), ("202407", 7)):  # 7월을 다시 발행해도 8월은 그대로
+        gold = _rent_gold(ym, n)
+        monkeypatch.setattr(publish, "_rows", lambda sql, g=gold: next(v for k, v in g.items() if f"gold.{k} " in sql))
+        counts = publish.publish_rent_month(ym, f"gold@t.{ym}")
+        assert counts == {"region_rent_month": 1, "rent_rollup_month": 2, "rent_current": n, "rent_version": n}
+    months = dict(ch.query("SELECT toYYYYMM(month), contracts FROM region_rent_month ORDER BY 1").result_rows)
+    assert months == {202407: 7, 202408: 6}
+    cur = ch.query("SELECT toYYYYMM(deal_date), count(), sum(is_jeonse) FROM rent_current GROUP BY 1 ORDER BY 1")
+    assert cur.result_rows == [(202407, 7, 2), (202408, 6, 2)]
+    assert ch.query("SELECT DISTINCT contract_type FROM rent_current ORDER BY 1").result_rows == [("",), ("신규",)]
+    for t in publish.RENT_TABLES:
+        assert ch.query(f"SELECT count() FROM {t}_staging").first_row[0] == 0
