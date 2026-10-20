@@ -1,10 +1,12 @@
-# grafana/grafana:12.4.12 의 남은 HIGH·CRITICAL 예외 (QA-005) — tools/scan_images.sh third-party 가 읽는다.
+# grafana/grafana:12.4.13 의 남은 HIGH·CRITICAL 예외 (QA-005) — tools/scan_images.sh third-party 가 읽는다.
 # 새 태그로 올리면 다시 스캔해 사라진 항목은 지우고, 만료일이 지나면 다시 판단한다 (지나면 점검이 실패한다).
 #
 # Grafana 에 묶인 Tempo 라이브러리의 결함이다. Tempo 데이터 소스를 두지 않는다(프로비저닝은 Prometheus 하나, infra/grafana).
 #
-# 2026-10 Go 표준 라이브러리(net/http Range·HTTP/2 SETTINGS, crypto/tls ECH) 3건 — 모두 서비스 거부다. 아래 이유로 닿지 않지만,
-# 수정된 Go(1.26.9·1.27.2)로 빌드한 태그가 아직 없어(2026-10-10 레지스트리 확인) 짧은 만료일로 두고 새 태그가 나오면 올린다.
+# 2026-10 kin-openapi 3건 — 모두 서비스 거부이고, HTTP 요청을 OpenAPI 스키마로 검증할 때(openapi3filter·Schema.VisitJSON) 생긴다.
+# 이 바이너리에는 openapi3filter 가 링크되지 않았고(strings 확인), kin-openapi 는 grafana-app-sdk 가 내장 앱 매니페스트의 스키마를
+# 변환할 때와 plugin-sdk 의 e2e 저장소에만 쓰인다 — 12.4 의 Grafana 코드에는 요청 본문을 VisitJSON 으로 검증하는 곳이 없다.
+# 12.4 최신(12.4.13)에도 남아(2026-10-20 레지스트리 확인) 짧은 만료일로 두고 새 태그가 나오면 올린다.
 vulnerabilities:
   - id: CVE-2026-21728
     paths: ["usr/share/grafana/bin/grafana"]
@@ -14,15 +16,15 @@ vulnerabilities:
     paths: ["usr/share/grafana/bin/grafana"]
     expired_at: 2026-12-31
     statement: Tempo 서버·S3 SSE-C 미사용
-  - id: CVE-2026-78667
-    paths: ["usr/share/grafana/bin/grafana", "usr/share/grafana/bin/grafana-server", "usr/share/grafana/bin/grafana-cli"]
+  - id: CVE-2026-100352
+    paths: ["usr/share/grafana/bin/grafana"]
     expired_at: 2026-11-30
-    statement: TLS 없이 127.0.0.1(호스트)·내부망에서만 열린다 — 신뢰 클라이언트만 닿는 서비스 거부, grafana-cli 는 실행하지 않는다
-  - id: CVE-2026-78669
-    paths: ["usr/share/grafana/bin/grafana", "usr/share/grafana/bin/grafana-server", "usr/share/grafana/bin/grafana-cli"]
+    statement: 요청 검증(openapi3filter) 미링크, 내장 매니페스트 변환에만 쓴다 — 게다가 127.0.0.1·내부망의 신뢰 클라이언트만 닿는 서비스 거부
+  - id: CVE-2026-100353
+    paths: ["usr/share/grafana/bin/grafana"]
     expired_at: 2026-11-30
-    statement: TLS 없이 127.0.0.1(호스트)·내부망에서만 열린다 — 신뢰 클라이언트만 닿는 서비스 거부, grafana-cli 는 실행하지 않는다
-  - id: CVE-2026-97031
-    paths: ["usr/share/grafana/bin/grafana", "usr/share/grafana/bin/grafana-server", "usr/share/grafana/bin/grafana-cli"]
+    statement: 요청 검증(openapi3filter) 미링크, 내장 매니페스트 변환에만 쓴다 — 게다가 127.0.0.1·내부망의 신뢰 클라이언트만 닿는 서비스 거부
+  - id: CVE-2026-100354
+    paths: ["usr/share/grafana/bin/grafana"]
     expired_at: 2026-11-30
-    statement: TLS 없이 127.0.0.1(호스트)·내부망에서만 열린다 — 신뢰 클라이언트만 닿는 서비스 거부, grafana-cli 는 실행하지 않는다
+    statement: 요청 검증(openapi3filter) 미링크, 내장 매니페스트 변환에만 쓴다 — 게다가 127.0.0.1·내부망의 신뢰 클라이언트만 닿는 서비스 거부
