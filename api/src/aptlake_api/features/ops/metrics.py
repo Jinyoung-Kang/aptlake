@@ -16,8 +16,10 @@ class OpsCollector:
                 fresh = c.execute("""SELECT extract(epoch FROM now() - max(last_fetched_at)),
                                             extract(epoch FROM now() - (SELECT max(published_at)
                                                                         FROM ops.dataset_version))
-                                     FROM ops.ingest_partition""").fetchone()
-                status = c.execute("SELECT status, count(*) FROM ops.ingest_partition GROUP BY status").fetchall()
+                                     FROM ops.ingest_partition WHERE source = 'rtms'""").fetchone()
+                status = c.execute(
+                    "SELECT status, count(*) FROM ops.ingest_partition WHERE source = 'rtms' GROUP BY status"
+                ).fetchall()
                 budget = c.execute("""SELECT used_calls::float / nullif(limit_calls, 0) FROM ops.api_budget
                                       WHERE source='rtms' ORDER BY day DESC LIMIT 1""").fetchone()
                 failed = c.execute("""SELECT count(*) FILTER (WHERE blocking), count(*) FROM ops.dq_result

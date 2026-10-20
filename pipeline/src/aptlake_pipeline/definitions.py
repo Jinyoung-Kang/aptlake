@@ -85,7 +85,7 @@ def _recheck_pending() -> bool:
         return bool(
             c.execute(
                 """SELECT 1 FROM ops.ingest_partition
-               WHERE next_due_at <= now() AND status IN ('MERGED','RETRY')
+               WHERE source = 'rtms' AND next_due_at <= now() AND status IN ('MERGED','RETRY')
                  AND to_date(deal_ym, 'YYYYMM') BETWEEN (date_trunc('month', now()) - interval '12 months')
                                                     AND (date_trunc('month', now()) - interval '3 months')
                LIMIT 1"""
@@ -564,7 +564,7 @@ def due_partitions_sensor(context: SensorEvaluationContext):
                WHERE ((next_due_at <= now() AND status IN ('PENDING','RETRY','MERGED','LOADED'))
                       -- 죽은 실행이 남긴 FETCHING (1시간 넘게 갱신 없음) 도 다시 수집
                       OR (status = 'FETCHING' AND updated_at < now() - interval '1 hour'))
-                 AND deal_ym BETWEEN %s AND %s AND sgg_cd = ANY(%s)
+                 AND source = 'rtms' AND deal_ym BETWEEN %s AND %s AND sgg_cd = ANY(%s)
                GROUP BY deal_ym, status""",
             (keys[0], keys[-1], list(leaf)),
         ).fetchall()

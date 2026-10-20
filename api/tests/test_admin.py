@@ -31,6 +31,24 @@ async def test_retry_partition_only_from_quarantine_and_audited(adm, admin_key, 
     assert _actions(stack["su"], "41135/203001") == ["partition.retry"]
 
 
+async def test_retry_partition_touches_only_the_requested_source(adm, admin_key, stack):
+    """원천 차원(V013): 같은 (시군구, 계약월)의 전월세 파티션 재시도가 매매 파티션을 건드리지 않는다."""
+    h = {"X-API-Key": admin_key}
+    with psycopg.connect(stack["su"], autocommit=True) as pg:
+        pg.execute(
+            """INSERT INTO ops.ingest_partition (source, sgg_cd, deal_ym, status, attempts, last_error)
+               VALUES ('rtms','41135','203003','QUARANTINED',3,'trade'), ('rent','41135','203003','QUARANTINED',3,'rent')
+               ON CONFLICT DO NOTHING"""
+        )
+    r = await adm.post("/v1/admin/partitions/41135/2030-03/retry?source=rent", headers=h)
+    assert r.status_code == 202 and r.json()["source"] == "rent" and "due_rent_partitions_sensor" in r.json()["note"]
+    with psycopg.connect(stack["su"], autocommit=True) as pg:
+        rows = dict(pg.execute("SELECT source, status FROM ops.ingest_partition WHERE deal_ym = '203003'").fetchall())
+    assert rows == {"rent": "RETRY", "rtms": "QUARANTINED"}
+    assert _actions(stack["su"], "rent:41135/203003") == ["partition.retry"]
+    assert (await adm.post("/v1/admin/partitions/41135/2030-03/retry?source=sale", headers=h)).status_code == 422
+
+
 async def test_admin_change_is_rolled_back_when_audit_fails(apps, adm, admin_key, stack, monkeypatch):
     """감사 기록이 실패하면 변경도 남지 않아야 한다 (기록 없는 키 발급·폐기 금지)."""
     import httpx

@@ -29,6 +29,7 @@ from .config import settings
 from .lake import current_snapshot_id, execute
 
 DB = "aptlake"
+INGEST_SOURCE = {"trade": "rtms", "rent": "rent"}  # 발행 기록의 원천 → 수집 상태의 원천 (데이터 기준 시각)
 _YM = re.compile(r"\d{6}")
 
 
@@ -484,10 +485,14 @@ def commit_version(
     publish_id: str,
     files: list[snapshots.MonthFile] | None = None,
     baseline: bool = False,
+    source: str = "trade",
 ) -> None:
-    """버전 기록 + 달 스냅숏 파일 등록을 한 트랜잭션으로 → Redis 현재 버전. 기록된 발행의 파일만 쓰인다(ADR-044)."""
+    """버전 기록 + 달 스냅숏 파일 등록을 한 트랜잭션으로 → Redis 현재 버전. 기록된 발행의 파일만 쓰인다(ADR-044).
+    버전 번호는 원천과 관계없이 하나로 오른다 — API 캐시 키·ETag 가 이 하나의 버전을 쓴다."""
     with ops_db.conn() as c:
-        row = c.execute("SELECT max(last_fetched_at) AS t FROM ops.ingest_partition").fetchone()
+        row = c.execute(
+            "SELECT max(last_fetched_at) AS t FROM ops.ingest_partition WHERE source = %s", (INGEST_SOURCE[source],)
+        ).fetchone()
     as_of = (row["t"] if row else None) or dt.datetime.now(tz=dt.UTC)
     snaps = {
         t: current_snapshot_id(t)
@@ -502,7 +507,7 @@ def commit_version(
         )
     }
     ops_db.record_dataset_version(
-        version, as_of, partitions, snaps, row_counts, run_id, publish_id, files or [], baseline
+        version, as_of, partitions, snaps, row_counts, run_id, publish_id, files or [], baseline, source
     )
     r = redis.Redis.from_url(str(settings().redis_url))
     r.mset({"al:ds:ver": version, "al:ds:asof": as_of.isoformat()})

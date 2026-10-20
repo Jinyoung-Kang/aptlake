@@ -5,7 +5,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Path, Request
+from fastapi import APIRouter, Path, Query, Request
 from pydantic import BaseModel, Field
 
 from ...core.auth import Principal, client_ip
@@ -77,7 +77,8 @@ async def retry_partition(
     request: Request,
     sggCd: Annotated[str, Path(pattern=r"^[0-9]{5}$")],  # noqa: N803
     dealYm: Annotated[str, Path(pattern=YM_Q)],  # noqa: N803
+    source: Annotated[str, Query(pattern=r"^(rtms|rent)$", description="원천: rtms(매매, 기본)·rent(전월세)")] = "rtms",
     p: Principal = require_scope("admin"),
 ) -> OrjsonResponse:
-    out = await service.retry_partition(_repo(request), sggCd, dealYm, _actor(request, p))
+    out = await service.retry_partition(_repo(request), sggCd, dealYm, _actor(request, p), source)
     return OrjsonResponse(out, status_code=202)

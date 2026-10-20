@@ -422,13 +422,7 @@ def verify_month(deal_ym: str) -> list[dict]:
                                 GROUP BY sgg_cd""")
     )
     mismatched = {k: (v, observed.get(k, 0)) for k, v in staged.items() if observed.get(k, 0) != v}
-    with ops_db.conn() as c:
-        fetch_now = {
-            r["sgg_cd"]: r["fetch_count"]
-            for r in c.execute(
-                "SELECT sgg_cd, fetch_count FROM ops.ingest_partition WHERE deal_ym=%s", (deal_ym,)
-            ).fetchall()
-        }
+    fetch_now = ops_db.fetch_counts(deal_ym)
     missing = execute(f"""SELECT sgg_cd, missing_fetch_seq, count(*) FROM lake.silver.apt_trade
                           WHERE is_current AND missing_since IS NOT NULL AND deal_ym = '{deal_ym}'
                           GROUP BY sgg_cd, missing_fetch_seq""")

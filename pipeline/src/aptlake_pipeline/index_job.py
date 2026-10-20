@@ -23,7 +23,7 @@ def complete_months() -> tuple[list[str], dict[str, float]]:
         rows = c.execute(
             """SELECT p.deal_ym, count(*) FILTER (WHERE p.status = 'MERGED')::float
                       / (SELECT count(*) FROM ops.region WHERE is_leaf AND active) AS coverage
-               FROM ops.ingest_partition p GROUP BY p.deal_ym"""
+               FROM ops.ingest_partition p WHERE p.source = 'rtms' GROUP BY p.deal_ym"""
         ).fetchall()
     cov = {r["deal_ym"]: float(r["coverage"]) for r in rows}
     return sorted(m for m, v in cov.items() if v >= MIN_COVERAGE), cov
