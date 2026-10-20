@@ -305,6 +305,8 @@
   - 2026-10-10 레지스트리에서 다섯 이미지 모두 지금 태그가 최신이라 올릴 수 없었다.
   - 이유를 확인해 예외로 두되 **만료일을 2026-11-30 으로 짧게** 잡았다 — 수정된 Go 로 빌드한 태그가 나오면 올리게 하려는 것이다. 이유: TLS 없이 127.0.0.1·내부망에서만 열린 서버(신뢰 클라이언트만 닿는 서비스 거부), 실행하지 않는 CLI(grafana-cli·promtool), 기동 때만 쓰는 gosu·launcher, 카탈로그로 만들지 않는 clickhouse 플러그인과 단일 사용자 컨테이너(lz4 의 임시 파일 경로 공격은 /tmp 를 나누는 다른 로컬 사용자가 있어야 한다).
   - Silo 예외 파일(`infra/trivy/silo.yaml`)을 새로 만들었다. 로컬 점검에서 서드파티 9종 모두 0건.
+  - 2026-10-20 (kin-openapi·pcre2·x/text 로 다시 실패): 같은 줄의 새 태그로 올렸다 — Silo RELEASE.2026-10-18 은 예외 없이 0건이라 `silo.yaml` 을 지웠고, Grafana 12.4.13 은 Go 3건이 사라졌다. 새 Silo 는 Object Lock·IAM 검사를 강화해 QA 에서 계정별 권한·보존·서명 URL·Lakekeeper STS 경로를 확인했다.
+    - 남은 항목은 2026-11-30 예외로 두었다. Grafana 의 kin-openapi 는 요청 검증(openapi3filter)이 링크되지 않았다. Trino launcher 의 x/text 는 취약한 secure/precis 가 링크되지 않았다. Trino 484 도 x/text 가 고쳐지지 않아 483 에 둔다.
 
 ## ADR-041 성능(QA-009): 같은 요청 합치기와 월 계열 캐시, 효과 없는 설정은 두지 않는다
 - **문제:** NFR-04(200+100 RPS 에서 months p95 < 80 ms · trades p95 < 150 ms)를 QA 스택에서 만족하지 못했다. QA 보고서는 같은 요청 합치기(A2)·ClickHouse CPU 분리·워커 수·VM CPU 조정을 권고했다.

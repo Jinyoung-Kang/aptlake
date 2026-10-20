@@ -6,6 +6,9 @@
 #
 # 2026-10 Go 표준 라이브러리(net/http Range·HTTP/2 SETTINGS, crypto/tls ECH) 3건 — 모두 서비스 거부다. 아래 이유로 닿지 않지만,
 # 수정된 Go(1.26.9·1.27.2)로 빌드한 태그가 아직 없어(2026-10-10 레지스트리 확인) 짧은 만료일로 두고 새 태그가 나오면 올린다.
+#
+# 2026-10 golang.org/x/text 1건 — Nickname 프로필(secure/precis)의 서비스 거부다. launcher 에는 x/net/idna 가 쓰는
+# bidirule·bidi·norm 만 링크되고 secure/precis 는 없다(strings 확인). 484(2026-10-20 최신)도 x/text 0.40.0 이라 고쳐지지 않았다.
 vulnerabilities:
   - id: CVE-2026-33818
     paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
@@ -107,3 +110,7 @@ vulnerabilities:
     paths: ["usr/lib/trino/plugin/clickhouse/at.yawk.lz4_lz4-java-1.11.1.jar", "usr/lib/trino/plugin/clickhouse/com.clickhouse_clickhouse-jdbc-0.9.8-all.jar"]
     expired_at: 2026-11-30
     statement: clickhouse 플러그인은 카탈로그로 만들지 않고(카탈로그는 lake 하나), 컨테이너는 trino 사용자 하나라 /tmp 를 나누는 다른 로컬 사용자가 없다
+  - id: CVE-2026-56851
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-11-30
+    statement: launcher 에 secure/precis(Nickname 프로필)가 링크되지 않았고, 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
