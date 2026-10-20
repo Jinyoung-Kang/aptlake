@@ -25,7 +25,11 @@ import httpx
 
 from .parse import Page, SourceError, parse_page, portal_error_code
 
-URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade"
+# 매매는 상세판(TradeDev)이 기본: 기본판 20개 항목 + 법정동 코드 조각·도로명·단지 일련번호(aptSeq).
+# 공통 20개 항목과 지문 집합이 기본판과 바이트 단위로 같은 것을 확인했다(tools/probe_tradedev.py, ADR-049).
+# 기본판은 되돌릴 때 쓰는 값(설정 RTMS_TRADE_URL).
+TRADE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTradeDev/getRTMSDataSvcAptTradeDev"
+TRADE_URL_BASIC = "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade"
 PAGE_SIZE = 9999
 RETRYABLE_CODES = {"01", "02", "04", "05"}
 QUOTA_CODES = {"22"}
@@ -97,8 +101,10 @@ class RtmsClient:
         tps: float = 10.0,
         http: httpx.AsyncClient | None = None,
         base_delay: float = 1.0,
+        url: str = TRADE_URL,
     ):
         self._key = service_key
+        self._url = url
         self._reserve = reserve
         self._bucket = TokenBucket(tps)
         self._http = http or httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0))
@@ -120,7 +126,7 @@ class RtmsClient:
             self._reserve(1)
             await self._bucket.take()
             try:
-                resp = await self._http.get(URL, params=params)
+                resp = await self._http.get(self._url, params=params)
                 if resp.status_code >= 500:
                     raise FetchFailed(f"HTTP {resp.status_code}")
                 if resp.status_code >= 400:

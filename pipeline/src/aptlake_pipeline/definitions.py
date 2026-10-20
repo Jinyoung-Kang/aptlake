@@ -174,7 +174,7 @@ BRONZE_CHECKS = [
         "loaded_rows_match_schema_v1",
         asset=AssetKey(["bronze", "rtms_raw"]),
         blocking=True,
-        description="silver 로 넘어갈 LOADED 파티션의 bronze 행이 원천 스키마 v1 과 일치하고 모두 파싱된다",
+        description="silver 로 넘어갈 LOADED 파티션의 bronze 행이 그 행의 원천 스키마 판(v1 기본판·v2 상세판)과 일치하고 모두 파싱된다",
     ),
     AssetCheckSpec(
         "quarantine_rate_below_20pct",
@@ -258,25 +258,17 @@ def bronze_rtms(context: AssetExecutionContext, config: BronzeConfig):
 
 
 def _verify_loaded_bronze(ym: str, loaded: list[dict]) -> tuple[bool, int]:
-
-    from .rtms.parse import SOURCE_FIELDS_V1, to_typed
-
     iids = {p["last_ingest_id"] for p in loaded if p["rows_last"]}
     if not iids:
         return True, 0
     tbl = lake.catalog().load_table("bronze.rtms_raw")
-    bad = 0
     arrow = tbl.scan(
         row_filter=eq("deal_ym", ym) & isin("ingest_id", iids), selected_fields=("row_json", "schema_ver")
     ).to_arrow()
-    for rec in arrow.to_pylist():
-        row = json.loads(rec["row_json"])
-        try:
-            if set(row) - set(SOURCE_FIELDS_V1) or rec["schema_ver"] != 1:
-                raise ValueError("schema")
-            to_typed(row)
-        except (ValueError, KeyError):
-            bad += 1
+    # 행의 판(v1 기본판·v2 상세판)마다 그 판의 항목 집합으로 — 전환 뒤 재수집 주기(최대 90일) 동안 두 판이 섞인다
+    bad = sum(
+        1 for rec in arrow.to_pylist() if not ingest.row_matches_schema(json.loads(rec["row_json"]), rec["schema_ver"])
+    )
     return bad == 0, bad
 
 
@@ -289,6 +281,11 @@ SILVER_CHECKS = [
     AssetCheckSpec("missing_rows_under_3_observations", asset=SILVER_KEY),
     AssetCheckSpec("cancel_ratio_shift_within_10pp", asset=SILVER_KEY),
     AssetCheckSpec("dup_fingerprint_groups", asset=SILVER_KEY),
+    AssetCheckSpec(
+        "complex_aptseq_conflicts",
+        asset=SILVER_KEY,
+        description="상세판 단지 일련번호(aptSeq)와 단지 키가 1:1 이 아닌 단지 수 — 차원 값은 바꾸지 않고 경고만 (ADR-049)",
+    ),
 ]
 
 

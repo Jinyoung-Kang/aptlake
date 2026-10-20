@@ -4,7 +4,7 @@
 우선순위는 화려한 UI 보다 **아키텍처·성능·보안의 안정성**. 설계 결정은 [docs/decisions.md](docs/decisions.md)(ADR), 운영 절차는 [docs/runbook.md](docs/runbook.md).
 
 ## 구조
-- `pipeline/` — Dagster + PyIceberg + Trino MERGE(SCD2) + dbt(gold) → ClickHouse 발행. 원천: 국토부 실거래(RTMS), 행안부 법정동코드, R-ONE, V-World
+- `pipeline/` — Dagster + PyIceberg + Trino MERGE(SCD2) + dbt(gold) → ClickHouse 발행. 원천: 국토부 실거래(RTMS — 매매 상세판 TradeDev, ADR-049), 행안부 법정동코드, R-ONE, V-World
 - `api/` — FastAPI. 공개(8610)·내부(8611, 관리 라우트) 앱 분리, 키는 HMAC 저장, 스코프 read/bulk/admin/ops
 - `web/` — React 19 + ECharts, nginx BFF(3610)가 서버 쪽 웹 키를 붙인다 (브라우저에 키 없음)
 - `infra/` — postgres·minio·lakekeeper·trino·clickhouse·prometheus·grafana 설정, `docker-compose.yml` 17개 서비스

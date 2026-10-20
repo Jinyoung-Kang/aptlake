@@ -444,3 +444,20 @@
 - **원인:** SQLAlchemy 2.1 은 `postgresql://` 의 기본 드라이버가 psycopg(3)이다. 서버측 바인딩이라 dagster-postgres 의 `NOTIFY run_events, %(notify_id)s` 가 깨진다. pyproject 에 '2.0 고정' 주석이 있었지만 범위가 `<2.2` 여서 Dependabot 이 2.1.1 로 올렸고(b48a4cc), 그 뒤 첫 이미지 재빌드가 이번 배포였다.
 - **결정:** `sqlalchemy>=2.0,<2.1`. 기본 드라이버가 psycopg2 인지 확인하는 회귀 시험을 둔다(실제 PostgreSQL 에 같은 NOTIFY 를 보내 확인).
 - **교훈:** 주석이 아니라 범위·시험이 고정한다. 파이프라인 의존성 갱신은 이미지를 다시 빌드할 때 처음 드러난다.
+
+## ADR-049 매매 원천을 상세판(TradeDev)으로: 공개 ID 는 그대로, 새 항목은 '보강 전용 열'
+- **배경:** 2026-10 에 매매 상세판(`RTMSDataSvcAptTradeDev`)과 전월세(`RTMSDataSvcAptRent`) 활용신청이 승인됐다. 상세판은 기본판 20개 항목에 법정동 코드 조각(`umdCd`·`landCd`·`bonbun`·`bubun`)·도로명 주소 조각(7개)·단지 일련번호 `aptSeq` 를 더 준다. 계획은 [설계 계획서](plans/2026-10-tradedev-and-rent-design.md).
+- **0단계 탐침 (코드 변경 전, `tools/probe_tradedev.py`, 2026-10-20 호출 6회):** 같은 날 같은 파티션 3개(11110 종로·26350 해운대·41830 양평, 2024-07)를 기본판·상세판으로 받았다.
+  - 공통 20개 항목이 **바이트 단위로 같다**(다중집합, 빈 값 공백 한 칸·`YY.MM.DD`·쉼표 금액 포함). `(trade_key, dup_seq, attr_hash)` 집합도 같다(60·368·45건).
+  - 새 항목 12개는 모든 행에 온다. `roadNmbCd` 만 일부 공백(14/60·6/368·3/45). `numOfRows=9999`·`totalCount` 동작은 같다.
+  - `aptSeq` ↔ `complex_key` 가 세 파티션 모두 1:1 이었다(21·133·20개). 전월세의 같은 `aptSeq` 와도 `complex_key` 가 129/129 같았다 — 단지 키가 두 원천을 잇는 조인 키로 충분하다(ADR-050).
+  - 게이트(상세판이 지문 8개 필드를 같게 주지 않으면 전환하지 않는다)를 통과했다.
+- **결정:**
+  - 매매 원천 주소를 설정 `RTMS_TRADE_URL`(비우면 상세판)로 둔다. 기본판으로 되돌리려면 그 주소만 넣는다.
+  - **지문·속성 해시·`MUTABLE_FIELDS` 는 바꾸지 않는다.** 새 항목을 넣으면 270만 건이 모두 새 버전이 되고 변경 피드가 넘친다.
+  - 새 항목 중 9개(`apt_seq`·`umd_cd`·`land_cd`·`bonbun`·`bubun`·`road_nm`·`road_nm_cd`·`road_nm_bonbun`·`road_nm_bubun`)를 stage·silver 의 **보강 전용 열**로 둔다. MERGE 의 '속성 같음' 분기에서 `coalesce(원천, 현재)` 로 채우고 새 버전을 만들지 않는다. 나머지 도로명 조각은 bronze `row_json` 에만 있다. 코드 값의 뜻(예 `landCd`)은 원천 문서로 확인하지 않아 해석하지 않는다(ADR-018).
+  - 단지 차원 `apt_complex.apt_seq`: 그 달 stage 에서 일련번호가 하나뿐인 단지만, 비어 있을 때 채운다. 여럿이거나 차원 값과 다르면 바꾸지 않고 경고 검사 `complex_aptseq_conflicts` 에 센다(한 일련번호가 단지 키 여럿에 걸친 수 `split` 도 함께).
+  - bronze `schema_ver` 는 **응답 내용으로** 정한다(항목이 V1 안이면 1, V2 안이면 2). 검사는 행마다 그 판의 항목 집합으로 한다 — 재수집 주기(최근 3개월 매일·1년 안 30일·그 전 90일) 동안 두 판이 섞인다. 검사 이름 `bronze_schema_matches_v1`·`loaded_rows_match_schema_v1` 은 이력(해결됨 판정)이 이어지도록 그대로 두고 지표에 `schema_ver` 를 남긴다.
+  - Iceberg 열 추가는 `ALTER TABLE … ADD COLUMN IF NOT EXISTS` 를 silver 반영 전에 카탈로그로 확인해 없는 것만 한다(`lake.ensure_columns`). 표 정의는 시군구 갱신 때만 다시 적용되므로, 배포 뒤 첫 반영이 새 열 없는 stage 에 쓰다 실패하지 않게. 옛 코드가 새 열이 있는 표에 쓰는 것은 된다(PyIceberg 0.12: 선택 열이 빠진 쓰기 허용, 더 많은 열은 거부 — 확인).
+- **하지 않은 것:** gold·ClickHouse·API·웹은 그대로다(A1). 서빙에 `aptSeq`·도로명을 내려면 `trade_current`·스냅숏·내보내기·변경 피드 스키마를 함께 올리고 기준선을 다시 잡아야 해 별도 결정으로 미룬다(A2). 전 파티션 강제 재수집(17,664회)도 하지 않는다 — 전월세 조인은 단지 키로 충분해 서두를 이유가 없고, 재수집 주기 안에 자연히 채워진다(최대 90일).
+- **검증:** 실제 응답 fixture 두 개(같은 날 기본판·상세판)로 거래 ID·속성 해시·단지 키 동일, 판 판정, 검사(두 판 통과·모르는 항목 격리), 행 단위 판 검사, MERGE 보강 분기. 레이크 통합 시험: 같은 파티션 v1 → v2 재수집에서 새 버전 0건·거래 ID 그대로·보강 열과 단지 일련번호 채움, 다른 일련번호가 오면 차원은 그대로 두고 경고.

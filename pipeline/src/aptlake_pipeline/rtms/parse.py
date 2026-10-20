@@ -5,6 +5,8 @@
   - dealAmount 는 쉼표 천 단위 문자열("235,000"), 단위 만원 → int
   - cdealDay·rgstDate 는 "YY.MM.DD" ("25.11.27")          → date (20YY)
   - 결과 없음은 <items/> + totalCount 0
+상세판(TradeDev, schema_ver 2)은 기본판 20개 항목을 바이트 단위로 같게 주고 12개 항목을 더 준다
+(tools/probe_tradedev.py, 2026-10-20 실응답 3개 파티션). 새 항목은 모두 선택 항목이고 지문·속성 해시에 넣지 않는다 (ADR-049).
 XML 파싱은 defusedxml 로 한다 (외부 엔티티·엔티티 폭탄 차단).
 """
 
@@ -17,7 +19,7 @@ from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 from defusedxml import ElementTree as SafeET
 
-# 원천 응답 항목 (활용가이드 응답 메시지 명세). 스키마 검사(bronze_schema_matches_v1)의 기준.
+# 원천 응답 항목 (활용가이드 응답 메시지 명세). 스키마 검사(bronze_schema_matches_v1 — 이름은 이력 때문에 그대로)의 기준.
 SOURCE_FIELDS_V1: tuple[str, ...] = (
     "sggCd",
     "umdNm",
@@ -40,8 +42,37 @@ SOURCE_FIELDS_V1: tuple[str, ...] = (
     "buyerGbn",
     "landLeaseholdGbn",
 )
+# 상세판(TradeDev)에만 있는 항목: 법정동 코드 조각·도로명 주소 조각·단지 일련번호
+SOURCE_FIELDS_V2: tuple[str, ...] = (
+    *SOURCE_FIELDS_V1,
+    "aptSeq",
+    "umdCd",
+    "landCd",
+    "bonbun",
+    "bubun",
+    "roadNm",
+    "roadNmSggCd",
+    "roadNmCd",
+    "roadNmSeq",
+    "roadNmbCd",
+    "roadNmBonbun",
+    "roadNmBubun",
+)
 REQUIRED_FIELDS: tuple[str, ...] = ("sggCd", "umdNm", "aptNm", "dealYear", "dealMonth", "dealDay", "dealAmount")
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # 지금 받는 판(상세판). bronze.schema_ver 는 행이 실제로 가진 항목으로 정한다 (schema_version_of)
+_FIELDS = {1: SOURCE_FIELDS_V1, 2: SOURCE_FIELDS_V2}
+
+
+def fields_for(schema_ver: int) -> tuple[str, ...]:
+    """그 판의 원천 항목 집합. 모르는 판이면 KeyError (검사가 실패로 센다)."""
+    return _FIELDS[schema_ver]
+
+
+def schema_version_of(items: list[dict[str, str]]) -> int | None:
+    """항목 집합을 모두 담는 가장 이른 판. 어느 판에도 없는 항목이 있으면 None.
+    받은 판을 응답 내용으로 정하므로, 설정으로 기본판에 되돌려도 행의 판이 틀리게 적히지 않는다."""
+    keys = {k for i in items for k in i}
+    return next((v for v, fields in sorted(_FIELDS.items()) if keys <= set(fields)), None)
 
 
 class SourceError(Exception):
@@ -171,6 +202,16 @@ class TypedTrade:
     seller_type: str | None
     buyer_type: str | None
     land_leasehold: bool | None
+    # 상세판 보강 항목 (원문 문자열, 빈 값은 None). 지문·속성 해시에 넣지 않는 '보강 전용' — 기본판 행이면 모두 None
+    apt_seq: str | None = None
+    umd_cd: str | None = None
+    land_cd: str | None = None
+    bonbun: str | None = None
+    bubun: str | None = None
+    road_nm: str | None = None
+    road_nm_cd: str | None = None
+    road_nm_bonbun: str | None = None
+    road_nm_bubun: str | None = None
 
 
 def to_typed(row: dict[str, str]) -> TypedTrade:
@@ -199,4 +240,13 @@ def to_typed(row: dict[str, str]) -> TypedTrade:
         seller_type=blank_to_none(row.get("slerGbn")),
         buyer_type=blank_to_none(row.get("buyerGbn")),
         land_leasehold=None if leasehold is None else leasehold == "Y",
+        apt_seq=blank_to_none(row.get("aptSeq")),
+        umd_cd=blank_to_none(row.get("umdCd")),
+        land_cd=blank_to_none(row.get("landCd")),
+        bonbun=blank_to_none(row.get("bonbun")),
+        bubun=blank_to_none(row.get("bubun")),
+        road_nm=blank_to_none(row.get("roadNm")),
+        road_nm_cd=blank_to_none(row.get("roadNmCd")),
+        road_nm_bonbun=blank_to_none(row.get("roadNmBonbun")),
+        road_nm_bubun=blank_to_none(row.get("roadNmBubun")),
     )

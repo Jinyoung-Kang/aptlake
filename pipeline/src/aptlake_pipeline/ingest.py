@@ -30,7 +30,15 @@ from .config import settings
 from .lake import catalog, eq
 from .rtms.client import FetchFailed, FetchResult, RtmsClient, SourceUnavailable
 from .rtms.fingerprint import UmdAliases, key_umd, norm_jibun, norm_text
-from .rtms.parse import REQUIRED_FIELDS, SCHEMA_VERSION, SOURCE_FIELDS_V1, TypedTrade, parse_page, to_typed
+from .rtms.parse import (
+    REQUIRED_FIELDS,
+    SCHEMA_VERSION,
+    TypedTrade,
+    fields_for,
+    parse_page,
+    schema_version_of,
+    to_typed,
+)
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +109,17 @@ def renamed_trades(prev_items: list[dict], items: list[dict], aliases: UmdAliase
     return out
 
 
+def row_matches_schema(row: dict[str, str], schema_ver: int) -> bool:
+    """bronze 행이 적힌 판(schema_ver)의 항목 안에 있고 타입 변환이 되는가 (모르는 판이면 False)."""
+    try:
+        if set(row) - set(fields_for(schema_ver)):
+            return False
+        to_typed(row)
+    except (ValueError, KeyError):
+        return False
+    return True
+
+
 def validate(
     result: FetchResult,
     rows_last: int | None,
@@ -114,7 +133,8 @@ def validate(
     """
     items = result.items
     renamed = renamed_trades(prev_items, items, aliases) if prev_items else []
-    unknown = sorted({k for i in items for k in i} - set(SOURCE_FIELDS_V1))
+    # 지금 받는 판(상세판)의 항목 밖은 원천 스키마 변경 → 격리. 기본판 행(항목이 V1 뿐)도 통과한다 (되돌리기 대비)
+    unknown = sorted({k for i in items for k in i} - set(fields_for(SCHEMA_VERSION)))
     missing = sorted({f for i in items for f in REQUIRED_FIELDS if f not in i})
     parse_errors: list[str] = []
     wrong_partition = 0
@@ -133,7 +153,7 @@ def validate(
             "bronze_schema_matches_v1",
             not unknown and not missing,
             True,
-            {"unknown_fields": unknown, "missing_required": missing},
+            {"unknown_fields": unknown, "missing_required": missing, "schema_ver": schema_version_of(items)},
         ),
         CheckOutcome(
             "rows_parse_and_belong_to_partition",
@@ -202,6 +222,7 @@ class RawArchive:
 
 def _bronze_rows(result: FetchResult, ingest_id: str, uri: str) -> list[dict]:
     fetched = dt.datetime.fromtimestamp(result.fetched_at, tz=dt.UTC)
+    ver = schema_version_of(result.items) or SCHEMA_VERSION  # 검사(validate)를 통과한 행만 오므로 None 이 아니다
     rows, ord_ = [], 0
     for page in result.parsed:
         for item in page.items:
@@ -216,7 +237,7 @@ def _bronze_rows(result: FetchResult, ingest_id: str, uri: str) -> list[dict]:
                     "payload_sha256": result.sha256,
                     "row_json": json.dumps(item, ensure_ascii=False, sort_keys=True),
                     "row_ord": ord_,
-                    "schema_ver": SCHEMA_VERSION,
+                    "schema_ver": ver,
                 }
             )
             ord_ += 1
@@ -276,7 +297,7 @@ def ingest_month(
     states = ops_db.partition_states(deal_ym)
 
     async def run() -> list[FetchResult]:
-        client = RtmsClient(str(s.data_go_kr_key), reserve, tps=s.fetch_tps)
+        client = RtmsClient(str(s.data_go_kr_key), reserve, tps=s.fetch_tps, url=s.rtms_trade_url)
         try:
             return await _fetch_all(client, deal_ym, sgg_codes, s.fetch_concurrency, summary)
         finally:

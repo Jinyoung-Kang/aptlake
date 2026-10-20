@@ -44,7 +44,9 @@ DDL: list[str] = [
         deal_date date, price_manwon bigint, area_m2 decimal(9,4), floor integer, build_year integer,
         is_cancelled boolean, cancel_date date, registered_date date, apt_dong varchar, deal_kind varchar,
         agent_sgg_nm varchar, seller_type varchar, buyer_type varchar, land_leasehold boolean,
-        ingest_id varchar, ingested_at timestamp(6) with time zone, fetch_seq integer
+        ingest_id varchar, ingested_at timestamp(6) with time zone, fetch_seq integer,
+        apt_seq varchar, umd_cd varchar, land_cd varchar, bonbun varchar, bubun varchar,
+        road_nm varchar, road_nm_cd varchar, road_nm_bonbun varchar, road_nm_bubun varchar
     ) WITH (format_version = 2, partitioning = ARRAY['deal_ym'])""",
     # SCD2. PK = (trade_key, dup_seq, valid_from), 현재행 is_current
     """CREATE TABLE IF NOT EXISTS lake.silver.apt_trade (
@@ -56,11 +58,13 @@ DDL: list[str] = [
         agent_sgg_nm varchar, seller_type varchar, buyer_type varchar, land_leasehold boolean,
         attr_hash varchar, ingest_id varchar, last_seen_ingest varchar,
         last_seen_at timestamp(6) with time zone,
-        missing_since timestamp(6) with time zone, missing_fetch_seq integer
+        missing_since timestamp(6) with time zone, missing_fetch_seq integer,
+        apt_seq varchar, umd_cd varchar, land_cd varchar, bonbun varchar, bubun varchar,
+        road_nm varchar, road_nm_cd varchar, road_nm_bonbun varchar, road_nm_bubun varchar
     ) WITH (format_version = 2, partitioning = ARRAY['year(deal_date)'], sorted_by = ARRAY['sgg_cd', 'deal_date'])""",
     """CREATE TABLE IF NOT EXISTS lake.silver.apt_complex (
         complex_key varchar, sgg_cd varchar, umd_nm varchar, jibun varchar, apt_nm varchar,
-        build_year integer, land_leasehold boolean, first_seen date
+        build_year integer, land_leasehold boolean, first_seen date, apt_seq varchar
     ) WITH (format_version = 2)""",
     """CREATE TABLE IF NOT EXISTS lake.silver.region (
         sgg_cd varchar, sido_cd varchar, sido_nm varchar, sgg_nm varchar, full_nm varchar,
@@ -74,6 +78,25 @@ DDL: list[str] = [
         region_id varchar, period varchar, value double, source varchar, fetched_at timestamp(6) with time zone
     ) WITH (format_version = 2)""",
 ]
+
+# 상세판 보강 전용 열 (ADR-049): 지문·속성 해시에 넣지 않고, 있으면 채우고 없으면 둔다. 위 CREATE 는 새 설치용,
+# 이미 있는 표에는 아래 ALTER 가 멱등으로 더한다 (뒤에 붙으므로 새 설치와 열 순서가 같다)
+ENRICH_COLUMNS: tuple[str, ...] = (
+    "apt_seq",
+    "umd_cd",
+    "land_cd",
+    "bonbun",
+    "bubun",
+    "road_nm",
+    "road_nm_cd",
+    "road_nm_bonbun",
+    "road_nm_bubun",
+)
+ENRICH_TABLES: dict[str, tuple[str, ...]] = {
+    "stage.apt_trade": ENRICH_COLUMNS,
+    "silver.apt_trade": ENRICH_COLUMNS,
+    "silver.apt_complex": ("apt_seq",),
+}
 
 
 @contextmanager
@@ -104,6 +127,18 @@ def execute(sql: str, params: Sequence[Any] | None = None, user: str = "pipeline
 def ensure_tables() -> None:
     for stmt in DDL:
         execute(stmt)
+    ensure_columns()
+
+
+def ensure_columns() -> None:
+    """보강 열이 없는 표에만 ALTER … ADD COLUMN (멱등). silver 반영 전에 부른다 — 표 정의는 시군구 갱신 때만
+    다시 적용되므로, 배포 뒤 첫 반영이 새 열이 없는 stage 에 쓰다 실패하지 않게. 확인은 카탈로그 조회 한 번씩."""
+    cat = catalog()
+    for table, cols in ENRICH_TABLES.items():
+        have = {f.name for f in cat.load_table(table).schema().fields}
+        for c in cols:
+            if c not in have:
+                execute(f"ALTER TABLE lake.{table} ADD COLUMN IF NOT EXISTS {c} varchar")
 
 
 def catalog() -> Catalog:

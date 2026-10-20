@@ -181,6 +181,45 @@ def test_scd2_lifecycle(env):
     assert state() == snap
 
 
+def v2(r: dict, seq: str) -> dict:
+    """같은 거래를 상세판(TradeDev)으로 받은 행: 공통 20개 항목은 그대로 + 보강 항목 (ADR-049)."""
+    return {**r, "aptSeq": seq, "umdCd": "10100", "landCd": "1", "bonbun": "0001", "bubun": "0001",
+            "roadNm": "테스트로", "roadNmSggCd": SGG, "roadNmCd": "1234567", "roadNmSeq": "01", "roadNmbCd": "0",
+            "roadNmBonbun": "00001", "roadNmBubun": "00000"}  # fmt: skip
+
+
+def test_tradedev_recollection_fills_enrichment_without_new_versions(env):
+    """같은 파티션을 기본판(v1) → 상세판(v2)으로 다시 받으면: 새 버전 0건, 거래 ID 그대로, 보강 열·단지 일련번호가 채워진다."""
+    from aptlake_pipeline import ops_db
+    from aptlake_pipeline.lake import execute
+
+    _cleanup()  # 앞 시험이 남긴 합성 파티션 상태에서 시작하지 않게
+    with ops_db.conn() as c:
+        c.execute("INSERT INTO ops.ingest_partition (sgg_cd, deal_ym) VALUES (%s, %s)", (SGG, YM))
+    load([A, A_DUP, B])
+    merge()
+    before = execute(f"SELECT trade_id, version, attr_hash FROM lake.silver.apt_trade WHERE sgg_cd = '{SGG}'")
+    load([v2(A, f"{SGG}-1"), v2(A_DUP, f"{SGG}-1"), v2(B, f"{SGG}-2")])
+    s = merge()
+    after = execute(f"""SELECT trade_id, version, attr_hash, apt_seq, road_nm, is_current
+                        FROM lake.silver.apt_trade WHERE sgg_cd = '{SGG}'""")
+    assert sorted(r[:3] for r in after) == sorted(before)  # 버전·거래 ID·속성 해시 그대로
+    assert all(r[3] and r[4] == "테스트로" and r[5] for r in after)
+    cx = dict(execute(f"SELECT apt_nm, apt_seq FROM lake.silver.apt_complex WHERE sgg_cd = '{SGG}'"))
+    assert cx == {"테스트단지": f"{SGG}-1", "다른단지": f"{SGG}-2"}
+    assert {c["name"]: c for c in s.checks}["complex_aptseq_conflicts"]["passed"]
+
+    # 일련번호가 차원과 다르게 오면 바꾸지 않고 경고로 센다
+    load([v2(A, f"{SGG}-9"), v2(A_DUP, f"{SGG}-9"), v2(B, f"{SGG}-2")])
+    s = merge()
+    check = {c["name"]: c for c in s.checks}["complex_aptseq_conflicts"]
+    assert not check["passed"] and not check["blocking"] and check["metric"]["conflicts"] == 1
+    assert (
+        dict(execute(f"SELECT apt_nm, apt_seq FROM lake.silver.apt_complex WHERE sgg_cd = '{SGG}'"))["테스트단지"]
+        == f"{SGG}-1"
+    )
+
+
 def test_budget_reserve_is_atomic_under_concurrency():
     """100 스레드가 동시에 1회씩 차감해도 상한(50)을 절대 넘지 않는다 (FR-103: 한도 80% 초과 0)."""
     import datetime as dt
