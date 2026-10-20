@@ -46,7 +46,7 @@ async def test_retry_partition_touches_only_the_requested_source(adm, admin_key,
         rows = dict(pg.execute("SELECT source, status FROM ops.ingest_partition WHERE deal_ym = '203003'").fetchall())
     assert rows == {"rent": "RETRY", "rtms": "QUARANTINED"}
     assert _actions(stack["su"], "rent:41135/203003") == ["partition.retry"]
-    assert (await adm.post("/v1/admin/partitions/41135/2030-03/retry?source=sale", headers=h)).status_code == 422
+    assert (await adm.post("/v1/admin/partitions/41135/2030-03/retry?source=sale", headers=h)).status_code == 400
 
 
 async def test_admin_change_is_rolled_back_when_audit_fails(apps, adm, admin_key, stack, monkeypatch):
