@@ -40,10 +40,13 @@ const PAGES: [string, string][] = [
   ["지역 분석 · 개요", "#/region/41135"],
   ["지역 분석 · 가격 분포", "#/region/41135?tab=distribution&ym=2024-07"],
   ["지역 분석 · 단지", "#/region/41135?tab=complexes"],
+  ["지역 분석 · 전월세", "#/region/41135?tab=rent&from=2024-01&to=2024-12"],
   ["거래 목록", "#/trades?sgg=41135&from=2024-07-01&to=2024-07-31"],
+  ["전월세 목록", "#/rents?sgg=41135&from=2024-07-01&to=2024-07-31"],
   ["가격지수", "#/index"],
   ["단지", "#/complex/c_aaaaaaaaaaaaaaaaaaaa"],
   ["데이터 품질 · 파티션 상세", "#/quality?sido=41&cell=41135:202408"],
+  ["데이터 품질 · 전월세", "#/quality?source=rent&sido=41&cell=41135:202407"],
   ["수집 상태", "#/ops"],
   ["개발자", "#/dev"],
 ];

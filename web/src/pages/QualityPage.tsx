@@ -2,21 +2,21 @@ import { useMemo, useState } from "react";
 import { useApi } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
-import { Badge, CopyButton, ErrorBox, Kpi, Skeleton, StatRow, Switch, Tabs } from "../components/ui";
+import { Badge, CopyButton, ErrorBox, Kpi, Segmented, Skeleton, StatRow, Switch, Tabs } from "../components/ui";
 import { DASH, esc, kst, num, relative, ymAdd, ymLabel, ymOf } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
 import { completion, failingChecks, gridCells, LATENCY_DESC, LATENCY_LABEL, latencyBars, latencyExcluded, latencyValue, latencyWindow, type LatencyKey,
          parseCell, rollupCells, rollupMonths, STATUS_LABEL, STATUS_ORDER, STATUS_TONE } from "../domain/quality";
-import { paths } from "../api/endpoints";
+import { paths, type Source } from "../api/endpoints";
 import type { QualityGrid, QualityLatency, QualityPartition, QualityRollup, QualitySummary } from "../api/types";
 
 function statusColor(p: Palette, s: string) {
   return p.status[STATUS_TONE[s] ?? "none"];
 }
 
-function PartitionDetail({ sgg, ym }: { sgg: string; ym: string }) {
-  const { data, error, stale, reload } = useApi<QualityPartition>(paths.qualityPartition(sgg, ym));
+function PartitionDetail({ sgg, ym, source }: { sgg: string; ym: string; source: Source }) {
+  const { data, error, stale, reload } = useApi<QualityPartition>(paths.qualityPartition(sgg, ym, source));
   const { byCode } = useRegions();
   if (error) return <ErrorBox error={error} onRetry={reload} />;
   if (!data || stale) return <Skeleton h={200} />;  // 다른 파티션의 상세가 새 제목 아래 남지 않게
@@ -104,11 +104,13 @@ export default function QualityPage({ route }: { route: Route }) {
   const { sidos, byCode, sidoName } = useRegions();
   const now = ymOf(new Date());
   const from = ymAdd(now, -71);
-  const summary = useApi<QualitySummary>(paths.qualitySummary(), { refreshMs: 60_000 });
-  const rollup = useApi<QualityRollup>(paths.qualityRollup(from, now));
+  // 원천 (ADR-050): 매매(기본)·전월세 — 수집 상태·검사가 원천별이다
+  const source: Source = route.params.get("source") === "rent" ? "rent" : "rtms";
+  const summary = useApi<QualitySummary>(paths.qualitySummary(source), { refreshMs: 60_000 });
+  const rollup = useApi<QualityRollup>(paths.qualityRollup(from, now, source));
   const sido = route.params.get("sido");
   const cell = route.params.get("cell"); // 'sgg:YYYYMM'
-  const grid = useApi<QualityGrid>(sido ? paths.qualityGrid(from, now, sido) : null);
+  const grid = useApi<QualityGrid>(sido ? paths.qualityGrid(from, now, sido, source) : null);
   const [withResolved, setWithResolved] = useState(false);
   const picked = parseCell(cell, (code) => byCode.has(code));
 
@@ -155,6 +157,10 @@ export default function QualityPage({ route }: { route: Route }) {
     <>
       <div className="page-head">
         <div><div className="crumb">데이터 품질</div><h1>수집 완결도와 품질 검사</h1></div>
+        <div className="tools">
+          <Segmented label="원천" value={source} options={[{ value: "rtms", label: "매매" }, { value: "rent", label: "전월세" }]}
+                     onChange={(v) => setParams(route, { source: v === "rtms" ? null : v, cell: null })} />
+        </div>
       </div>
       <ErrorBox error={summary.error} onRetry={summary.reload} />
       {s ? (
@@ -185,7 +191,11 @@ export default function QualityPage({ route }: { route: Route }) {
         </div>
       </section>
 
-      <LatencySection />
+      {source === "rtms" && <LatencySection />}
+      {s?.schemaVersions && Object.keys(s.schemaVersions).length > 1 && (
+        <p className="note">원천 스키마 판별 반영 파티션: {Object.entries(s.schemaVersions).map(([v, n]) => `${v === "unrecorded" ? "판 기록 전" : `v${v}`} ${num(n)}`).join(" · ")}
+          {source === "rtms" ? " — 매매 상세판(v2) 전환 뒤 재수집 주기 안에 v2 로 바뀐다 (ADR-049)" : ""}</p>
+      )}
 
       {sido && (
         <section className="section">
@@ -200,7 +210,7 @@ export default function QualityPage({ route }: { route: Route }) {
                        onClick={(e) => { const d = e.data as [number, number] | undefined; if (d) setParams(route, { cell: `${sggRows[d[1]].sggCd}:${months[d[0]]}` }); }} />
               ) : grid.error ? <ErrorBox error={grid.error} onRetry={grid.reload} /> : <Skeleton h={260} />}
             </div>
-            {picked && <aside><PartitionDetail sgg={picked[0]} ym={picked[1]} /></aside>}
+            {picked && <aside><PartitionDetail sgg={picked[0]} ym={picked[1]} source={source} /></aside>}
           </div>
         </section>
       )}

@@ -34,16 +34,22 @@ function route(url: URL): { status: number; body: unknown } {
   if (/^\/v1\/regions\/\d{5}\/months$/.test(p)) return g("region_months");
   if (/^\/v1\/regions\/\d{5}\/distribution$/.test(p)) return g(q.get("ym") === "2024-07" ? "distribution" : "distribution_empty");
   if (/^\/v1\/regions\/\d{5}\/complexes$/.test(p)) return g("region_complexes");
+  // 전월세 (ADR-050)
+  if (/^\/v1\/regions\/\d{5}\/rent\/months$/.test(p)) return g("rent_months");
+  if (/^\/v1\/regions\/\d{5}\/jeonse-ratio$/.test(p)) return g("jeonse_ratio");
+  if (/^\/v1\/regions\/\d{5}\/rent\/distribution$/.test(p)) return g(q.get("ym") === "2024-07" ? "rent_distribution" : "rent_distribution_empty");
+  if (p === "/v1/rents") return g("rents_first_page");
+  if (/^\/v1\/rents\/.+\/history$/.test(p)) return g("rent_history");
   if (p === "/v1/trades") {
     const first = golden("trades_first_page");
     return q.get("cursor") ? (first.nextPage as { status: number; body: unknown }) : first;
   }
   if (/^\/v1\/trades\/.+\/history$/.test(p)) return g("trade_history");
   if (/^\/v1\/complexes\//.test(p)) return g("complex");
-  if (p === "/v1/quality/summary") return g("quality_summary");
+  if (p === "/v1/quality/summary") return g(q.get("source") === "rent" ? "quality_summary_rent" : "quality_summary");
   if (p === "/v1/quality/rollup") return g("quality_rollup");
   if (p === "/v1/quality/partitions") return g("quality_grid_sido");
-  if (/^\/v1\/quality\/partitions\/\d{5}\/\d{4}-\d{2}$/.test(p)) return g("quality_partition");
+  if (/^\/v1\/quality\/partitions\/\d{5}\/\d{4}-\d{2}$/.test(p)) return g(q.get("source") === "rent" ? "quality_partition_rent" : "quality_partition");
   if (p === "/v1/quality/latency") return g("quality_latency");
   if (p === "/v1/plans") return g("plans");
   if (p === "/v1/ops/status") return g("ops_status");

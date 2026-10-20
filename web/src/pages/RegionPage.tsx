@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import type { MonthRow, PriceDistribution, RegionComplex, RegionMonths } from "../api/types";
+import type { JeonseRatio, MonthRow, PriceDistribution, RegionComplex, RegionMonths, RentMonthRow, RentMonths } from "../api/types";
 import { useApi, useAvailable } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
@@ -8,11 +8,12 @@ import RegionPicker from "../components/RegionPicker";
 import { Badge, Change, Empty, ErrorBox, Kpi, RangeBar, Skeleton, Sqm, StatRow, Tabs } from "../components/ui";
 import { DASH, manwon, monthRange, num, ymAdd, ymLabel } from "../lib/format";
 import { fillMonths, latestQuote, medianYoY, recentStats, regionPeriod, splitPoints, WEB_MAX_MONTHS } from "../domain/region";
+import { fillRentMonths, latestRatio, rentStats } from "../domain/rent";
 import { href, navigate, setParams, type Route } from "../lib/router";
 import { recentRegions, useRegions } from "../lib/regions";
 import { paths } from "../api/endpoints";
 
-type Tab = "overview" | "distribution" | "complexes";
+type Tab = "overview" | "distribution" | "complexes" | "rent";
 
 
 function PriceVolumeChart({ rows }: { rows: MonthRow[] }) {
@@ -196,6 +197,135 @@ function Distribution({ sgg, ym, min, max, onMonth }: { sgg: string; ym: string;
   );
 }
 
+function RentChart({ rows }: { rows: RentMonthRow[] }) {
+  const build = (p: Palette) => {
+    const x = rows.map((r) => r.dealYm);
+    const b = base(p);
+    return {
+      ...b,
+      legend: { ...b.legend, data: ["전세 m²당 중위 보증금", "1~3사분위", "전세", "월세"] },
+      axisPointer: { link: [{ xAxisIndex: "all" }] },
+      tooltip: {
+        ...b.tooltip,
+        formatter: (ps: { dataIndex: number }[]) => {
+          const r = rows[ps[0].dataIndex];
+          return `<b>${ymLabel(r.dealYm)}</b>${r.provisional ? " (잠정)" : ""}<br/>전세 ${M2}당 중위 보증금 <b>${num(r.jeonseMedianPerM2)}</b> 만원/${M2}` +
+            `<br/>1~3사분위 ${num(r.jeonseP25PerM2)} ~ ${num(r.jeonseP75PerM2)}<br/>계약 ${num(r.contracts)}건 (전세 ${num(r.jeonse)} · 월세 ${num(r.wolse)})` +
+            `<br/>월세 중앙 ${num(r.wolseMedianRent)}만원 · 보증금 ${num(r.wolseMedianDeposit)}만원` +
+            (r.lowSample ? "<br/>전세 표본 5건 미만 — 분위수 생략" : "");
+        },
+      },
+      grid: [
+        { left: 8, right: 12, top: 30, height: "54%", containLabel: true },
+        { left: 8, right: 12, top: "70%", bottom: 6, containLabel: true },
+      ],
+      xAxis: [
+        axisX(p, { type: "category", data: x, gridIndex: 0, axisLabel: { show: false }, boundaryGap: true }),
+        axisX(p, { type: "category", data: x, gridIndex: 1, axisLabel: { color: p.text3, fontSize: 11, formatter: (v: string) => ymLabel(v) } }),
+      ],
+      yAxis: [
+        axisY(p, { type: "value", gridIndex: 0, scale: true, name: "만원/m²", nameGap: 8, splitNumber: 4 }),
+        axisY(p, { type: "value", gridIndex: 1, name: "건", nameGap: 8, splitNumber: 2 }),
+      ],
+      series: [
+        { name: "base", type: "line", stack: "band", xAxisIndex: 0, yAxisIndex: 0, data: rows.map((r) => r.jeonseP25PerM2), symbol: "none", lineStyle: { opacity: 0 }, tooltip: { show: false }, silent: true },
+        { name: "1~3사분위", type: "line", stack: "band", xAxisIndex: 0, yAxisIndex: 0, symbol: "none", lineStyle: { opacity: 0 },
+          data: rows.map((r) => (r.jeonseP25PerM2 != null && r.jeonseP75PerM2 != null ? r.jeonseP75PerM2 - r.jeonseP25PerM2 : null)),
+          areaStyle: { color: p.band }, itemStyle: { color: p.band } },
+        { name: "전세 m²당 중위 보증금", type: "line", xAxisIndex: 0, yAxisIndex: 0, data: rows.map((r) => r.jeonseMedianPerM2), symbol: "circle", symbolSize: 5,
+          showSymbol: rows.length <= 24, lineStyle: { width: 2, color: p.s1 }, itemStyle: { color: p.s1 }, connectNulls: false },
+        { name: "전세", type: "bar", stack: "vol", xAxisIndex: 1, yAxisIndex: 1, data: rows.map((r) => r.jeonse), barMaxWidth: 18, itemStyle: { color: p.s1 } },
+        { name: "월세", type: "bar", stack: "vol", xAxisIndex: 1, yAxisIndex: 1, data: rows.map((r) => r.wolse), barMaxWidth: 18, itemStyle: { color: p.s2, borderRadius: [3, 3, 0, 0] } },
+      ],
+    };
+  };
+  return <Chart build={build} deps={[rows]} height={430} label="월별 전세 m²당 보증금 중위수와 1~3사분위, 전세·월세 계약 수" />;
+}
+
+function RatioChart({ data }: { data: JeonseRatio }) {
+  const build = (p: Palette) => {
+    const b = base(p);
+    const rows = data.items;
+    return {
+      ...b,
+      legend: { show: false },
+      tooltip: {
+        ...b.tooltip,
+        formatter: (ps: { dataIndex: number }[]) => {
+          const r = rows[ps[0].dataIndex];
+          return `<b>${ymLabel(r.dealYm)}</b> (창 ${ymLabel(r.windowFrom)} ~)${r.provisional ? " · 잠정" : ""}<br/>전세가율 <b>${r.ratioPct == null ? DASH : `${num(r.ratioPct, 1)}%`}</b>` +
+            `<br/>전세 ${M2}당 ${num(r.jeonseMedianPerM2)} (표본 ${num(r.jeonseSample)}) ÷ 매매 ${M2}당 ${num(r.tradeMedianPerM2)} (표본 ${num(r.tradeSample)})`;
+        },
+      },
+      grid: { left: 8, right: 12, top: 26, bottom: 6, containLabel: true },
+      xAxis: axisX(p, { type: "category", data: rows.map((r) => r.dealYm), axisLabel: { color: p.text3, fontSize: 11, formatter: (v: string) => ymLabel(v) } }),
+      yAxis: axisY(p, { type: "value", scale: true, name: "%", nameGap: 8, splitNumber: 4 }),
+      series: [{ name: "전세가율", type: "line", data: rows.map((r) => r.ratioPct), symbol: "circle", symbolSize: 5, showSymbol: rows.length <= 24,
+                 lineStyle: { width: 2, color: p.s3 }, itemStyle: { color: p.s3 }, connectNulls: false }],
+    };
+  };
+  return <Chart build={build} deps={[data]} height={240} label="월별 전세가율 (3개월 창)" />;
+}
+
+function Rent({ sgg, from, to }: { sgg: string; from: string; to: string }) {
+  const months = useApi<RentMonths>(paths.rentMonths(sgg, from, to));
+  const ratio = useApi<JeonseRatio>(paths.jeonseRatio(sgg, from, to));
+  const rows = useMemo(() => fillRentMonths(months.data?.items ?? [], from, to), [months.data, from, to]);
+  const st = rentStats(rows);
+  const lastRatio = ratio.data ? latestRatio(ratio.data.items) : undefined;
+  const stale = months.stale || ratio.stale;
+  return (
+    <div data-stale={stale} aria-busy={months.loading || ratio.loading}>
+      <ErrorBox error={months.error ?? ratio.error} onRetry={() => { months.reload(); ratio.reload(); }} />
+      {months.loading && !months.data ? <Skeleton h={420} /> : null}
+      {months.data && (
+        <>
+          <div className="layout">
+            <div className="panel panel-pad"><RentChart rows={rows} /></div>
+            <aside>
+              <div className="section-head"><h2>주요 지표</h2><span className="sub">표시 기간의 최근 12개월</span></div>
+              <div className="stat-list one">
+                <StatRow k="계약" v={`${num(st.contracts)}건`} />
+                <StatRow k="전세 비중" v={st.jeonseShare != null ? `${num(st.jeonseShare, 1)}%` : DASH} />
+                <StatRow k="갱신 비율 (미상 제외)" v={st.renewalShare != null ? `${num(st.renewalShare, 1)}%` : DASH} />
+                <StatRow k="계약 구분 미상" v={st.typeUnknownShare != null ? `${num(st.typeUnknownShare, 1)}%` : DASH} />
+                <StatRow k="갱신요구권 사용" v={`${num(st.rrUsed)}건`} />
+                <StatRow k="최근 확정 월 전세 중위" v={st.lastConfirmed ? `${num(st.lastConfirmed.jeonseMedianPerM2)} 만원/m²` : DASH} />
+                <StatRow k="전세가율" v={lastRatio ? `${num(lastRatio.ratioPct, 1)}% (${ymLabel(lastRatio.dealYm)})` : DASH} />
+              </div>
+              <p className="note">{months.data.definitions.jeonse}. {months.data.definitions.contractType}.</p>
+            </aside>
+          </div>
+          <section className="section" style={{ marginTop: 22 }}>
+            <div className="section-head"><h2>전세가율</h2><span className="sub">자체 산출 · 3개월 창 · 양쪽 표본 5건 이상</span></div>
+            {ratio.data ? <div className="panel panel-pad"><RatioChart data={ratio.data} /></div> : <Skeleton h={240} />}
+            {ratio.data && <p className="note">{ratio.data.notes[0]}</p>}
+          </section>
+          <section className="section">
+            <div className="section-head"><h2>월별 데이터</h2><span className="sub">최신 월부터 · 보증금 만원/<Sqm />, 월세 만원</span></div>
+            <DataTable
+              rows={[...rows].reverse()}
+              rowKey={(r) => r.dealYm}
+              columns={[
+                { key: "ym", header: "계약월", cell: (r) => <span className="name">{ymLabel(r.dealYm)} {r.provisional && <Badge tone="warn">잠정</Badge>} {r.lowSample && r.contracts > 0 && <Badge>표본 부족</Badge>}</span> },
+                { key: "n", header: "계약", align: "right", cell: (r) => num(r.contracts), sort: (r) => r.contracts },
+                { key: "j", header: "전세", align: "right", cell: (r) => num(r.jeonse), sort: (r) => r.jeonse },
+                { key: "w", header: "월세", align: "right", cell: (r) => num(r.wolse), sort: (r) => r.wolse },
+                { key: "rn", header: "갱신", align: "right", cell: (r) => num(r.renewals), sort: (r) => r.renewals },
+                { key: "rr", header: "갱신요구권", align: "right", cell: (r) => num(r.renewalRightUsed), sort: (r) => r.renewalRightUsed },
+                { key: "jm", header: "전세 중위(m²당)", align: "right", cell: (r) => <strong>{num(r.jeonseMedianPerM2)}</strong>, sort: (r) => r.jeonseMedianPerM2 },
+                { key: "wr", header: "월세 중위", align: "right", cell: (r) => num(r.wolseMedianRent), sort: (r) => r.wolseMedianRent },
+              ]}
+              maxHeight={460}
+            />
+          </section>
+          <div className="note">{months.data.notes.map((n) => <p key={n}>{n}</p>)}</div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function Complexes({ sgg, from, to }: { sgg: string; from: string; to: string }) {
   const { data, error, loading, stale, reload } = useApi<{ items: RegionComplex[] }>(paths.regionComplexes(sgg, from, to));
   return (
@@ -262,6 +392,7 @@ export default function RegionPage({ route }: { route: Route }) {
       )}
       <Tabs value={tab} onChange={(v) => setParams(route, { tab: v })} options={[
         { value: "overview", label: "개요" }, { value: "distribution", label: "가격 분포" }, { value: "complexes", label: "단지" },
+        { value: "rent", label: "전월세" },
       ]} />
       {tab !== "distribution" && avail && (
         <div className="toolbar">
@@ -277,6 +408,7 @@ export default function RegionPage({ route }: { route: Route }) {
         <Distribution sgg={sgg} ym={ym} min={min} max={max} onMonth={(v) => setParams(route, { ym: v })} />
       )}
       {tab === "complexes" && ok && <Complexes sgg={sgg} from={from} to={to} />}
+      {tab === "rent" && ok && <Rent sgg={sgg} from={from} to={to} />}
       {data && tab === "overview" && <p className="note">{data.disclaimer} 변화율: 상승 <span className="chg up">▲</span> · 하락 <span className="chg down">▼</span></p>}
     </>
   );

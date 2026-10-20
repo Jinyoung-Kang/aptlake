@@ -11,6 +11,7 @@ import type { Versioned } from "./api/types";
 const MarketPage = lazy(() => import("./pages/MarketPage"));
 const RegionPage = lazy(() => import("./pages/RegionPage"));
 const TradesPage = lazy(() => import("./pages/TradesPage"));
+const RentsPage = lazy(() => import("./pages/RentsPage"));
 const IndexPage = lazy(() => import("./pages/IndexPage"));
 const ComplexPage = lazy(() => import("./pages/ComplexPage"));
 const QualityPage = lazy(() => import("./pages/QualityPage"));
@@ -18,7 +19,7 @@ const DeveloperPage = lazy(() => import("./pages/DeveloperPage"));
 const OpsPage = lazy(() => import("./pages/OpsPage"));
 
 const TITLES: Record<string, string> = {
-  market: "시장 개요", region: "지역 분석", trades: "거래 목록", index: "가격지수", complex: "단지",
+  market: "시장 개요", region: "지역 분석", trades: "거래 목록", rents: "전월세", index: "가격지수", complex: "단지",
   quality: "데이터 품질", dev: "개발자", ops: "수집 상태",
 };
 
@@ -35,6 +36,7 @@ function Pages() {
     switch (head) {
       case "region": return <RegionPage route={route} />;
       case "trades": return <TradesPage route={route} />;
+      case "rents": return <RentsPage route={route} />;
       case "index": return <IndexPage route={route} />;
       case "complex": return <ComplexPage route={route} />;
       case "quality": return <QualityPage route={route} />;

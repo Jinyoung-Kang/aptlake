@@ -6,6 +6,14 @@ export type TradeQuery = {
   minArea?: number; maxArea?: number; cursor?: string;
 };
 
+export type RentQuery = {
+  sgg: string; from: string; to: string; limit: number; kind?: "jeonse" | "wolse";
+  minArea?: number; maxArea?: number; cursor?: string;
+};
+/** 품질·수집 원천 (ADR-050): rtms = 매매(기본), rent = 전월세 */
+export type Source = "rtms" | "rent";
+const src = (s: Source, sep: "?" | "&") => (s === "rtms" ? "" : `${sep}source=${s}`);
+
 export const paths = {
   regions: () => "/v1/regions",
   ticker: () => "/v1/market/ticker",
@@ -20,13 +28,23 @@ export const paths = {
     `${q.minArea != null ? `&minArea=${q.minArea}` : ""}${q.maxArea != null ? `&maxArea=${q.maxArea}` : ""}` +
     `${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ""}`,
   tradeHistory: (tradeId: string) => `/v1/trades/${tradeId}/history`,
+  rentMonths: (sgg: string, from: string, to: string) => `/v1/regions/${sgg}/rent/months?from=${from}&to=${to}`,
+  jeonseRatio: (sgg: string, from: string, to: string) => `/v1/regions/${sgg}/jeonse-ratio?from=${from}&to=${to}`,
+  rentDistribution: (sgg: string, ym: string) => `/v1/regions/${sgg}/rent/distribution?ym=${ym}`,
+  rents: (q: RentQuery) =>
+    `/v1/rents?sggCd=${q.sgg}&from=${q.from}&to=${q.to}&limit=${q.limit}${q.kind ? `&kind=${q.kind}` : ""}` +
+    `${q.minArea != null ? `&minArea=${q.minArea}` : ""}${q.maxArea != null ? `&maxArea=${q.maxArea}` : ""}` +
+    `${q.cursor ? `&cursor=${encodeURIComponent(q.cursor)}` : ""}`,
+  rentHistory: (rentId: string) => `/v1/rents/${rentId}/history`,
   complex: (key: string) => `/v1/complexes/${key}`,
   index: (regionId: string) => `/v1/index?regionId=${regionId}`,
   indexSummary: () => "/v1/index/summary",
-  qualitySummary: () => "/v1/quality/summary",
-  qualityRollup: (from: string, to: string) => `/v1/quality/rollup?from=${from}&to=${to}`,
-  qualityGrid: (from: string, to: string, sido: string) => `/v1/quality/partitions?from=${from}&to=${to}&sido=${sido}`,
-  qualityPartition: (sgg: string, ym: string) => `/v1/quality/partitions/${sgg}/${ym}`,
+  // 매매(기본)는 예전 경로 그대로 — 경로 문자열이 클라이언트 캐시 키라 같은 조회는 같은 문자열이어야 한다
+  qualitySummary: (s: Source = "rtms") => `/v1/quality/summary${src(s, "?")}`,
+  qualityRollup: (from: string, to: string, s: Source = "rtms") => `/v1/quality/rollup?from=${from}&to=${to}${src(s, "&")}`,
+  qualityGrid: (from: string, to: string, sido: string, s: Source = "rtms") =>
+    `/v1/quality/partitions?from=${from}&to=${to}&sido=${sido}${src(s, "&")}`,
+  qualityPartition: (sgg: string, ym: string, s: Source = "rtms") => `/v1/quality/partitions/${sgg}/${ym}${src(s, "?")}`,
   qualityLatency: (from: string, to: string) => `/v1/quality/latency?from=${from}&to=${to}`,
   opsStatus: () => "/v1/ops/status",
   opsErrors: (hours: string, includeResolved: boolean, includeCleared: boolean) =>

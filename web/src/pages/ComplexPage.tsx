@@ -4,7 +4,7 @@ import { useApi } from "../hooks/useApi";
 import { axisX, axisY, base, Chart, M2, type Palette } from "../charts/Chart";
 import { DataTable } from "../components/DataTable";
 import { Badge, ErrorBox, Group, Kpi, Skeleton, sqm } from "../components/ui";
-import { DASH, manwon, num } from "../lib/format";
+import { DASH, manwon, num, ymLabel } from "../lib/format";
 import { bandOf, inBand, presentBands, validMedian } from "../domain/complex";
 import { href, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
@@ -81,6 +81,34 @@ export default function ComplexPage({ route }: { route: Route }) {
               { key: "s", header: "상태", cell: (t) => <>{t.cancelled && <Badge tone="bad">해제</Badge>} {t.version > 1 && <Badge tone="info">v{t.version}</Badge>} {t.registeredDate && !t.cancelled && <Badge tone="good">등기</Badge>}</> },
             ]} />
           </section>
+          {data?.rent && (
+            <section className="section">
+              <div className="section-head">
+                <h2>전월세</h2>
+                <span className="sub">{ymLabel(data.rent.window.from)} ~ {ymLabel(data.rent.window.to)} 계약 {num(data.rent.contracts)}건 · 금액 단위 원 (월세는 월)</span>
+              </div>
+              <DataTable rows={data.rent.byArea} rowKey={(r) => r.band} caption="전용면적 구간별" empty="이 기간 전월세 계약이 없습니다." columns={[
+                { key: "b", header: "전용면적", cell: (r) => <span className="name">{sqm(r.band)}</span> },
+                { key: "j", header: "전세", align: "right", cell: (r) => num(r.jeonse) },
+                { key: "jd", header: "전세 중위 보증금", align: "right", cell: (r) => <strong>{manwon(r.jeonseMedianDeposit)}</strong> },
+                { key: "w", header: "월세", align: "right", cell: (r) => num(r.wolse) },
+                { key: "wr", header: "월세 중위 (보증금 / 월)", align: "right", cell: (r) => (r.wolse ? `${manwon(r.wolseMedianDeposit)} / ${manwon(r.wolseMedianRent)}` : DASH) },
+                { key: "t", header: "매매 m²당(만원)", align: "right", cell: (r) => <span>{num(r.tradeMedianPerM2)}<span className="sub">표본 {num(r.tradeSample)}</span></span> },
+                { key: "r", header: "전세가율", align: "right", cell: (r) => (r.ratioPct == null ? DASH : <strong>{num(r.ratioPct, 1)}%</strong>) },
+              ]} />
+              {data.rent.recent.length > 0 && (
+                <DataTable rows={data.rent.recent} rowKey={(r) => r.rentId} caption="최근 계약" columns={[
+                  { key: "d", header: "계약일", cell: (r) => r.dealDate.replaceAll("-", ".") },
+                  { key: "k", header: "종류", cell: (r) => (r.kind === "jeonse" ? "전세" : "월세") },
+                  { key: "a", header: "전용m²", align: "right", cell: (r) => num(r.areaM2, 2) },
+                  { key: "f", header: "층", align: "right", cell: (r) => r.floor ?? DASH },
+                  { key: "p", header: "보증금 / 월세", align: "right", cell: (r) => <strong>{r.kind === "jeonse" ? manwon(r.depositManwon) : `${manwon(r.depositManwon)} / ${manwon(r.monthlyRentManwon)}`}</strong> },
+                  { key: "c", header: "구분", cell: (r) => <>{r.contractType ?? <span className="muted">미상</span>} {r.renewalRightUsed && <Badge tone="info">갱신요구권</Badge>}</> },
+                ]} />
+              )}
+              <div className="note">{data.rent.notes.map((n) => <p key={n}>{n}</p>)}</div>
+            </section>
+          )}
         </div>
       )}
     </>
