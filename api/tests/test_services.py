@@ -304,6 +304,9 @@ class FakeMarket:
     async def rollups(self, a, b, py):
         return []
 
+    async def ratio_by_sgg(self, a, b):
+        return [], []
+
 
 def sgg_row(code: str, month: dt.date, trades: int, median: float) -> dict:
     return {"sgg_cd": code, "month": month, "trades": trades, "cancelled": 0, "priced": 50,

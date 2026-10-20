@@ -12,7 +12,8 @@ from typing import Any, Protocol
 
 from ...core.problems import ApiError
 from ...core.texts import DISCLAIMER
-from ...core.values import add_months, pct_change, rnd
+from ...core.values import add_months, month_end, pct_change, rnd
+from ..rent.service import RATIO_MIN_SAMPLE, RATIO_NOTE, RATIO_WINDOW_MONTHS, ratio_pct
 
 Row = dict[str, Any]
 MIN_SAMPLE_FOR_CHANGE = 30  # 변화율 순위: 두 달 모두 표본 30건 이상인 시군구만 (작은 표본의 착시 방지)
@@ -26,6 +27,7 @@ class MarketStore(Protocol):
     async def rollups(self, a: dt.date, b: dt.date, py: dt.date) -> list[Row]: ...
     async def nation_months(self, m: dt.date, pm: dt.date, py: dt.date) -> list[Row]: ...
     async def index_tail(self, method: str, regions: list[str], per_region: int) -> list[Row]: ...
+    async def ratio_by_sgg(self, a: dt.date, b: dt.date) -> tuple[list[Row], list[Row]]: ...
 
 
 def default_month(latest: dt.date, is_provisional: Callable[[dt.date], bool]) -> dt.date:
@@ -42,7 +44,21 @@ def _cancel_rate(cancelled: int, reported: int) -> float | None:
     return round(cancelled / reported * 100, 2) if reported else None
 
 
-def sgg_summaries(rows: list[Row], month: dt.date) -> list[dict[str, Any]]:
+def jeonse_ratios(trade: list[Row], rent: list[Row]) -> dict[str, float | None]:
+    """시군구별 전세가율(%) — 양쪽 표본이 기준 이상인 곳만 값 (지역 전세가율과 같은 정의, ADR-050)."""
+    t = {r["sgg_cd"]: r for r in trade}
+    out: dict[str, float | None] = {}
+    for r in rent:
+        tr = t.get(r["sgg_cd"])
+        out[r["sgg_cd"]] = ratio_pct(
+            r["med"], tr["med"] if tr else None, r["n"], tr["n"] if tr else 0, RATIO_MIN_SAMPLE
+        )
+    return out
+
+
+def sgg_summaries(
+    rows: list[Row], month: dt.date, ratios: dict[str, float | None] | None = None
+) -> list[dict[str, Any]]:
     prev_m, prev_y = add_months(month, -1), add_months(month, -12)
     by = {(r["sgg_cd"], r["month"]): r for r in rows}
     out = []
@@ -63,6 +79,7 @@ def sgg_summaries(rows: list[Row], month: dt.date) -> list[dict[str, Any]]:
                 "medianYoY": pct_change(r["median_ppm2"], py["median_ppm2"]) if ok_change and py else None,
                 "tradesYoY": pct_change(r["trades"], py["trades"]) if py else None,
                 "tradesMoM": pct_change(r["trades"], pm["trades"]) if pm else None,
+                "jeonseRatio": (ratios or {}).get(code),
             }
         )
     return sorted(out, key=lambda s: s["sggCd"])
@@ -107,7 +124,8 @@ async def overview(
     if not (lo <= month <= hi):
         raise ApiError(422, "MONTH_OUT_OF_RANGE", "Month Out Of Range", f"{lo:%Y-%m} ~ {hi:%Y-%m} 사이만 가능")
     prev_m, prev_y = add_months(month, -1), add_months(month, -12)
-    sgg_out = sgg_summaries(await store.sgg_months(month, prev_m, prev_y), month)
+    ratios = jeonse_ratios(*await store.ratio_by_sgg(add_months(month, -(RATIO_WINDOW_MONTHS - 1)), month_end(month)))
+    sgg_out = sgg_summaries(await store.sgg_months(month, prev_m, prev_y), month, ratios)
     series: dict[str, list[Row]] = {}
     for r in await store.rollups(add_months(month, -11), month, prev_y):
         series.setdefault(r["region_id"], []).append(r)
@@ -134,6 +152,7 @@ async def overview(
             "median": "㎡당 거래가 중위수(만원/㎡) — 해제·이상치 제외",
             "medianYoY": f"전년 같은 달 대비 중위수 변화율(%) — 두 달 모두 표본 {MIN_SAMPLE_FOR_CHANGE}건 이상일 때만",
             "cancelRate": "해제 건수 ÷ 신고 건수(%)",
+            "jeonseRatio": RATIO_NOTE,
         },
         "disclaimer": DISCLAIMER,
     }, 0

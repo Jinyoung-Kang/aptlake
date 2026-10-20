@@ -41,6 +41,7 @@ async def status(request: Request, p: Principal = require_scope("ops", "ops_read
             today=kst_today(),
             budget_pct=settings().rtms_budget_pct,
             now=_utcnow(),
+            rent_budget_pct=settings().rent_budget_pct,
         )
 
     return await respond(request, "ops_status", {}, compute, cache=False)
@@ -101,6 +102,7 @@ async def connectivity(request: Request, p: Principal = require_scope("ops", "op
             today=kst_today(),
             budget_pct=settings().rtms_budget_pct,
             now=_utcnow,
+            rent_budget_pct=settings().rent_budget_pct,
         ),
         cache=False,
     )

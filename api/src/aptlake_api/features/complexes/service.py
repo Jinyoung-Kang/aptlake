@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Protocol
 
 from ...core.problems import ApiError
+from ..rent.service import RentStore, complex_block
 from ..trades.service import trade_item
 
 Row = dict[str, Any]
@@ -20,13 +21,15 @@ class ComplexStore(Protocol):
     async def search(self, term: str, limit: int) -> list[Row]: ...
 
 
-async def detail(store: ComplexStore, key: str) -> tuple[dict, int]:
+async def detail(store: ComplexStore, key: str, rent_store: RentStore | None = None) -> tuple[dict, int]:
     cx = await store.get(key)
     if cx is None:
         raise ApiError(404, "COMPLEX_NOT_FOUND", "Not Found")
     recent = await store.recent_trades(cx["sgg_cd"], key, RECENT)
     history = await store.trade_points(cx["sgg_cd"], key, HISTORY)
-    return {
+    # 전월세 요약(ADR-050): 최근 12개월 전용면적 구간별 전세·월세와 단지 전세가율, 최근 계약
+    rent = await complex_block(rent_store, cx["sgg_cd"], key) if rent_store else None
+    body = {
         "complex": {
             "complexKey": cx["complex_key"],
             "sggCd": cx["sgg_cd"],
@@ -52,7 +55,11 @@ async def detail(store: ComplexStore, key: str) -> tuple[dict, int]:
             for h in history
         ],
         "historyFields": ["dealDate", "areaM2", "floor", "priceManwon", "pricePerM2", "cancelled", "outlier"],
-    }, 1 + len(recent) + len(history)  # 거래 단위 레코드 → 행 한도
+    }
+    if rent is not None:
+        body["rent"] = rent
+    # 거래·계약 단위 레코드 → 행 한도 (전월세는 최근 계약 행만, 구간 요약은 집계)
+    return body, 1 + len(recent) + len(history) + (len(rent["recent"]) if rent else 0)
 
 
 def search_term(q: str) -> str:

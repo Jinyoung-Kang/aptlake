@@ -60,6 +60,7 @@ def stack():
             host=ch_host, port=ch_port, username="admin", password=PW, database="aptlake"
         )
         _seed_clickhouse(admin)
+        _seed_rent(admin)
 
         env = {
             "PG_DSN": f"postgresql://api_app:{PW}@{pg_host}:{pg_port}/aptlake",
@@ -291,6 +292,77 @@ def _seed_clickhouse(c) -> None:
             "trades",
         ],
     )
+
+
+def _seed_rent(c) -> None:
+    """전월세 서빙 표 (ADR-050): 분당구 시군구 월 통계 2024년, 테스트단지 계약 2024-05~07 (매매 2024-07 과 같은 단지)."""
+    stat = ["contracts", "jeonse", "wolse", "renewals", "new_contracts", "rr_used", "jeonse_priced", "outliers",
+            "jeonse_p25_ppm2", "jeonse_median_ppm2", "jeonse_p75_ppm2", "wolse_median_rent", "wolse_median_deposit",
+            "low_sample", "dataset_ver"]  # fmt: skip
+    c.insert(
+        "region_rent_month",
+        [["41135", dt.date(2024, m, 1), 200 + m, 110 + m, 90, 50, 140 + m, 10, 100 + m, 1, 600.0, 700.0 + m, 800.0,
+          150.0, 5000.0, 0, "gold@test.1"] for m in range(1, 13)],
+        column_names=["sgg_cd", "month", *stat],
+    )  # fmt: skip
+    c.insert(
+        "rent_rollup_month",
+        [[rid, level, dt.date(2024, m, 1), (200 + m) * k, (110 + m) * k, 90 * k, 50 * k, (140 + m) * k, 10 * k,
+          (100 + m) * k, k, 600.0, 700.0 + m, 800.0, 150.0, 5000.0, 0, "gold@test.1"]
+         for rid, level, k in (("00", "nation", 10), ("41", "sido", 4)) for m in range(1, 13)],
+        column_names=["region_id", "level", "month", *stat],
+    )  # fmt: skip
+    ts = dt.datetime(2024, 8, 2, tzinfo=dt.UTC)
+    rows = []
+    for month, n in ((5, 20), (6, 20), (7, 60)):
+        for i in range(n):
+            jeonse = i < (40 if month == 7 else n)
+            deposit = 60000 + i * 100 if jeonse else 5000
+            rows.append(
+                [f"r41135-2024{month:02d}-{i:016x}-0", "41135", dt.date(2024, month, 1 + i % 28), "c_" + "a" * 20,
+                 "테스트단지", "백현동", "1-1", Decimal("84.9"), 3 + i % 15, deposit, 0 if jeonse else 150 + i,
+                 int(jeonse), deposit / 84.9, "신규" if i % 3 else "갱신", "24.08~26.08",
+                 "사용" if i % 10 == 0 else "", 55000 if i % 3 == 0 else None, None, 2009,
+                 int(month == 7 and i == 39), 1, ts, None]
+            )  # fmt: skip
+    c.insert(
+        "rent_current",
+        rows,
+        column_names=[
+            "rent_id",
+            "sgg_cd",
+            "deal_date",
+            "complex_key",
+            "apt_nm",
+            "umd_nm",
+            "jibun",
+            "area_m2",
+            "floor",
+            "deposit_manwon",
+            "monthly_rent_manwon",
+            "is_jeonse",
+            "deposit_ppm2",
+            "contract_type",
+            "contract_term",
+            "use_rr_right",
+            "pre_deposit_manwon",
+            "pre_monthly_rent_manwon",
+            "build_year",
+            "is_outlier",
+            "version",
+            "valid_from",
+            "missing_since",
+        ],  # fmt: skip
+    )
+    rid = "r41135-202407-0000000000000000-0"
+    c.insert(
+        "rent_version",
+        [[rid, dt.date(2024, 7, 1), 1, ts, ts + dt.timedelta(days=20), 0, "", "", "", None, None, 2009],
+         [rid, dt.date(2024, 7, 1), 2, ts + dt.timedelta(days=20), None, 1, "갱신", "24.08~26.08", "", 55000, None,
+          2009]],
+        column_names=["rent_id", "deal_date", "version", "valid_from", "valid_to", "is_current", "contract_type",
+                      "contract_term", "use_rr_right", "pre_deposit_manwon", "pre_monthly_rent_manwon", "build_year"],
+    )  # fmt: skip
 
 
 # ───── 앱·클라이언트 (모든 API 테스트 공용) ─────

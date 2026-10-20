@@ -41,6 +41,7 @@ from .features.ops.dagster import DagsterClient
 from .features.ops.router import router as ops_router
 from .features.quality.router import router as quality_router
 from .features.regions.router import router as regions_router
+from .features.rent.router import router as rent_router
 from .features.trades.router import router as trades_router
 from .features.usage.router import router as usage_router
 
@@ -149,6 +150,7 @@ def _build(name: str, internal: bool) -> FastAPI:
     else:
         for feature in (
             regions_router,
+            rent_router,
             trades_router,
             complexes_router,
             index_router,

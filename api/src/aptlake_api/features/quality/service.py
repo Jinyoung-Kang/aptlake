@@ -12,13 +12,16 @@ from ...core.values import iso, months_between
 Row = dict[str, Any]
 GRID_MAX_MONTHS = 60  # 전국 격자는 칸이 많다 (시군구 256 × 월)
 SIDO_GRID_MAX_MONTHS = 240  # 시도 하나는 시군구가 많아야 47개
+# 원천(ADR-050) → raw 보관 접두어. 수집 상태·예산 이름은 원천 이름 그대로('rtms' 매매·'rent' 전월세)
+RAW_PREFIX = {"rtms": "rtms", "rent": "rtms_rent"}
+SOURCES = tuple(RAW_PREFIX)
 
 
 class QualityStore(Protocol):
-    async def overview(self) -> dict[str, Any]: ...
-    async def grid(self, ym_from: str, ym_to: str, sido: str | None) -> list[Row]: ...
-    async def rollup(self, ym_from: str, ym_to: str) -> list[Row]: ...
-    async def partition(self, sgg: str, ym: str) -> dict[str, Any] | None: ...
+    async def overview(self, source: str) -> dict[str, Any]: ...
+    async def grid(self, ym_from: str, ym_to: str, sido: str | None, source: str) -> list[Row]: ...
+    async def rollup(self, ym_from: str, ym_to: str, source: str) -> list[Row]: ...
+    async def partition(self, sgg: str, ym: str, source: str) -> dict[str, Any] | None: ...
 
 
 def check_span(start: dt.date, end: dt.date, limit: int) -> None:
@@ -26,11 +29,15 @@ def check_span(start: dt.date, end: dt.date, limit: int) -> None:
         raise ApiError(422, "RANGE_TOO_LARGE", "Range Too Large", f"최대 {limit}개월")
 
 
-async def summary(store: QualityStore) -> tuple[dict, int]:
-    o = await store.overview()
+async def summary(store: QualityStore, source: str = "rtms") -> tuple[dict, int]:
+    o = await store.overview(source)
     fresh, ver = o["fresh"], o["ver"]
     return {
+        "source": source,
         "partitions": {r["status"]: r["n"] for r in o["status"]},
+        # 마지막 적재 원본의 원천 스키마 판별 파티션 수 — 매매 상세판 전환(ADR-049) 뒤 v1·v2 가 섞인 정도.
+        # 'unrecorded' = 판 기록(V013) 이전에 적재된 파티션
+        "schemaVersions": {str(r["schema_ver"] or "unrecorded"): r["n"] for r in o["schema"]},
         "freshness": {"lastFetchedAt": iso(fresh["fetched"]), "lastChangedAt": iso(fresh["changed"])},
         "dataset": None
         if not ver
@@ -65,30 +72,32 @@ async def summary(store: QualityStore) -> tuple[dict, int]:
 
 
 async def grid(
-    store: QualityStore, from_: str, to: str, start: dt.date, end: dt.date, sido: str | None
+    store: QualityStore, from_: str, to: str, start: dt.date, end: dt.date, sido: str | None, source: str = "rtms"
 ) -> tuple[dict, int]:
     cells: dict[str, dict[str, Any]] = {}
-    for r in await store.grid(start.strftime("%Y%m"), end.strftime("%Y%m"), sido):
+    for r in await store.grid(start.strftime("%Y%m"), end.strftime("%Y%m"), sido, source):
         cells.setdefault(r["sgg_cd"], {})[r["deal_ym"]] = [r["status"], r["rows_last"]]
     return {"from": from_, "to": to, "cells": cells, "legend": ["status", "rows"]}, 0
 
 
-async def rollup(store: QualityStore, from_: str, to: str, start: dt.date, end: dt.date) -> tuple[dict, int]:
+async def rollup(
+    store: QualityStore, from_: str, to: str, start: dt.date, end: dt.date, source: str = "rtms"
+) -> tuple[dict, int]:
     cells: dict[str, dict[str, dict[str, int]]] = {}
-    for r in await store.rollup(start.strftime("%Y%m"), end.strftime("%Y%m")):
+    for r in await store.rollup(start.strftime("%Y%m"), end.strftime("%Y%m"), source):
         cells.setdefault(r["sido"], {}).setdefault(r["deal_ym"], {})[r["status"]] = r["n"]
     return {"from": from_, "to": to, "cells": cells}, 0
 
 
-async def partition(store: QualityStore, sgg: str, deal_ym: str) -> tuple[dict, int]:
+async def partition(store: QualityStore, sgg: str, deal_ym: str, source: str = "rtms") -> tuple[dict, int]:
     ym = deal_ym.replace("-", "")
-    found = await store.partition(sgg, ym)
+    found = await store.partition(sgg, ym, source)
     if found is None:
         raise ApiError(404, "PARTITION_NOT_FOUND", "Not Found")
     part, checks, ver = found["part"], found["checks"], found["ver"]
     lineage = []
     if part["payload_sha256"]:
-        lineage.append(f"s3://raw/rtms/deal_ym={ym}/sgg_cd={sgg}/{part['payload_sha256']}/")
+        lineage.append(f"s3://raw/{RAW_PREFIX[source]}/deal_ym={ym}/sgg_cd={sgg}/{part['payload_sha256']}/")
     if ver:
         lineage += [f"{t}@snap {sid}" for t, sid in ver["snapshots"].items()]
         lineage.append(f"clickhouse ({ver['version']}, {iso(ver['published_at'])})")
