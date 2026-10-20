@@ -64,6 +64,7 @@ CASES: list[tuple[str, str, dict]] = [
     ("market_overview_default", "/v1/market/overview", {}),
     ("market_overview_month", "/v1/market/overview", {"ym": "2024-06"}),
     ("market_overview_out_of_range", "/v1/market/overview", {"ym": "2030-01"}),
+    ("market_overview_jeonse_ratio", "/v1/market/overview", {"ym": "2024-07"}),  # 전세가율이 값을 갖는 달 (ADR-050)
     ("market_ticker", "/v1/market/ticker", {}),
     ("search_complex", "/v1/search", {"q": "테스트"}),
     ("search_dong", "/v1/search", {"q": "백현"}),

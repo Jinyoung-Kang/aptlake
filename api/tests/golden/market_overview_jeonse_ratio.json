@@ -1,0 +1,147 @@
+{
+ "body": {
+  "available": {
+   "default": "2024-12",
+   "from": "2024-01",
+   "to": "2024-12"
+  },
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "definitions": {
+   "cancelRate": "해제 건수 ÷ 신고 건수(%)",
+   "jeonseRatio": "전세가율은 자체 산출 값 — 같은 시군구, 그 달까지 3개월 창의 전세 보증금 ㎡당 중앙값 ÷ 매매 ㎡당 중앙값. 양쪽 표본(해제·이상치·면적 0 제외)이 모두 5건 이상일 때만.",
+   "median": "㎡당 거래가 중위수(만원/㎡) — 해제·이상치 제외",
+   "medianYoY": "전년 같은 달 대비 중위수 변화율(%) — 두 달 모두 표본 30건 이상일 때만"
+  },
+  "disclaimer": "공개 신고 자료를 가공한 학습·포트폴리오용 데이터입니다. 공식 통계가 아니며 투자 판단 근거로 쓰지 마세요.",
+  "month": "2024-07",
+  "nation": {
+   "cancelRate": 4.67,
+   "cancelled": 50,
+   "median": 1507.0,
+   "medianYoY": null,
+   "p25": 1200.0,
+   "p75": 1800.0,
+   "regionId": "00",
+   "sample": 900,
+   "spark": {
+    "median": [
+     1501.0,
+     1502.0,
+     1503.0,
+     1504.0,
+     1505.0,
+     1506.0,
+     1507.0
+    ],
+    "months": [
+     "2024-01",
+     "2024-02",
+     "2024-03",
+     "2024-04",
+     "2024-05",
+     "2024-06",
+     "2024-07"
+    ],
+    "trades": [
+     960,
+     970,
+     980,
+     990,
+     1000,
+     1010,
+     1020
+    ]
+   },
+   "trades": 1020,
+   "tradesMoM": 0.99,
+   "tradesYoY": null
+  },
+  "provisional": false,
+  "rankings": {
+   "gainers": [],
+   "losers": [],
+   "volume": [
+    {
+     "cancelRate": 4.67,
+     "cancelled": 5,
+     "jeonseRatio": 61.3,
+     "lowSample": false,
+     "median": 1507.0,
+     "medianYoY": null,
+     "sample": 90,
+     "sggCd": "41135",
+     "trades": 102,
+     "tradesMoM": 0.99,
+     "tradesYoY": null
+    }
+   ]
+  },
+  "sgg": [
+   {
+    "cancelRate": 4.67,
+    "cancelled": 5,
+    "jeonseRatio": 61.3,
+    "lowSample": false,
+    "median": 1507.0,
+    "medianYoY": null,
+    "sample": 90,
+    "sggCd": "41135",
+    "trades": 102,
+    "tradesMoM": 0.99,
+    "tradesYoY": null
+   }
+  ],
+  "sido": [
+   {
+    "cancelRate": 4.67,
+    "cancelled": 20,
+    "median": 1507.0,
+    "medianYoY": null,
+    "p25": 1200.0,
+    "p75": 1800.0,
+    "regionId": "41",
+    "sample": 360,
+    "spark": {
+     "median": [
+      1501.0,
+      1502.0,
+      1503.0,
+      1504.0,
+      1505.0,
+      1506.0,
+      1507.0
+     ],
+     "months": [
+      "2024-01",
+      "2024-02",
+      "2024-03",
+      "2024-04",
+      "2024-05",
+      "2024-06",
+      "2024-07"
+     ],
+     "trades": [
+      384,
+      388,
+      392,
+      396,
+      400,
+      404,
+      408
+     ]
+    },
+    "trades": 408,
+    "tradesMoM": 0.99,
+    "tradesYoY": null
+   }
+  ]
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

@@ -1,0 +1,45 @@
+{
+ "body": {
+  "apiBudget": [],
+  "dataAsOf": null,
+  "dataset": {
+   "dataAsOf": "2024-08-05T03:00:00+00:00",
+   "publishedAt": "2024-08-05T03:00:00+00:00",
+   "version": "gold@test.1"
+  },
+  "datasetVersion": "gold@test.1",
+  "failedChecks7d": [
+   {
+    "asset": "silver.apt_rent",
+    "at": "<recent>",
+    "blocking": false,
+    "check": "missing_rows_under_3_observations",
+    "metric": {
+     "missing_3plus": 2
+    },
+    "partition": "202407",
+    "resolved": false,
+    "severity": "WARN"
+   }
+  ],
+  "freshness": {
+   "lastChangedAt": "2024-08-05T03:00:00+00:00",
+   "lastFetchedAt": "2024-08-05T03:00:00+00:00"
+  },
+  "partitions": {
+   "MERGED": 1,
+   "PENDING": 1
+  },
+  "schemaVersions": {
+   "1": 1
+  },
+  "source": "rent"
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, no-cache",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

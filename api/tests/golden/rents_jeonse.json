@@ -1,0 +1,158 @@
+{
+ "body": {
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "definitions": {
+   "contractType": "계약 구분은 원천 낱말 그대로 — '신규'·'갱신', 빈 값은 미상(신규로 세지 않음)",
+   "jeonse": "전세 = 월세가 0 인 계약 (원천에 전세·월세 구분 항목이 없어 정의로 나눈다)",
+   "useRRRight": "갱신요구권 사용은 원천 낱말 '사용' 인 계약 수, 빈 값은 미상"
+  },
+  "disclaimer": "공개 신고 자료를 가공한 학습·포트폴리오용 데이터입니다. 공식 통계가 아니며 투자 판단 근거로 쓰지 마세요.",
+  "items": [
+   {
+    "areaM2": 84.9,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "contractTerm": "24.08~26.08",
+    "contractType": "갱신",
+    "dealDate": "2024-07-28",
+    "depositManwon": 62700,
+    "depositPerM2": 738.5,
+    "floor": 15,
+    "kind": "jeonse",
+    "missingSince": null,
+    "monthlyRentManwon": 0,
+    "outlier": false,
+    "previousDepositManwon": 55000,
+    "previousMonthlyRentManwon": null,
+    "renewalRightUsed": null,
+    "rentId": "r41135-202407-000000000000001b-0",
+    "version": 1
+   },
+   {
+    "areaM2": 84.9,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "contractTerm": "24.08~26.08",
+    "contractType": "신규",
+    "dealDate": "2024-07-27",
+    "depositManwon": 62600,
+    "depositPerM2": 737.3,
+    "floor": 14,
+    "kind": "jeonse",
+    "missingSince": null,
+    "monthlyRentManwon": 0,
+    "outlier": false,
+    "previousDepositManwon": null,
+    "previousMonthlyRentManwon": null,
+    "renewalRightUsed": null,
+    "rentId": "r41135-202407-000000000000001a-0",
+    "version": 1
+   },
+   {
+    "areaM2": 84.9,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "contractTerm": "24.08~26.08",
+    "contractType": "신규",
+    "dealDate": "2024-07-26",
+    "depositManwon": 62500,
+    "depositPerM2": 736.2,
+    "floor": 13,
+    "kind": "jeonse",
+    "missingSince": null,
+    "monthlyRentManwon": 0,
+    "outlier": false,
+    "previousDepositManwon": null,
+    "previousMonthlyRentManwon": null,
+    "renewalRightUsed": null,
+    "rentId": "r41135-202407-0000000000000019-0",
+    "version": 1
+   },
+   {
+    "areaM2": 84.9,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "contractTerm": "24.08~26.08",
+    "contractType": "갱신",
+    "dealDate": "2024-07-25",
+    "depositManwon": 62400,
+    "depositPerM2": 735.0,
+    "floor": 12,
+    "kind": "jeonse",
+    "missingSince": null,
+    "monthlyRentManwon": 0,
+    "outlier": false,
+    "previousDepositManwon": 55000,
+    "previousMonthlyRentManwon": null,
+    "renewalRightUsed": null,
+    "rentId": "r41135-202407-0000000000000018-0",
+    "version": 1
+   },
+   {
+    "areaM2": 84.9,
+    "complex": {
+     "aptName": "테스트단지",
+     "buildYear": 2009,
+     "complexKey": "c_aaaaaaaaaaaaaaaaaaaa",
+     "jibun": "1-1",
+     "umdName": "백현동"
+    },
+    "contractTerm": "24.08~26.08",
+    "contractType": "신규",
+    "dealDate": "2024-07-24",
+    "depositManwon": 62300,
+    "depositPerM2": 733.8,
+    "floor": 11,
+    "kind": "jeonse",
+    "missingSince": null,
+    "monthlyRentManwon": 0,
+    "outlier": false,
+    "previousDepositManwon": null,
+    "previousMonthlyRentManwon": null,
+    "renewalRightUsed": null,
+    "rentId": "r41135-202407-0000000000000017-0",
+    "version": 1
+   }
+  ],
+  "page": {
+   "limit": 5,
+   "nextCursor": "eyJkIjoiMjAyNC0wNy0yNCIsImsiOiJyNDExMzUtMjAyNDA3LTAwMDAwMDAwMDAwMDAwMTctMCIsInEiOiI5ODhmYzVlZWIwNWUwYmFhIn0.Ps27oos96KXQUQu-QMj7fQ"
+  },
+  "summary": {
+   "count": 80,
+   "jeonse": 80,
+   "jeonseMedianDeposit": 61300.0,
+   "jeonseMedianPerM2": 722.0,
+   "wolse": 0,
+   "wolseMedianRent": null
+  }
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}
