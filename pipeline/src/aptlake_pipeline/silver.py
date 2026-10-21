@@ -8,12 +8,15 @@ Trino MERGE 는 대상 행 하나에 원천 행 하나만 매칭되고 'NOT MATC
             · 현재행과 속성 다름  → 현재행 닫기 (is_current=false, valid_to)
             · 현재행 없음          → 신규 거래 INSERT (version 1)
   NEWVER  : 속성이 바뀐 행을 매칭 키 NULL 로 한 번 더 → 반드시 NOT MATCHED → 새 버전 INSERT
+            (보강 열은 stage 가 비면 이전 현재행 값을 잇는다)
   MISSING : 이번 수집에 없는 현재행 → 삭제하지 않고 missing_since 표시 (FR-204)
 한 문장 = 한 Iceberg 스냅샷이므로 '닫기'와 '새 버전'이 따로 보이는 중간 상태가 없다.
 같은 stage 로 다시 실행하면 모든 행이 '속성 같음'으로 매칭돼 결과가 변하지 않는다 (NFR-01 멱등).
 
 매매(silver.apt_trade)와 전월세(silver.apt_rent, ADR-050)는 같은 문장 생성기·검사를 쓰고, 다른 점(표·키 열·
-stage 열·보강 열)만 MergeSpec 으로 받는다. 단지 차원·해제 비율·단지 일련번호 검사는 매매에만 있다.
+stage 열·보강 열)만 MergeSpec 으로 받는다. 해제 비율·단지 일련번호 검사는 매매에만 있다. 단지 차원에는 두 원천
+모두 차원에 없던 단지를 더하고 처음 관측일을 낮춘다(매매·전월세 계약 중 가장 이른 날). 빈 건축년도·일련번호는 매매가
+채우고, 전월세는 매매 기록이 없는 단지만 채운다 (COMPLEX_MERGE·RENT_COMPLEX_MERGE).
 """
 
 from __future__ import annotations
@@ -186,9 +189,9 @@ class MergeSpec:
     silver: str  # 'silver.apt_trade'
     key: str  # 지문 열 ('trade_key' | 'rent_key') — (key, dup_seq) 가 현재행 키
     schema: pa.Schema  # stage 열 (표의 열 순서와 같다)
-    enrich: tuple[str, ...]  # 보강 전용 열: 새 버전 없이 '속성 같음' 분기에서도 채운다
+    enrich: tuple[str, ...]  # 보강 전용 열: 새 버전 없이 '속성 같음' 분기에서도 채우고, 새 버전은 비면 이전 값을 잇는다
     keyed_rows: Callable[[list[Any], UmdAliases], list[dict]]
-    trade_extras: bool  # 단지 차원·해제 비율·단지 일련번호 검사 (매매만)
+    trade_extras: bool  # 해제 비율·단지 일련번호 검사, 단지 차원 COMPLEX_MERGE (매매만 — 전월세는 RENT_COMPLEX_MERGE)
 
     @property
     def stage_cols(self) -> list[str]:
@@ -284,6 +287,10 @@ def merge_sql(deal_ym: str, parts_values: str, spec: MergeSpec = TRADE_MERGE) ->
     )
     # 보강 전용 열은 '속성 같음' 분기에서도 채운다 — 새 버전을 만들지 않고 현재행 그대로 (기본판 행이면 NULL 이라 그대로)
     enrich = "".join(f",\n    {c} = coalesce(src.{c}, t.{c})" for c in spec.enrich)
+    # 새 버전(NEWVER)도 보강 열은 stage 가 비면 이전 현재행 값을 잇는다. 기본판(v1)으로 되돌린 동안 속성이 바뀐 거래는
+    # stage 값(NULL)을 그대로 넣어 이미 채운 일련번호·도로명이 새 현재행에서 사라졌다 ('속성 같음' 분기와 같은 규칙)
+    cur_enrich = "".join(f", {c}" for c in spec.enrich)
+    newver_cols = ", ".join(f"coalesce(s.{c}, c.{c})" if c in spec.enrich else f"s.{c}" for c in spec.stage_cols)
     insert_vals = (
         ", ".join(f"src.{c}" for c in data_cols)
         + ", src.new_version, src.ingested_at, NULL, true, src.ingest_id, src.ingest_id, "
@@ -298,13 +305,13 @@ USING (
         WHERE st.deal_ym = '{deal_ym}' AND st.sgg_cd IN (SELECT sgg_cd FROM p)
     ),
     cur AS (
-        SELECT {key}, dup_seq, sgg_cd, attr_hash, version FROM lake.{silver_tbl}
+        SELECT {key}, dup_seq, sgg_cd, attr_hash, version{cur_enrich} FROM lake.{silver_tbl}
         WHERE is_current AND deal_ym = '{deal_ym}' AND sgg_cd IN (SELECT sgg_cd FROM p)
     )
     SELECT s.{key} AS mk, s.dup_seq AS ms, 'UPSERT' AS action, 1 AS new_version, s.*
     FROM s
     UNION ALL
-    SELECT NULL, NULL, 'NEWVER', c.version + 1, s.*
+    SELECT NULL, NULL, 'NEWVER', c.version + 1, {newver_cols}
     FROM s JOIN cur c ON c.{key} = s.{key} AND c.dup_seq = s.dup_seq
     WHERE c.attr_hash <> s.attr_hash
     UNION ALL
@@ -341,7 +348,9 @@ def _trino_types(schema: pa.Schema = STAGE_SCHEMA) -> dict[str, str]:
 
 
 # 단지 일련번호(apt_seq): 이번 달 stage 에서 그 단지가 일련번호 하나만 가질 때만 비어 있는 곳을 채운다.
-# 여러 개거나 이미 다른 값이면 바꾸지 않고 경고 검사(complex_aptseq_conflicts)에 센다 — 공개 단지 ID 는 complex_key 그대로
+# 여러 개거나 이미 다른 값이면 바꾸지 않고 경고 검사(complex_aptseq_conflicts)에 센다 — 공개 단지 ID 는 complex_key 그대로.
+# 토지임대부 여부도 비어 있을 때만 채운다 — 전월세가 먼저 넣은 단지(아래 RENT_COMPLEX_MERGE)는 이 값이 없다.
+# 처음 관측일은 낮추기만 한다 — 전월세 문장도 같아서 반영 순서와 관계없이 매매·전월세 계약 중 가장 이른 날이 된다
 COMPLEX_MERGE = """
 MERGE INTO lake.silver.apt_complex t
 USING (
@@ -353,13 +362,79 @@ USING (
 ) s
 ON t.complex_key = s.complex_key
 WHEN MATCHED AND ((t.build_year IS NULL AND s.build_year IS NOT NULL) OR s.first_seen < t.first_seen
-                  OR (t.apt_seq IS NULL AND s.apt_seq IS NOT NULL)) THEN UPDATE SET
+                  OR (t.apt_seq IS NULL AND s.apt_seq IS NOT NULL)
+                  OR (t.land_leasehold IS NULL AND s.land_leasehold IS NOT NULL)) THEN UPDATE SET
     build_year = coalesce(t.build_year, s.build_year), first_seen = least(t.first_seen, s.first_seen),
-    apt_seq = coalesce(t.apt_seq, s.apt_seq)
+    apt_seq = coalesce(t.apt_seq, s.apt_seq), land_leasehold = coalesce(t.land_leasehold, s.land_leasehold)
 WHEN NOT MATCHED THEN INSERT (complex_key, sgg_cd, umd_nm, jibun, apt_nm, build_year, land_leasehold, first_seen, apt_seq)
     VALUES (s.complex_key, s.sgg_cd, s.umd_nm, s.jibun, s.apt_nm, s.build_year, s.land_leasehold, s.first_seen,
             s.apt_seq)
 """
+
+
+# 전월세에만 있는 단지 (매매 기록이 없어 차원에 없으면 그 전월세 계약의 '이 단지 보기'가 404 였다).
+# 차원에 없는 단지는 넣고, 이미 있는 단지는 처음 관측일을 더 이른 계약일로 낮춘다 — 넣을 때만 정하면 처음 반영된 달 기준으로
+# 굳었다(백필은 최신 달부터 반영된다, scheduling.plan_runs). 낮추기를 매매 기록이 없는 단지로만 한정했을 때는 '전월세 먼저 →
+# 매매 → 더 이른 전월세 달' 순서에서 두 원천 어느 쪽의 최솟값도 아닌 값이 남았다. 매매(COMPLEX_MERGE)도 낮추기만 하므로
+# 반영 순서와 관계없이 '매매·전월세 계약 중 가장 이른 계약일'로 모인다 (따라잡기는 현재 행 전체라 한 번에).
+# 빈 건축년도·일련번호는 매매 기록이 없는 단지만 채운다 — 매매 기록이 있는 단지(silver.apt_trade 에 행이 있음)는 매매가
+# 채운 값이라 그대로 둔다(비어 있을 때만 채우므로 먼저 채운 쪽 값이 남는다). 판정에 토지임대부 NULL 을 쓰지 않는다 — 매매도
+# 그 항목이 비면 NULL 이다. 매매 기록 확인은 silver.apt_trade 의 단지 키 열 하나를 끝까지 읽는다
+# (단지 키는 해시라 파티션·정렬로 줄지 않는다).
+# 토지임대부 여부는 전월세 원천에 없는 항목이라 NULL(미상)로 두고, 나중에 매매가 오면 COMPLEX_MERGE 가 채운다. 미상은
+# 서빙까지 NULL 그대로 간다 (gold complex_summary → ClickHouse complex.land_leasehold Nullable(UInt8) → API null, ADR-018).
+# 단지 일련번호는 그 범위에서 하나뿐일 때만. {source} = 반영한 달 stage 또는 현재 행 전체
+RENT_COMPLEX_MERGE = """
+MERGE INTO lake.silver.apt_complex t
+USING (
+    SELECT r.*, x.complex_key IS NOT NULL AS has_trade
+    FROM (
+        SELECT complex_key, min(sgg_cd) AS sgg_cd, min(umd_nm) AS umd_nm, min(jibun) AS jibun, min(apt_nm) AS apt_nm,
+               max(build_year) AS build_year, min(deal_date) AS first_seen,
+               CASE WHEN count(DISTINCT apt_seq) = 1 THEN min(apt_seq) END AS apt_seq
+        FROM {source}
+        GROUP BY complex_key
+    ) r
+    LEFT JOIN (SELECT DISTINCT complex_key FROM lake.silver.apt_trade) x ON x.complex_key = r.complex_key
+) s
+ON t.complex_key = s.complex_key
+WHEN MATCHED AND (s.first_seen < t.first_seen
+                  OR (NOT s.has_trade AND ((t.build_year IS NULL AND s.build_year IS NOT NULL)
+                                           OR (t.apt_seq IS NULL AND s.apt_seq IS NOT NULL)))) THEN UPDATE SET
+    first_seen = least(t.first_seen, s.first_seen),
+    build_year = CASE WHEN s.has_trade THEN t.build_year ELSE coalesce(t.build_year, s.build_year) END,
+    apt_seq = CASE WHEN s.has_trade THEN t.apt_seq ELSE coalesce(t.apt_seq, s.apt_seq) END
+WHEN NOT MATCHED THEN INSERT (complex_key, sgg_cd, umd_nm, jibun, apt_nm, build_year, land_leasehold, first_seen, apt_seq)
+    VALUES (s.complex_key, s.sgg_cd, s.umd_nm, s.jibun, s.apt_nm, s.build_year, CAST(NULL AS boolean), s.first_seen,
+            s.apt_seq)
+"""
+
+
+def rent_complex_sql(deal_ym: str | None = None) -> str:
+    """전월세 단지 넣기·바로잡기 문장. deal_ym: 그 달 반영 직후(stage.apt_rent 의 그 달), None: 이미 반영된 달 따라잡기
+    (silver.apt_rent 현재 행 전체 — 서빙(rent_serving)과 같은 범위)."""
+    if deal_ym is None:
+        return RENT_COMPLEX_MERGE.format(source="lake.silver.apt_rent WHERE is_current")
+    if not _YM.fullmatch(deal_ym):
+        raise ValueError(deal_ym)
+    return RENT_COMPLEX_MERGE.format(source=f"lake.stage.apt_rent WHERE deal_ym = '{deal_ym}'")
+
+
+def backfill_rent_complexes() -> dict[str, int | str]:
+    """이미 반영된 전월세 달의 단지를 차원에 더하고, 현재 행 전체 기준으로 처음 관측일을 낮추고 매매 기록이 없는 단지의
+    빈 값을 채운다 (멱등 — 다시 돌리면 넣은 수·고친 수 0). 주간 유지보수 작업이 부른다: 큐를 거치고(make maintenance) trino_write 풀이라
+    silver 반영과 겹치지 않는다. 고친 수 = MERGE 가 돌려준 행 수 - 넣은 수 (Trino 는 갱신을 한 행으로 센다)."""
+    if not catalog().table_exists(RENT_MERGE.silver):  # 전월세 첫 반영 전
+        return {"skipped": "not created yet"}
+
+    def count() -> int:
+        return int(execute("SELECT count(*) FROM lake.silver.apt_complex")[0][0])
+
+    before = count()
+    merged = int(execute(rent_complex_sql())[0][0])
+    after = count()
+    inserted = after - before
+    return {"complexes_before": before, "complexes_after": after, "inserted": inserted, "fixed": merged - inserted}
 
 
 def aptseq_conflicts(deal_ym: str) -> dict[str, int]:
@@ -419,8 +494,8 @@ def merge_month(deal_ym: str, run_id: str | None = None, spec: MergeSpec = TRADE
 
     before = _cancel_ratio(deal_ym) if spec.trade_extras else None
     execute(merge_sql(deal_ym, _parts_values(parts, ingested), spec))
-    if spec.trade_extras:
-        execute(COMPLEX_MERGE.format(deal_ym=deal_ym))
+    # 단지 차원: 두 원천 모두 그 달 단지를 넣고 처음 관측일을 낮춘다. 빈 값은 매매가 채우고, 전월세는 매매 기록 없는 단지만
+    execute(COMPLEX_MERGE.format(deal_ym=deal_ym) if spec.trade_extras else rent_complex_sql(deal_ym))
     after = _cancel_ratio(deal_ym) if spec.trade_extras else None
     snap = catalog().load_table(spec.silver).current_snapshot()
     summary.silver_snapshot = snap.snapshot_id if snap else None

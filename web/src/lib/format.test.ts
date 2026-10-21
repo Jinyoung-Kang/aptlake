@@ -17,6 +17,9 @@ describe("숫자 표기", () => {
     expect(manwon(100000)).toBe("10억");
     expect(manwon(8500)).toBe("8,500만");
     expect(manwon(null)).toBe(DASH);
+    // 원천이 음수를 보내는 항목(전월세 종전 보증금, ADR-050) — 억·만 양쪽에 부호가 붙어 '-2억 -9,870만' 이 되던 것
+    expect(manwon(-19870)).toBe("-1억 9,870만");
+    expect(manwon(-5200)).toBe("-5,200만");
   });
   it("변화율은 양수에 + 를 붙인다", () => {
     expect(pct(3.04159)).toBe("+3.0%");

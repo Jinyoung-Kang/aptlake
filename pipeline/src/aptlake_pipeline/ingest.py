@@ -16,9 +16,11 @@ import contextlib
 import datetime as dt
 import json
 import logging
+import time
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import boto3
 import pyarrow as pa
@@ -39,6 +41,12 @@ log = logging.getLogger(__name__)
 RAW_BUCKET = "raw"
 ROW_DROP_RATIO = 0.7  # 이전 적재 대비 30% 넘게 줄면 의심 → 격리
 ROW_DROP_MIN_PREV = 20  # 작은 파티션은 자연 변동이 커서 제외
+# bronze 적재(레이크 쓰기)의 일시 오류는 여기서 다시 한다 — 원천 호출은 이미 끝나 예산을 썼으므로, 실행 단위 재시도
+# (원천을 다시 부름, ADR-034 에서 제외)로 넘기면 그 달 전체를 다시 호출하게 된다. MinIO 쓰기 시간 초과(curl 28)로
+# 백필 중 실행이 두 번 실패했고, 그때마다 그 달 시군구 256곳을 다시 받아야 했다.
+# 시도는 처음 포함 최대 3회 (다시 하기 2회, 20·40초 뒤)
+APPEND_ATTEMPTS = 3
+APPEND_BACKOFF_S = 20.0
 
 BRONZE_SCHEMA = pa.schema(
     [
@@ -284,11 +292,34 @@ def ingest_month(
     run_id: str | None = None,
     spec: SourceSpec = TRADE,
 ) -> IngestSummary:
+    src = spec.name
+    ops_db.reset_fetching(deal_ym, source=src)  # 앞 실행이 정리 없이 끝났으면 (사유: 중단된 실행)
+    ops_db.ensure_partitions(deal_ym, sgg_codes, source=src)
+    try:
+        return _ingest_month(deal_ym, sgg_codes, reserve, run_id, spec)
+    except BaseException as e:
+        # 이 실행이 수집 중으로 둔 파티션을 실패 사유와 함께 되돌린다 (실행 취소의 Dagster 중단 예외도 BaseException 이라 함께).
+        # 원천 응답을 받았어도 bronze 적재 전에 실패하면 다시 받아야 한다 (예: 적재 중 MinIO 시간 초과).
+        # 기한은 1시간 뒤로 — 곧바로 기한이 되면 같은 실패가 센서 틱(5분)마다 같은 달을 다시 받아 예산을 쓴다
+        try:
+            ops_db.reset_fetching(
+                deal_ym,
+                source=src,
+                reason=f"run failed: {type(e).__name__}: {e}",
+                retry_after=ops_db.FAILED_RUN_RETRY_AFTER,
+            )
+        except Exception:
+            # 정리 실패가 원래 오류를 가리지 않게 — 남은 FETCHING 은 다음 실행이 '중단된 실행'으로 되돌린다
+            log.warning("reset FETCHING after failed run %s/%s failed", src, deal_ym, exc_info=True)
+        raise
+
+
+def _ingest_month(
+    deal_ym: str, sgg_codes: list[str], reserve: Callable[[int], None], run_id: str | None, spec: SourceSpec
+) -> IngestSummary:
     s = settings()
     src = spec.name
     summary = IngestSummary(deal_ym=deal_ym, requested=len(sgg_codes))
-    ops_db.reset_fetching(deal_ym, source=src)
-    ops_db.ensure_partitions(deal_ym, sgg_codes, source=src)
     states = ops_db.partition_states(deal_ym, source=src)
 
     async def run() -> list[FetchResult]:
@@ -306,7 +337,7 @@ def ingest_month(
         st = states[r.sgg_cd]
         fetched_at = dt.datetime.fromtimestamp(r.fetched_at, tz=dt.UTC)
         if st.payload_sha256 == r.sha256:
-            ops_db.mark_unchanged(deal_ym, r.sgg_cd, fetched_at, st.status, source=src)
+            ops_db.mark_unchanged(deal_ym, r.sgg_cd, fetched_at, source=src)
             summary.unchanged.append(r.sgg_cd)
             continue
         uri = archive.put(r)  # 격리 대상도 증거로 원본은 보관
@@ -332,21 +363,9 @@ def ingest_month(
         pending.append((r, ingest_id, _bronze_rows(r, ingest_id, uri, spec)))
 
     if pending:
-        table = catalog().load_table(spec.bronze)
-        shas = {r.sha256 for r, _, _ in pending}
-        existing = (
-            set(
-                table.scan(row_filter=eq("deal_ym", deal_ym), selected_fields=("payload_sha256",))
-                .to_arrow()
-                .column("payload_sha256")
-                .to_pylist()
-            )
-            & shas
+        table, existing, summary.bronze_rows = append_bronze(
+            lambda: catalog().load_table(spec.bronze), deal_ym, pending
         )
-        new_rows = [row for r, _, rows in pending if r.sha256 not in existing for row in rows]
-        if new_rows:
-            table.append(pa.Table.from_pylist(new_rows, schema=BRONZE_SCHEMA))
-            summary.bronze_rows = len(new_rows)
         snap = table.refresh().current_snapshot()
         summary.bronze_snapshot = snap.snapshot_id if snap else None
         for r, ingest_id, rows in pending:
@@ -364,6 +383,41 @@ def ingest_month(
             )
             summary.loaded.append(r.sgg_cd)
     return summary
+
+
+def append_bronze(
+    load_table: Callable[[], Any],
+    deal_ym: str,
+    pending: list[tuple[FetchResult, str, list[dict]]],
+    sleep: Callable[[float], None] = time.sleep,
+) -> tuple[Any, set[str], int]:
+    """bronze 에 없는 원본만 한 번의 커밋으로 더한다 → (표, 이미 있던 원본 해시, 더한 행 수).
+    레이크 쓰기의 일시 오류(OSError — 저장소 연결 시간 초과·카탈로그 연결 오류)는 원천을 다시 부르지 않고 여기서 다시 한다.
+    시도마다 이미 있는 원본을 다시 확인한다 — 앞 시도가 커밋까지 됐는데 응답만 끊겼으면 같은 행을 두 번 넣지 않는다."""
+    shas = {r.sha256 for r, _, _ in pending}
+    for attempt in range(APPEND_ATTEMPTS):
+        try:
+            table = load_table()
+            existing = (
+                set(
+                    table.scan(row_filter=eq("deal_ym", deal_ym), selected_fields=("payload_sha256",))
+                    .to_arrow()
+                    .column("payload_sha256")
+                    .to_pylist()
+                )
+                & shas
+            )
+            new_rows = [row for r, _, rows in pending if r.sha256 not in existing for row in rows]
+            if new_rows:
+                table.append(pa.Table.from_pylist(new_rows, schema=BRONZE_SCHEMA))
+            return table, existing, len(new_rows)
+        except OSError as e:  # 커밋 전 실패면 올린 데이터 파일은 고아가 되고 주간 정리가 지운다
+            if attempt == APPEND_ATTEMPTS - 1:
+                raise
+            log.warning("bronze append %s failed (%s), retry %d/%d", deal_ym, type(e).__name__, attempt + 1,
+                        APPEND_ATTEMPTS - 1)  # fmt: skip
+            sleep(APPEND_BACKOFF_S * (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 def _existing_ingest_id(table, deal_ym: str, r: FetchResult) -> str:

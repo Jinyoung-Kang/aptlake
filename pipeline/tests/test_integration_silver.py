@@ -1,7 +1,7 @@
 """정합성 통합 테스트 (기획서 12장): 실제 Lakekeeper + MinIO + Trino 에서 MERGE·SCD2 를 검증한다.
 
 실행: make test-integration   (dagster 컨테이너 안에서 pytest -m integration)
-합성 파티션(sgg 99999, 계약월 209901)만 쓰고, 끝나면 모두 지운다.
+합성 파티션(sgg 99999, 계약월 209901 — 반영 순서를 보는 단지 차원 시험만 209902 도)만 쓰고, 끝나면 모두 지운다.
 """
 
 from __future__ import annotations
@@ -15,9 +15,10 @@ import pytest
 pytestmark = pytest.mark.integration
 
 SGG, YM = "99999", "209901"
+YM2 = "209902"  # 반영 순서(최신 달부터·원천 사이)를 보는 시험의 두 번째 합성 달
 
 
-def row(apt="테스트단지", floor="5", amount="50,000", day="10", cancel=" ", cancel_day=" ", rgst=" "):
+def row(apt="테스트단지", floor="5", amount="50,000", day="10", cancel=" ", cancel_day=" ", rgst=" ", month="1"):
     return {
         "sggCd": SGG,
         "umdNm": "테스트동",
@@ -25,7 +26,7 @@ def row(apt="테스트단지", floor="5", amount="50,000", day="10", cancel=" ",
         "jibun": "1-1",
         "excluUseAr": "84.9",
         "dealYear": "2099",
-        "dealMonth": "1",
+        "dealMonth": month,
         "dealDay": day,
         "dealAmount": amount,
         "floor": floor,
@@ -71,28 +72,29 @@ def _cleanup():
         execute(f"DELETE FROM lake.{t} WHERE sgg_cd = '{SGG}'")
     with ops_db.conn() as c:
         c.execute("DELETE FROM ops.ingest_partition WHERE sgg_cd = %s", (SGG,))
-        c.execute("DELETE FROM ops.dq_result WHERE partition = %s", (YM,))
-        # pipeline 역할에는 month_state 삭제 권한이 없다(최소 권한) → 합성 달만 지우는 함수로 (V007)
-        c.execute("SELECT ops.forget_synthetic_month(%s)", (YM,))
+        for ym in (YM, YM2):
+            c.execute("DELETE FROM ops.dq_result WHERE partition = %s", (ym,))
+            # pipeline 역할에는 month_state 삭제 권한이 없다(최소 권한) → 합성 달만 지우는 함수로 (V007)
+            c.execute("SELECT ops.forget_synthetic_month(%s)", (ym,))
 
 
 _seq = {"n": 0}
 
 
-def load(items: list[dict], source: str = "rtms", bronze: str = "bronze.rtms_raw") -> None:
+def load(items: list[dict], source: str = "rtms", bronze: str = "bronze.rtms_raw", ym: str = YM) -> None:
     """수집 1회를 흉내: bronze 에 새 ingest 로 append, ops 상태 LOADED."""
     from aptlake_pipeline import ops_db
     from aptlake_pipeline.ingest import BRONZE_SCHEMA
     from aptlake_pipeline.lake import catalog
 
     _seq["n"] += 1
-    iid = f"{YM}-{SGG}-20990201T00000{_seq['n']}-test"
+    iid = f"{ym}-{SGG}-20990201T00000{_seq['n']}-test"
     now = dt.datetime.now(tz=dt.UTC)
     rows = [
         {
             "ingest_id": iid,
             "sgg_cd": SGG,
-            "deal_ym": YM,
+            "deal_ym": ym,
             "page_no": 1,
             "fetched_at": now,
             "payload_uri": "s3://raw/test/",
@@ -108,7 +110,7 @@ def load(items: list[dict], source: str = "rtms", bronze: str = "bronze.rtms_raw
         c.execute(
             """UPDATE ops.ingest_partition SET status='LOADED', last_ingest_id=%s, fetch_count=fetch_count+1,
                      rows_last=%s WHERE source=%s AND sgg_cd=%s AND deal_ym=%s""",
-            (iid, len(items), source, SGG, YM),
+            (iid, len(items), source, SGG, ym),
         )
 
 
@@ -220,12 +222,21 @@ def test_tradedev_recollection_fills_enrichment_without_new_versions(env):
         == f"{SGG}-1"
     )
 
+    # 기본판(v1)으로 되돌린 동안 속성이 바뀐 거래(A 해제): 새 버전도 이미 채운 보강 열을 잇는다 (stage 는 비어 있음)
+    load([A_CANCELLED, A_DUP, B])
+    merge()
+    cur = execute(f"""SELECT apt_nm, version, apt_seq, road_nm FROM lake.silver.apt_trade
+                      WHERE sgg_cd = '{SGG}' AND is_current""")
+    assert sorted(r[1] for r in cur) == [1, 1, 2]  # 해제된 한 건만 새 버전
+    assert all(r[2] and r[3] == "테스트로" for r in cur), cur
+    assert {r[2] for r in cur if r[1] == 2} == {f"{SGG}-9"}  # 직전 현재행 값 (위에서 거래 행에는 -9 가 채워졌다)
 
-def rent(deposit="30,000", monthly="0", floor="5", ctype="신규", day="10") -> dict:
+
+def rent(deposit="30,000", monthly="0", floor="5", ctype="신규", day="10", month="1", build_year="2000") -> dict:
     return {
         "sggCd": SGG, "umdNm": "테스트동", "aptNm": "테스트단지", "jibun": "1-1", "excluUseAr": "84.9",
-        "dealYear": "2099", "dealMonth": "1", "dealDay": day, "deposit": deposit, "monthlyRent": monthly,
-        "floor": floor, "buildYear": "2000", "contractTerm": "99.01~01.01", "contractType": ctype,
+        "dealYear": "2099", "dealMonth": month, "dealDay": day, "deposit": deposit, "monthlyRent": monthly,
+        "floor": floor, "buildYear": build_year, "contractTerm": "99.01~01.01", "contractType": ctype,
         "useRRRight": " ", "preDeposit": " ", "preMonthlyRent": " ", "aptSeq": f"{SGG}-1", "roadnm": "테스트로 1",
         "roadnmsggcd": SGG, "roadnmcd": "1234567", "roadnmseq": "1", "roadnmbcd": "0", "roadnmbonbun": "00001",
         "roadnmbubun": "00000",
@@ -257,6 +268,15 @@ def test_rent_scd2_lifecycle_uses_the_same_merge(env):
     first = rows()
     assert [tuple(r[:5]) for r in first] == [(1000, 50, 0, 1, True), (30000, 0, 0, 1, True), (30000, 0, 1, 1, True)]
     assert all(r[7] == f"{SGG}-1" for r in first)
+
+    def complexes():
+        cx = execute(
+            f"SELECT apt_nm, land_leasehold, first_seen, apt_seq FROM lake.silver.apt_complex WHERE sgg_cd = '{SGG}'"
+        )
+        return [(r[0], r[1], str(r[2]), r[3]) for r in cx]
+
+    # 매매가 없는 단지도 단지 차원에 (토지임대부는 전월세 원천에 없어 NULL, 처음 관측일 = 가장 이른 계약일)
+    assert complexes() == [("테스트단지", None, "2099-01-10", f"{SGG}-1")]
     with ops_db.conn() as c:
         c.execute("UPDATE ops.ingest_partition SET status='LOADED' WHERE source='rent' AND sgg_cd=%s", (SGG,))
     rent_merge()
@@ -270,7 +290,90 @@ def test_rent_scd2_lifecycle_uses_the_same_merge(env):
     assert {c["name"] for c in s.checks} == {"silver_no_duplicate_current_keys", "silver_matches_stage_per_partition",
                                              "missing_rows_under_3_observations", "dup_fingerprint_groups"}  # fmt: skip
     assert execute(f"SELECT count(*) FROM lake.silver.apt_trade WHERE sgg_cd = '{SGG}'")[0][0] == 0
+    assert complexes() == [("테스트단지", None, "2099-01-10", f"{SGG}-1")]  # 다시 반영해도 한 번만
     assert ops_db.month_needs_publish(YM, source="rent") and not ops_db.month_needs_publish(YM)
+
+
+def _complexes() -> list[tuple]:
+    from aptlake_pipeline.lake import execute
+
+    cx = execute(f"""SELECT apt_nm, land_leasehold, first_seen, build_year, apt_seq FROM lake.silver.apt_complex
+                     WHERE sgg_cd = '{SGG}'""")
+    return [(r[0], r[1], str(r[2]), r[3], r[4]) for r in cx]
+
+
+def _rent_merge(ym: str):
+    from aptlake_pipeline import silver
+
+    s = silver.merge_month(ym, run_id="itest", spec=silver.RENT_MERGE)
+    assert all(c["passed"] for c in s.checks if c["blocking"]), s.checks
+    return s
+
+
+def test_rent_only_complex_first_seen_does_not_depend_on_month_order(env):
+    """백필은 같은 등급이면 최신 달부터 반영한다(scheduling.plan_runs). 전월세에만 있는 단지를 넣을 때만 값을 정하면
+    처음 반영된 달로 처음 관측일이 굳었다 → 뒤에 반영한 이른 달이 처음 관측일을 낮추고 빈 건축년도를 채운다."""
+    from aptlake_pipeline import ops_db
+
+    _cleanup()
+    with ops_db.conn() as c:
+        for ym in (YM, YM2):
+            c.execute("INSERT INTO ops.ingest_partition (source, sgg_cd, deal_ym) VALUES ('rent', %s, %s)", (SGG, ym))
+    load([rent(month="2", day="15", build_year=" ")], "rent", "bronze.rtms_rent_raw", ym=YM2)  # 2월 먼저
+    _rent_merge(YM2)
+    assert _complexes() == [("테스트단지", None, "2099-02-15", None, f"{SGG}-1")]
+    load([rent(day="10")], "rent", "bronze.rtms_rent_raw")  # 1월이 나중에
+    _rent_merge(YM)
+    assert _complexes() == [("테스트단지", None, "2099-01-10", 2000, f"{SGG}-1")]
+    # 늦은 달을 다시 반영해도 더 이른 값은 그대로 — 낮추기·빈 값 채우기만
+    with ops_db.conn() as c:
+        c.execute(
+            "UPDATE ops.ingest_partition SET status='LOADED' WHERE source='rent' AND sgg_cd=%s AND deal_ym=%s",
+            (SGG, YM2),
+        )
+    _rent_merge(YM2)
+    assert _complexes() == [("테스트단지", None, "2099-01-10", 2000, f"{SGG}-1")]
+
+
+def test_rent_lowers_first_seen_of_trade_complexes_but_does_not_fill_their_values(env):
+    """매매 먼저인 순서: 매매가 만든 단지도 전월세의 더 이른 계약일로 처음 관측일을 낮춘다(처음 관측일 = 두 원천 계약 중
+    가장 이른 날). 비어 있는 건축년도·일련번호는 매매가 채울 값이라 전월세 값으로 채우지 않는다. 매매도 토지임대부가 비면
+    NULL 이라 그 값으로 가르지 않는다 (여기서는 매매 행의 토지임대부를 비워 둔다)."""
+    from aptlake_pipeline import ops_db
+
+    _cleanup()
+    with ops_db.conn() as c:
+        c.execute("INSERT INTO ops.ingest_partition (sgg_cd, deal_ym) VALUES (%s, %s)", (SGG, YM))
+        c.execute("INSERT INTO ops.ingest_partition (source, sgg_cd, deal_ym) VALUES ('rent', %s, %s)", (SGG, YM))
+    load([{**row(day="20"), "landLeaseholdGbn": " ", "buildYear": " "}])
+    merge()
+    assert _complexes() == [("테스트단지", None, "2099-01-20", None, None)]
+    load([rent(day="5")], "rent", "bronze.rtms_rent_raw")
+    _rent_merge(YM)
+    assert _complexes() == [("테스트단지", None, "2099-01-05", None, None)]
+
+
+def test_first_seen_does_not_depend_on_source_order(env):
+    """전월세 먼저 → 매매 → 더 이른 전월세 달. 전월세의 낮추기를 매매 기록이 없는 단지로만 한정했을 때는 처음 반영된
+    전월세 달(02-15)이 남았다 — 전월세 최솟값(01-05)도 매매 최솟값(02-20)도 아니다. 두 문장 모두 낮추기만 하므로 매매
+    먼저인 순서(위 시험)와 같이 두 원천 계약 중 가장 이른 날이 된다."""
+    from aptlake_pipeline import ops_db, silver
+
+    _cleanup()
+    with ops_db.conn() as c:
+        c.execute("INSERT INTO ops.ingest_partition (sgg_cd, deal_ym) VALUES (%s, %s)", (SGG, YM2))
+        for ym in (YM, YM2):
+            c.execute("INSERT INTO ops.ingest_partition (source, sgg_cd, deal_ym) VALUES ('rent', %s, %s)", (SGG, ym))
+    load([rent(month="2", day="15")], "rent", "bronze.rtms_rent_raw", ym=YM2)  # 전월세에만 있는 단지로 먼저
+    _rent_merge(YM2)
+    assert _complexes() == [("테스트단지", None, "2099-02-15", 2000, f"{SGG}-1")]
+    load([row(month="2", day="20")], ym=YM2)  # 그 뒤 매매 — 더 늦은 계약일이라 처음 관측일 그대로, 토지임대부만 채움
+    s = silver.merge_month(YM2, run_id="itest")
+    assert all(c["passed"] for c in s.checks if c["blocking"]), s.checks
+    assert _complexes() == [("테스트단지", False, "2099-02-15", 2000, f"{SGG}-1")]
+    load([rent(day="5")], "rent", "bronze.rtms_rent_raw")  # 더 이른 전월세 달이 매매 뒤에
+    _rent_merge(YM)
+    assert _complexes() == [("테스트단지", False, "2099-01-05", 2000, f"{SGG}-1")]
 
 
 def test_budget_reserve_is_atomic_under_concurrency():

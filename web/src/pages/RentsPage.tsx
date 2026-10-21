@@ -1,7 +1,7 @@
 import type { Rent, RentSummary, RentVersion } from "../api/types";
 import { paths, type RentQuery } from "../api/endpoints";
-import { AREA_BANDS, maxPickDate, versionValue } from "../domain/trades";
-import { KINDS, RENT_VERSION_FIELD, rentFilter } from "../domain/rent";
+import { AREA_BANDS, maxPickDate } from "../domain/trades";
+import { KINDS, RENT_VERSION_FIELD, rentAmount, rentFilter, rentVersionValue } from "../domain/rent";
 import { useCursorPager } from "../hooks/useCursorPager";
 import { useApi, useAvailable } from "../hooks/useApi";
 import DateRangePicker from "../components/DateRangePicker";
@@ -28,11 +28,12 @@ function Detail({ r, onClose }: { r: Rent; onClose: () => void }) {
         {r.kind === "wolse" && <span className="unit">· 월 {manwon(r.monthlyRentManwon)}원</span>}
       </div>
       <div className="quote-sub">{r.dealDate.replaceAll("-", ".")} 계약 · {r.kind === "jeonse" ? "전세" : "월세"} · 전용 {num(r.areaM2, 2)}<Sqm /> · {r.floor ?? DASH}층</div>
+      {/* 원천이 비운 값(API null)은 '미상' — 아래 버전 이력과 같다. 종전 금액의 0·음수는 원천 값 그대로 */}
       <div className="stat-list one" style={{ marginTop: 10 }}>
-        <div className="stat-row"><span className="k">계약 구분</span><span className="v">{r.contractType ?? "미상"}</span></div>
-        <div className="stat-row"><span className="k">계약 기간</span><span className="v">{r.contractTerm ?? DASH}</span></div>
-        <div className="stat-row"><span className="k">갱신요구권</span><span className="v">{r.renewalRightUsed ?? "미상"}</span></div>
-        <div className="stat-row"><span className="k">종전 보증금 / 월세</span><span className="v">{r.previousDepositManwon == null ? DASH : manwon(r.previousDepositManwon)} / {r.previousMonthlyRentManwon == null ? DASH : manwon(r.previousMonthlyRentManwon)}</span></div>
+        <div className="stat-row"><span className="k">계약 구분</span><span className="v">{rentVersionValue(r.contractType)}</span></div>
+        <div className="stat-row"><span className="k">계약 기간</span><span className="v">{rentVersionValue(r.contractTerm)}</span></div>
+        <div className="stat-row"><span className="k">갱신요구권</span><span className="v">{rentVersionValue(r.renewalRightUsed)}</span></div>
+        <div className="stat-row"><span className="k">종전 보증금 / 월세</span><span className="v">{rentAmount(r.previousDepositManwon)} / {rentAmount(r.previousMonthlyRentManwon)}</span></div>
         <div className="stat-row"><span className="k">식별자</span><span className="v"><code>{r.rentId}</code></span></div>
       </div>
       <h3 style={{ fontSize: 14, margin: "16px 0 8px" }}>버전 이력 <span className="muted small">원천 값이 바뀔 때마다 새 버전 (SCD2)</span></h3>
@@ -44,7 +45,8 @@ function Detail({ r, onClose }: { r: Rent; onClose: () => void }) {
               <strong>v{v.version}</strong> {v.current ? <Badge tone="info">현재</Badge> : null}
               <div className="muted small">{kst(v.validFrom, false)} 부터{v.validTo ? ` · ${kst(v.validTo, false)} 까지` : ""}</div>
               {v.version === 1 && v.changes.length === 0 ? <div className="ch">최초 관측</div> : null}
-              {v.changes.map((c) => <div key={c.field} className="ch">{RENT_VERSION_FIELD[c.field] ?? c.field}: {versionValue(c.from)} → <strong>{versionValue(c.to)}</strong></div>)}
+              {/* 전월세 원천이 비운 값(API null)은 '미상' — 매매 이력의 '없음'(해제·등기 없음)과 뜻이 다르다 */}
+              {v.changes.map((c) => <div key={c.field} className="ch">{RENT_VERSION_FIELD[c.field] ?? c.field}: {rentVersionValue(c.from)} → <strong>{rentVersionValue(c.to)}</strong></div>)}
             </li>
           ))}
         </ul>

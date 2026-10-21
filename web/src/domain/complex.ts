@@ -1,4 +1,4 @@
-// 단지 화면의 규칙 (React 무관): 전용면적 구간별 거래 이력과 중위가.
+// 단지 화면의 규칙 (React 무관): 전용면적 구간별 거래 이력과 중위가, 매매 거래 유무.
 import type { ComplexDetail } from "../api/types";
 import { quantile } from "../lib/format";
 
@@ -20,6 +20,12 @@ export function inBand(history: History, b: Band): History {
 export function presentBands(history: History): Band[] {
   return COMPLEX_BANDS.filter((x) => x.key === "all" || history.some((h) => h[1] >= x.lo && h[1] < x.hi));
 }
+/** 매매 거래 기록이 있는지 — 전월세에만 있는 단지는 validTrades=0 · 이력·최근 거래가 비어 있다.
+ *  해제만 있는 단지는 유효 거래가 0 이어도 이력이 있으므로 거래가 있는 단지다 */
+export function hasTrades(d: Pick<ComplexDetail, "complex" | "history" | "recentTrades">): boolean {
+  return d.complex.validTrades > 0 || d.history.length > 0 || d.recentTrades.length > 0;
+}
+
 /** 해제·이상치를 뺀 거래의 m²당 중위가와 건수 */
 export function validMedian(history: History): { median: number | null; n: number } {
   const valid = history.filter((h) => !h[5] && !h[6]);

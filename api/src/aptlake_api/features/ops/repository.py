@@ -15,6 +15,16 @@ from ..quality.repository import RESOLVED
 from .service import SourceUnavailable
 
 Row = dict[str, Any]
+# 하루 백필 몫의 입력 (규칙은 service.backfill_share) — 파이프라인과 같은 출처·같은 조건:
+# 수집 대상 시군구 수 = ops_db.leaf_regions(), 재확인 대기 = definitions._recheck_pending
+# (3~12개월 전 계약월에 기한이 된 MERGED·RETRY 파티션이 있는가)
+RESERVES_SQL = """
+    SELECT (SELECT count(*) FROM ops.region WHERE is_leaf AND active) AS regions,
+           EXISTS (SELECT 1 FROM ops.ingest_partition
+                   WHERE source = %s AND next_due_at <= now() AND status IN ('MERGED','RETRY')
+                     AND to_date(deal_ym, 'YYYYMM') BETWEEN (date_trunc('month', now()) - interval '12 months')
+                                                        AND (date_trunc('month', now()) - interval '3 months'))
+             AS recheck_pending"""
 
 
 class OpsRepository:
@@ -52,6 +62,9 @@ class OpsRepository:
             "SELECT status, count(*) AS n FROM ops.ingest_partition WHERE source = %s GROUP BY status", (source,)
         )
         return {r["status"]: r["n"] for r in rows}
+
+    async def budget_reserves(self, source: str = "rtms") -> Row:
+        return cast(Row, await self._one(RESERVES_SQL, (source,)))
 
     async def month_counts(self, source: str = "rtms") -> Row | None:
         return await self._one(

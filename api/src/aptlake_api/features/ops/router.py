@@ -44,7 +44,7 @@ async def status(request: Request, p: Principal = require_scope("ops", "ops_read
             rent_budget_pct=settings().rent_budget_pct,
         )
 
-    return await respond(request, "ops_status", {}, compute, cache=False)
+    return await respond(request, "ops_status", {}, compute, cache=False, source="all")  # 두 원천의 수집 상태
 
 
 @router.get("/errors", summary="오류 로그 (파이프라인·원천 수집·품질 검사·API)")
@@ -70,6 +70,7 @@ async def errors(
             now=_utcnow(),
         ),
         cache=False,
+        source="all",
     )
 
 
@@ -105,4 +106,5 @@ async def connectivity(request: Request, p: Principal = require_scope("ops", "op
             rent_budget_pct=settings().rent_budget_pct,
         ),
         cache=False,
+        source="all",
     )

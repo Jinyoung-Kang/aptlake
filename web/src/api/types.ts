@@ -24,7 +24,7 @@ export type AreaSummary = {
 export type SggSummary = {
   sggCd: string; trades: number; cancelled: number; cancelRate: number | null; median: number | null;
   sample: number; lowSample: boolean; medianYoY: number | null; tradesYoY: number | null; tradesMoM: number | null;
-  /** 전세가율(%) — 그 달까지 3개월 창, 양쪽 표본 5건 이상일 때만 (ADR-050) */
+  /** 전세가율(%) — 그 달까지 3개월 창, 양쪽 표본 5건 이상일 때만. 창 안에 매매·전월세 자료가 발행된 적이 없는 달이 있으면 null (ADR-050) */
   jeonseRatio?: number | null;
 };
 
@@ -71,11 +71,14 @@ export type TradeSummary = { count: number; cancelled: number; medianPpm2: numbe
 export type TradePage = { items: Trade[]; summary: TradeSummary | null; page: { nextCursor: string | null } };
 export type TradeVersion = { version: number; validFrom: string; validTo: string | null; current: boolean; changes: { field: string; from: unknown; to: unknown }[] };
 export type ComplexDetail = {
-  complex: { complexKey: string; sggCd: string; umdName: string; jibun: string | null; aptName: string; buildYear: number | null; landLeasehold: boolean; firstSeen: string; validTrades: number };
+  complex: { complexKey: string; sggCd: string; umdName: string; jibun: string | null; aptName: string; buildYear: number | null;
+             /** 토지임대부 — 매매 원천에만 있는 항목이라 전월세에만 나온 단지는 null(미상) */
+             landLeasehold: boolean | null; firstSeen: string; validTrades: number };
   recentTrades: Trade[];
   /** [계약일, 전용면적, 층, 거래금액(만원), m²당(만원), 해제(0/1), 이상치(0/1)] */
   history: [string, number, number | null, number, number, number, number][];
-  /** 전월세 요약 (ADR-050) — 전월세가 아직 발행되지 않았으면 없음 */
+  /** 전월세 요약 (ADR-050) — 전월세가 아직 발행되지 않았으면 없음.
+   *  전월세에만 있는 단지는 validTrades=0 · recentTrades=[] · history=[] 이고 이 블록만 있다 */
   rent?: ComplexRent;
 };
 export type ComplexHit = { complexKey: string; sggCd: string; umdName: string; aptName: string; buildYear: number | null; validTrades: number };
@@ -87,11 +90,14 @@ export type RentMonthRow = {
   jeonseP25PerM2: number | null; jeonseMedianPerM2: number | null; jeonseP75PerM2: number | null;
   wolseMedianRent: number | null; wolseMedianDeposit: number | null; provisional?: boolean; lowSample?: boolean;
 };
-export type RentMonths = { region: { sggCd: string; name: string; fullName: string }; items: RentMonthRow[];
+/** uncollectedMonths('YYYY-MM') = 그 시군구 전월세 자료가 아직 발행된 적이 없는 달(수집 전·첫 수집 실패·첫 발행 전). items 에도 이 목록에도 없는 달은 계약 0건 */
+export type RentMonths = { region: { sggCd: string; name: string; fullName: string }; items: RentMonthRow[]; uncollectedMonths: string[];
   definitions: Record<string, string>; notes: string[]; disclaimer: string };
 export type JeonseRatioRow = {
   dealYm: string; windowFrom: string; tradeMedianPerM2: number | null; tradeSample: number;
   jeonseMedianPerM2: number | null; jeonseSample: number; ratioPct: number | null; provisional?: boolean;
+  /** 창의 모든 달이 매매·전월세 모두 발행된 적이 있는지 — false 면 ratioPct·tradeMedianPerM2·jeonseMedianPerM2 = null */
+  complete: boolean;
 };
 export type JeonseRatio = { region: { sggCd: string; name: string }; items: JeonseRatioRow[];
   definition: { windowMonths: number; minSample: number; unit: string }; notes: string[] };
@@ -116,7 +122,9 @@ export type RentDistribution = {
   notes?: string[];
 };
 export type ComplexRent = {
-  window: { from: string; to: string }; contracts: number;
+  /** complete = 단지 시군구에서 창(12개월)의 모든 달이 매매·전월세 모두 발행된 적이 있는지 — false 면 byArea[].ratioPct 가 모두 null
+   *  (계약 수·중앙값·매매 표본은 발행된 계약 기준 그대로) */
+  window: { from: string; to: string; complete: boolean }; contracts: number;
   byArea: { band: string; jeonse: number; jeonseMedianDeposit: number | null; jeonseMedianPerM2: number | null;
             wolse: number; wolseMedianRent: number | null; wolseMedianDeposit: number | null;
             tradeSample: number; tradeMedianPerM2: number | null; ratioPct: number | null }[];
@@ -140,9 +148,10 @@ export type FailedCheck = { asset: string; partition: string | null; check: stri
 export type QualitySummary = {
   source?: "rtms" | "rent";
   partitions: Record<string, number>;
-  /** 마지막 적재 원본의 원천 스키마 판별 파티션 수 ('unrecorded' = 판 기록 이전 적재) */
+  /** 마지막 적재 원본의 원천 스키마 판별 파티션 수 ('unrecorded' = 판 기록 이전 적재, 'empty' = 마지막 응답 0건이라 판을 가릴 수 없음) */
   schemaVersions?: Record<string, number>;
   freshness: { lastFetchedAt: string | null; lastChangedAt: string | null };
+  /** 고른 원천의 마지막 발행 */
   dataset: { version: string; publishedAt: string; dataAsOf: string } | null;
   failedChecks7d: FailedCheck[];
 };

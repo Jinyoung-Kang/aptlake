@@ -8,7 +8,8 @@ export const METRICS: { value: Metric; label: string; unit: string; title: strin
   { value: "medianYoY", label: "가격 변화(전년비)", unit: "%", title: "전년 같은 달 대비 중위수 변화율 — 두 달 모두 표본 30건 이상" },
   { value: "trades", label: "거래량", unit: "건", title: "해제 제외 신고 건수" },
   { value: "cancelRate", label: "해제율", unit: "%", title: "해제 건수 ÷ 신고 건수" },
-  { value: "jeonseRatio", label: "전세가율", unit: "%", title: "그 달까지 3개월 전세 보증금 m²당 중앙값 ÷ 매매 m²당 중앙값 — 양쪽 표본 5건 이상, 자체 산출" },
+  // 표본 조건과 창 완결 조건 (API market overview 의 notes 와 같은 규칙, ADR-050) — 둘 중 하나라도 어긋나면 회색
+  { value: "jeonseRatio", label: "전세가율", unit: "%", title: "그 달까지 3개월 전세 보증금 m²당 중앙값 ÷ 매매 m²당 중앙값 — 양쪽 표본 5건 이상이고 창의 모든 달이 매매·전월세 모두 발행된 적이 있는 시군구만, 자체 산출" },
 ];
 
 /** URL 의 지표 이름 — 모르는 값이면 기본(중위가). 이름·단위와 칠하는 값이 어긋나지 않게 한곳에서 정한다. */

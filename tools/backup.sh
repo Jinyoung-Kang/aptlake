@@ -37,11 +37,14 @@ for db in aptlake lakekeeper dagster; do
 done
 cp .env "$WORK/env"
 # 덤프 직후의 값 — 복원본이 이 값과 같아야 한다 (운영 값은 백업 뒤에도 바뀌므로 비교 기준으로 쓰지 않는다)
+# 수집 상태·발행 기록은 원천별(V013, 매매 rtms/trade · 전월세 rent) — 한 원천만 빠진 복원도 잡히게 원천마다 센다. '|' 는 구분자라 SQL 에 쓰지 않는다
+PART_SQL="SELECT string_agg(concat(source, ':', n), ',' ORDER BY source) FROM (SELECT source, count(*) AS n FROM ops.ingest_partition GROUP BY source) s"
+VER_SQL="SELECT string_agg(concat(source, ':', version), ',' ORDER BY source) FROM (SELECT DISTINCT ON (source) source, version FROM ops.dataset_version ORDER BY source, published_at DESC) s"
 {
   echo "aptlake|SELECT count(*) FROM api.client|$(q aptlake 'SELECT count(*) FROM api.client')"
   echo "aptlake|SELECT count(*) FROM api.api_key|$(q aptlake 'SELECT count(*) FROM api.api_key')"
-  echo "aptlake|SELECT count(*) FROM ops.ingest_partition|$(q aptlake 'SELECT count(*) FROM ops.ingest_partition')"
-  echo "aptlake|SELECT version FROM ops.dataset_version ORDER BY published_at DESC LIMIT 1|$(q aptlake 'SELECT version FROM ops.dataset_version ORDER BY published_at DESC LIMIT 1')"
+  echo "aptlake|$PART_SQL|$(q aptlake "$PART_SQL")"
+  echo "aptlake|$VER_SQL|$(q aptlake "$VER_SQL")"
   echo "lakekeeper|SELECT count(*) FROM tabular|$(q lakekeeper 'SELECT count(*) FROM tabular')"
 } > "$WORK/manifest.txt"
 echo "postgres: $(du -sh "$WORK" | cut -f1)"

@@ -26,13 +26,17 @@ router = APIRouter(prefix="/v1")
 async def overview(
     request: Request, ym: Annotated[str | None, Query(pattern=YM_Q)] = None, p: Principal = require_scope("read")
 ) -> Response:
+    res = request.app.state.res
     return await respond(
         request,
         "market_overview",
         {"ym": ym},
         lambda: service.overview(
-            MarketRepository(request.app.state.res.ch), ym_to_date(ym) if ym else None, is_provisional=provisional
+            MarketRepository(res.ch, res.pg), ym_to_date(ym) if ym else None, is_provisional=provisional
         ),
+        # 시군구 전세가율(매매 + 전월세)이 섞인다 — 기준 시각은 두 원천 중 이른 쪽.
+        # 전세가율 창 완결은 발행(버전)과 함께만 바뀌는 기록으로 정한다 → 결과 캐시 그대로 (rent.service.done_partitions)
+        source="all",
     )
 
 
@@ -42,7 +46,9 @@ async def ticker(request: Request, p: Principal = require_scope("read")) -> Resp
         request,
         "market_ticker",
         {},
-        lambda: service.ticker(MarketRepository(request.app.state.res.ch), is_provisional=provisional),
+        lambda: service.ticker(
+            MarketRepository(request.app.state.res.ch, request.app.state.res.pg), is_provisional=provisional
+        ),
     )
 
 

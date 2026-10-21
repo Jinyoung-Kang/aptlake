@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS aptlake.complex
     jibun           String,
     apt_nm          String,
     build_year      Nullable(UInt16),
-    land_leasehold  UInt8,
+    land_leasehold  Nullable(UInt8),  -- NULL = 미상 (전월세에만 있는 단지 — 원천에 항목 없음) — ../migrate/complex_land_leasehold_nullable.sql
     first_seen      Date,
     trades          UInt32
 ) ENGINE = MergeTree ORDER BY complex_key;
@@ -222,8 +222,8 @@ CREATE TABLE IF NOT EXISTS aptlake.rent_current
     contract_type            LowCardinality(String),   -- 원천 원문 '신규'·'갱신', '' = 미상
     contract_term            String,                   -- 원천 원문 'YY.MM~YY.MM'
     use_rr_right             LowCardinality(String),   -- 원천 원문 '사용', '' = 미상
-    pre_deposit_manwon       Nullable(UInt32),
-    pre_monthly_rent_manwon  Nullable(UInt32),
+    pre_deposit_manwon       Nullable(Int32),          -- 종전 보증금: 원천이 음수도 보낸다(원문 그대로) — ../migrate/rent_signed_pre_amounts.sql
+    pre_monthly_rent_manwon  Nullable(Int32),
     build_year               Nullable(UInt16),
     is_outlier               UInt8,
     version                  UInt16,
@@ -245,8 +245,8 @@ CREATE TABLE IF NOT EXISTS aptlake.rent_version
     contract_type            LowCardinality(String),
     contract_term            String,
     use_rr_right             LowCardinality(String),
-    pre_deposit_manwon       Nullable(UInt32),
-    pre_monthly_rent_manwon  Nullable(UInt32),
+    pre_deposit_manwon       Nullable(Int32),          -- 종전 보증금: 원천이 음수도 보낸다(원문 그대로) — ../migrate/rent_signed_pre_amounts.sql
+    pre_monthly_rent_manwon  Nullable(Int32),
     build_year               Nullable(UInt16)
 ) ENGINE = MergeTree PARTITION BY toYYYYMM(deal_date) ORDER BY (rent_id, valid_from);
 

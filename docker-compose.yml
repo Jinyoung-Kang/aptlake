@@ -176,6 +176,12 @@ services:
         if [ "$$(ch -q "SELECT extract(engine_full, 'index_granularity = ([0-9]+)') FROM system.tables WHERE database = 'aptlake' AND name = 'trade_current'")" != 1024 ]; then
           if ch --multiquery < /migrate/trade_current_granularity.sql; then echo ch trade_current → index_granularity 1024;
           else ch --multiquery < /init/01-schema.sql; exit 1; fi;
+        fi &&
+        if [ "$$(ch -q "SELECT count() FROM system.columns WHERE database = 'aptlake' AND table IN ('rent_current', 'rent_current_staging', 'rent_version', 'rent_version_staging') AND name IN ('pre_deposit_manwon', 'pre_monthly_rent_manwon') AND type = 'Nullable(UInt32)'")" != 0 ]; then
+          ch --multiquery < /migrate/rent_signed_pre_amounts.sql && echo ch rent previous amounts → signed;
+        fi &&
+        if [ "$$(ch -q "SELECT type FROM system.columns WHERE database = 'aptlake' AND table = 'complex' AND name = 'land_leasehold'")" = "UInt8" ]; then
+          ch --multiquery < /migrate/complex_land_leasehold_nullable.sql && echo ch complex land_leasehold → nullable;
         fi && echo ch schema up to date
     environment:
       CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}
@@ -186,12 +192,13 @@ services:
   redis:
     image: redis:7.4-alpine
     # ACL: 기본 사용자 끄고, api(한도·캐시·키 캐시)와 pipeline(호출 예산·데이터셋 버전)에 키 접두사·명령 범위를 나눠 준다
+    # 기본 사용자는 off(로그인 불가)인 채 권한만 준다 — AOF 재적재가 EXEC 를 기본 사용자 권한으로 검사해, 없으면 Lua·MULTI 로 쓴 키(budget:*)가 재시작마다 NOPERM 으로 버려졌다
     command:
       - sh
       - -c
       - >-
         exec redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy volatile-ttl
-        --user default off
+        --user default off "~*" "&*" "+@all"
         --user api on ">$$REDIS_API_PASSWORD" "~al:*" "+@all" "-@admin" "-@dangerous"
         --user pipeline on ">$$REDIS_PIPELINE_PASSWORD" "~budget:*" "~al:ds:*" "+@all" "-@admin" "-@dangerous"
         --user healthcheck on ">$$REDIS_API_PASSWORD" "+ping"
@@ -335,6 +342,9 @@ services:
     depends_on:
       trino: { condition: service_healthy }
       db-migrate: { condition: service_completed_successfully }
+      # 발행 코드가 기대하는 서빙 스키마(이관 포함)를 먼저 맞춘다 — 파이프라인을 API 보다 먼저 재배포해도
+      # (make pipeline-redeploy: 실행이 모두 끝난 뒤라 이관하기에도 안전한 때) 새 코드가 옛 표에 발행하지 않게
+      ch-migrate: { condition: service_completed_successfully }
       redis: { condition: service_healthy }
       clickhouse: { condition: service_healthy }
     ports: ["127.0.0.1:3600:3000"]

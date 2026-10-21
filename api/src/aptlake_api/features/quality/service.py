@@ -29,17 +29,27 @@ def check_span(start: dt.date, end: dt.date, limit: int) -> None:
         raise ApiError(422, "RANGE_TOO_LARGE", "Range Too Large", f"최대 {limit}개월")
 
 
+def schema_versions(rows: list[Row]) -> dict[str, int]:
+    """적재된(LOADED·MERGED) 파티션 수를 마지막 적재 원본의 원천 스키마 판별로 — 매매 상세판 전환(ADR-049) 뒤 v1·v2 가
+    섞인 정도. 키: 판 번호 · 'unrecorded' = 항목이 있는 원본이지만 판 기록(V013) 전에 적재 ·
+    'empty' = 마지막 응답이 0건 — 항목이 없어 판을 판정할 수 없다 (판 기록을 세지 않는다: 빈 응답은 두 원천 모두 가장
+    이른 판(1)으로 기록되지만 판정한 값이 아니고, 판 기록 전에 적재된 빈 응답은 원본이 같으면 다시 기록되지 않아 NULL 로 남는다)."""
+    out: dict[str, int] = {}
+    for r in rows:
+        k = "empty" if r["empty"] else str(r["schema_ver"] or "unrecorded")
+        out[k] = out.get(k, 0) + r["n"]
+    return out
+
+
 async def summary(store: QualityStore, source: str = "rtms") -> tuple[dict, int]:
     o = await store.overview(source)
     fresh, ver = o["fresh"], o["ver"]
     return {
         "source": source,
         "partitions": {r["status"]: r["n"] for r in o["status"]},
-        # 마지막 적재 원본의 원천 스키마 판별 파티션 수 — 매매 상세판 전환(ADR-049) 뒤 v1·v2 가 섞인 정도.
-        # 'unrecorded' = 판 기록(V013) 이전에 적재된 파티션
-        "schemaVersions": {str(r["schema_ver"] or "unrecorded"): r["n"] for r in o["schema"]},
+        "schemaVersions": schema_versions(o["schema"]),
         "freshness": {"lastFetchedAt": iso(fresh["fetched"]), "lastChangedAt": iso(fresh["changed"])},
-        "dataset": None
+        "dataset": None  # 이 원천의 마지막 발행
         if not ver
         else {
             "version": ver["version"],

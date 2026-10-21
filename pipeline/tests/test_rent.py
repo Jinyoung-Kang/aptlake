@@ -12,6 +12,8 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from aptlake_pipeline.ingest import row_matches_schema, validate
 from aptlake_pipeline.rtms.client import FetchResult
@@ -49,6 +51,46 @@ def test_real_rent_page_parses_all_items():
     assert any(t.pre_deposit_manwon for t in typed) and any(t.road_nm for t in typed)
 
 
+def test_negative_previous_deposit_is_kept_as_sent():
+    """원천이 종전 보증금에 음수를 보낸다(2022년 일부 갱신 계약, 41360/202206 에 14건) — 뜻을 해석하지 않고 부호까지 보관한다.
+    예전에는 파싱 실패로 파티션 전체가 격리됐다. 보증금·월세(지문·필수)는 여전히 음수를 받지 않는다."""
+    t = to_typed_rent({**ITEMS[0], "contractType": "갱신", "preDeposit": "-19,870", "preMonthlyRent": "5"})
+    assert (t.pre_deposit_manwon, t.pre_monthly_rent_manwon) == (-19870, 5)
+    with pytest.raises(
+        ValueError, match="invalid deposit"
+    ):  # 어느 항목인지 오류에 이름이 나온다 (예전엔 늘 dealAmount)
+        to_typed_rent({**ITEMS[0], "deposit": "-3,500"})
+    with pytest.raises(ValueError, match="invalid monthlyRent"):
+        to_typed_rent({**ITEMS[0], "monthlyRent": "-1"})
+    neg = XML.replace("<preDeposit> </preDeposit>", "<preDeposit>-19,870</preDeposit>", 1)
+    assert neg != XML
+    checks = {c.name: c for c in validate(_result(neg), 161, spec=RENT)}
+    assert checks["rows_parse_and_belong_to_partition"].passed
+
+
+@pytest.mark.parametrize(
+    ("bad", "message"),
+    [
+        ({"floor": "3층"}, "invalid floor: '3층'"),
+        ({"buildYear": "x"}, "invalid buildYear: 'x'"),
+        ({"dealDay": "a"}, "invalid dealDay: 'a'"),
+        ({"dealYear": "2024", "dealMonth": "13", "dealDay": "1"}, "invalid deal date: '2024'-'13'-'1'"),
+        ({"dealYear": "2024", "dealMonth": "2", "dealDay": "30"}, "invalid deal date: '2024'-'2'-'30'"),
+    ],
+)
+def test_parse_errors_name_the_source_field_and_raw_value(bad, message):
+    """파싱 격리의 원인은 ops.dq_result 의 metric.sample(예외 문구)로 찾는다 — 금액뿐 아니라 정수·날짜 항목도 어느 항목의
+    어떤 원문인지 나와야 한다 (예전엔 'invalid integer: …', 없는 날짜는 'month must be in 1..12' 로 원문도 없었다)."""
+    with pytest.raises(ValueError) as e:
+        to_typed_rent({**ITEMS[0], **bad})
+    assert str(e.value) == message
+    broken = XML
+    for tag, value in bad.items():  # 같은 문구가 수집 검사 기록에 그대로 남는다 (원본의 첫 행만 고친다)
+        broken = re.sub(rf"<{tag}>[^<]*</{tag}>", f"<{tag}>{value}</{tag}>", broken, count=1)
+    check = {c.name: c for c in validate(_result(broken), 161, spec=RENT)}["rows_parse_and_belong_to_partition"]
+    assert not check.passed and check.metric["sample"] == [message]
+
+
 def test_required_fields_and_amounts():
     with pytest.raises(ValueError, match="monthlyRent"):
         to_typed_rent({**ITEMS[0], "monthlyRent": " "})
@@ -67,6 +109,54 @@ def test_rent_keys_are_order_independent_and_unique():
     assert {(k.rent_id, k.attr_hash) for k in assign_rent_keys(shuffled)} == {(k.rent_id, k.attr_hash) for k in keyed}
     # 같은 지문 계약이 매매보다 흔하다(동 항목이 없음) — 이 파티션은 9개 그룹
     assert sum(1 for k in keyed if k.dup_seq == 1) == 9
+
+
+# 속성 기반 (매매 test_fingerprint 와 같은 성질): 실제 응답 행을 바탕으로 지문 항목(보증금·월세·층)과 바뀔 수 있는 항목
+# (계약 구분·갱신요구권·종전 보증금)을 좁은 값에서 뽑아, 같은 지문 그룹과 그룹 안 속성 차이가 자주 생기게 한다
+TYPED = [to_typed_rent(i) for i in ITEMS]
+rent_strategy = st.builds(
+    lambda base, **kw: dataclasses.replace(base, **kw),
+    st.sampled_from(TYPED[:5]),
+    deposit_manwon=st.sampled_from([30000, 31000]),
+    monthly_rent_manwon=st.sampled_from([0, 50]),
+    floor=st.sampled_from([1, 2]),
+    contract_type=st.sampled_from(["신규", "갱신", None]),
+    use_rr_right=st.sampled_from(["사용", None]),
+    pre_deposit_manwon=st.sampled_from([None, 28000, -19870]),
+)
+
+
+def _rent_signature(keyed):
+    return sorted((k.rent_key, k.dup_seq, k.attr_hash) for k in keyed)
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.lists(rent_strategy, min_size=0, max_size=12), st.randoms())
+def test_rent_dup_seq_is_independent_of_input_order(rents, rnd):
+    """같은 수집 결과를 어떤 순서로 받아도 (rent_key, dup_seq, attr_hash) 집합이 같다 — 공개 ID(rent_id)도 같다."""
+    shuffled = rents[:]
+    rnd.shuffle(shuffled)
+    a, b = assign_rent_keys(rents), assign_rent_keys(shuffled)
+    assert _rent_signature(a) == _rent_signature(b)
+    assert sorted(k.rent_id for k in a) == sorted(k.rent_id for k in b)
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.lists(rent_strategy, min_size=1, max_size=12))
+def test_rent_keys_unique_and_dup_seq_numbers_each_fingerprint_group(rents):
+    """현재행 키 (rent_key, dup_seq)·rent_id 가 파티션 안에서 유일하고, 같은 지문 그룹은 0..n-1 순번을
+    속성 해시 순서대로 받는다 (그룹 크기 = 그 지문의 입력 수)."""
+    keyed = assign_rent_keys(rents)
+    assert len(keyed) == len(rents)
+    assert len({(k.rent_key, k.dup_seq) for k in keyed}) == len({k.rent_id for k in keyed}) == len(rents)
+    groups: dict[str, list] = {}
+    for k in keyed:
+        groups.setdefault(k.rent_key, []).append(k)
+    assert Counter(rent_key(t) for t in rents) == {rk: len(g) for rk, g in groups.items()}
+    for g in groups.values():
+        assert sorted(k.dup_seq for k in g) == list(range(len(g)))
+        by_seq = sorted(g, key=lambda k: k.dup_seq)
+        assert [k.attr_hash for k in by_seq] == sorted(k.attr_hash for k in g)
 
 
 def test_mutable_fields_change_attr_hash_not_key():
@@ -117,3 +207,10 @@ def test_rent_merge_uses_rent_tables_and_lines_up_branches():
     assert len(parts) == len(RENT_MERGE.stage_cols) and parts[0] == "c.rent_key"
     same = sql.split("WHEN MATCHED THEN UPDATE SET", 1)[1].split("WHEN NOT MATCHED", 1)[0]
     assert "apt_seq = coalesce(src.apt_seq, t.apt_seq)" in same and "road_nm = coalesce" in same
+    # 새 버전도 보강 열(일련번호·도로명)은 stage 가 비면 이전 현재행 값을 잇는다 (매매와 같은 생성기)
+    branch = sql.split("'NEWVER', c.version + 1, ", 1)[1].split("\n    FROM s JOIN cur c", 1)[0]
+    newver = re.findall(r"coalesce\(s\.\w+, c\.\w+\)|s\.\w+", branch)
+    assert newver == [
+        f"coalesce(s.{c}, c.{c})" if c in ("apt_seq", "road_nm") else f"s.{c}" for c in RENT_MERGE.stage_cols
+    ]
+    assert "SELECT rent_key, dup_seq, sgg_cd, attr_hash, version, apt_seq, road_nm FROM lake.silver.apt_rent" in sql

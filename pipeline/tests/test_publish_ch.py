@@ -3,13 +3,17 @@
 region_month 는 연 단위 파티션이라(ADR-037) 한 달을 발행해도 그 해 파티션을 통째로 바꾼다.
 같은 해 다른 달·다른 해는 그대로여야 하고, 대조에 실패하면 서빙은 손대지 않는다.
 trade_current 는 인덱스 입도 1024 (ADR-038) — 기존 8192 표는 이관 스크립트가 행을 그대로 옮겨 바꾼다.
+단지 차원의 토지임대부 미상(NULL)은 서빙까지 NULL 그대로 (ADR-018) — 기존 UInt8 표는 이관 스크립트가 Nullable 로 바꾼다.
 """
 
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
+import re
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import clickhouse_connect
 import pyarrow.parquet as pq
@@ -348,7 +352,7 @@ def _rent_gold(ym: str, contracts: int) -> dict[str, list[tuple]]:
                 "신규" if i else "",
                 "24.08~26.08",
                 "",
-                None,
+                -19870 if i == 1 else None,  # 종전 보증금 음수 — 원천 그대로 (부호 있는 열)
                 None,
                 2004,
                 False,
@@ -382,3 +386,128 @@ def test_rent_month_publish_swaps_four_tables_together(ch, monkeypatch):
     assert ch.query("SELECT DISTINCT contract_type FROM rent_current ORDER BY 1").result_rows == [("",), ("신규",)]
     for t in publish.RENT_TABLES:
         assert ch.query(f"SELECT count() FROM {t}_staging").first_row[0] == 0
+    assert ch.query("SELECT min(pre_deposit_manwon) FROM rent_current").first_row[0] == -19870
+
+
+def test_rent_previous_amounts_migration_to_signed(ch):
+    """처음 배포한 전월세 표는 종전 금액이 UInt32 였다 — 이관이 값은 그대로 두고 네 표를 함께 Int32 로 바꾼다."""
+    for t in ("rent_current", "rent_current_staging", "rent_version", "rent_version_staging"):
+        ch.command(f"TRUNCATE TABLE {t}")
+        ch.command(f"ALTER TABLE {t} MODIFY COLUMN pre_deposit_manwon Nullable(UInt32), "
+                   "MODIFY COLUMN pre_monthly_rent_manwon Nullable(UInt32)")  # fmt: skip
+    ch.insert("rent_version", [["r11110-202407-0000000000000000-0", D(2024, 7, 1), 1, dt.datetime(2026, 10, 20), None, 1,
+                                "갱신", "", "", 55000, 12, 2004]],
+              column_names=["rent_id", "deal_date", "version", "valid_from", "valid_to", "is_current", "contract_type",
+                            "contract_term", "use_rr_right", "pre_deposit_manwon", "pre_monthly_rent_manwon",
+                            "build_year"])  # fmt: skip
+    for stmt in _statements(ROOT / "infra/clickhouse/migrate/rent_signed_pre_amounts.sql"):
+        ch.command(stmt)
+    types = dict(ch.query(
+        "SELECT table || '.' || name, type FROM system.columns WHERE database = 'aptlake' AND name LIKE 'pre_%_manwon'"
+    ).result_rows)  # fmt: skip
+    assert set(types.values()) == {"Nullable(Int32)"} and len(types) == 8
+    assert ch.query("SELECT pre_deposit_manwon, pre_monthly_rent_manwon FROM rent_version").result_rows == [(55000, 12)]
+
+
+def _ch_migrate_condition(script: str) -> str:
+    """ch-migrate(docker-compose.yml)가 이관 스크립트를 실행할지 정하는 질의 — 시험이 운영과 같은 문장을 쓰게 파일에서 읽는다."""
+    compose = (ROOT / "docker-compose.yml").read_text()
+    m = re.search(r'ch -q "([^"]+)"\)" != 0 \]; then\s+ch --multiquery < /migrate/' + re.escape(script), compose)
+    assert m, script
+    return m.group(1)
+
+
+def test_rent_previous_amounts_migration_resumes_after_a_partial_run(ch):
+    """이관은 네 표를 문장 하나씩 바꾼다(ClickHouse DDL 은 문장마다 확정). 첫 표만 바뀐 채 멈춰도(시간 초과·메모리 부족으로
+    종료) 실행 조건이 여전히 참이라 다음 ch-migrate 가 나머지를 마저 바꾼다 — 예전 조건(rent_current 한 열)은 거짓이 돼
+    성공으로 끝났고, 스테이징과 구조가 달라 전월세 발행(REPLACE PARTITION)이 계속 실패했다.
+    이미 바뀐 표는 같은 형으로 다시 MODIFY 해도 값이 그대로다 (스크립트 전체를 다시 돌려도 멱등)."""
+    cond = _ch_migrate_condition("rent_signed_pre_amounts.sql")
+    tables = ("rent_current", "rent_current_staging", "rent_version", "rent_version_staging")
+    for t in tables:
+        ch.command(f"TRUNCATE TABLE {t}")
+        ch.command(f"ALTER TABLE {t} MODIFY COLUMN pre_deposit_manwon Nullable(UInt32), "
+                   "MODIFY COLUMN pre_monthly_rent_manwon Nullable(UInt32)")  # fmt: skip
+    ch.insert("rent_version", [["r11110-202407-0000000000000000-0", D(2024, 7, 1), 1, dt.datetime(2026, 10, 20), None, 1,
+                                "갱신", "", "", 55000, 12, 2004]],
+              column_names=["rent_id", "deal_date", "version", "valid_from", "valid_to", "is_current", "contract_type",
+                            "contract_term", "use_rr_right", "pre_deposit_manwon", "pre_monthly_rent_manwon",
+                            "build_year"])  # fmt: skip
+    assert ch.query(cond).first_row[0] == 8  # 네 표 × 두 열
+
+    stmts = _statements(ROOT / "infra/clickhouse/migrate/rent_signed_pre_amounts.sql")
+    assert stmts[0].startswith("SET mutations_sync") and stmts[1].split()[2] == "aptlake.rent_current"
+    for stmt in stmts[:2]:  # 첫 표까지만 하고 멈춘 이관
+        ch.command(stmt)
+    assert ch.query(cond).first_row[0] == 6  # 아직 참 → 다음 ch-migrate 가 다시 실행한다
+
+    for _ in range(2):  # 다음 기동 + 그다음 기동(이미 다 바뀐 뒤 — 조건은 거짓이지만 다시 돌려도 그대로)
+        for stmt in stmts:
+            ch.command(stmt)
+        assert ch.query(cond).first_row[0] == 0
+    types = ch.query(f"""SELECT DISTINCT type FROM system.columns WHERE database = 'aptlake'
+                         AND table IN {tables} AND name IN ('pre_deposit_manwon', 'pre_monthly_rent_manwon')""")
+    assert types.result_rows == [("Nullable(Int32)",)]
+    assert ch.query("SELECT pre_deposit_manwon, pre_monthly_rent_manwon FROM rent_version").result_rows == [(55000, 12)]
+
+
+# ───── 단지 차원: 토지임대부 미상(NULL)을 끝까지 (ADR-018) ─────
+CX_COLS = "complex_key, sgg_cd, umd_nm, jibun, apt_nm, build_year, land_leasehold, first_seen, trades"
+
+
+def _publish_dimensions(ch, monkeypatch, complexes: list[tuple]) -> dict[str, int]:
+    """차원 발행을 Testcontainers ClickHouse 로 — gold(Trino)·운영 DB 쪽은 그 질의가 돌려줄 행으로 바꾼다."""
+    region = {
+        "sgg_cd": "11110",
+        "sido_cd": "11",
+        "sido_nm": "서울특별시",
+        "sgg_nm": "종로구",
+        "full_nm": "서울특별시 종로구",
+    }
+
+    @contextlib.contextmanager
+    def conn():
+        yield SimpleNamespace(execute=lambda _sql: SimpleNamespace(fetchall=lambda: [region]))
+
+    monkeypatch.setattr(publish, "ch", lambda: ch)
+    monkeypatch.setattr(publish.ops_db, "conn", conn)
+    monkeypatch.setattr(publish, "_rows", lambda sql: complexes if "gold.complex_summary" in sql else [])
+    return publish.publish_dimensions()
+
+
+def test_dimension_publish_keeps_unknown_land_leasehold(ch, monkeypatch):
+    """전월세에만 있는 단지는 토지임대부 여부가 원천에 없어 미상(NULL) — 0(아님)으로 메우지 않고 그대로 서빙한다."""
+    first = D(2024, 7, 3)
+    counts = _publish_dimensions(ch, monkeypatch, [
+        ("c_trade_leasehold", "11110", "동", "1", "토지임대부단지", 2020, True, first, 4),
+        ("c_trade_plain", "11110", "동", "2", "일반단지", 2004, False, first, 9),
+        ("c_rent_only", "11110", "동", "3", "전월세만단지", None, None, first, 0),
+    ])  # fmt: skip
+    assert counts == {"region": 1, "complex": 3, "source_latency": 0}
+    rows = ch.query("SELECT complex_key, land_leasehold FROM complex ORDER BY complex_key").result_rows
+    assert rows == [("c_rent_only", None), ("c_trade_leasehold", 1), ("c_trade_plain", 0)]
+    assert ch.query("EXISTS TABLE complex_next").first_row[0] == 0
+
+
+def test_complex_land_leasehold_migration_to_nullable(ch, monkeypatch):
+    """처음 배포한 단지 차원은 토지임대부가 UInt8(NULL 불가)였다 — 이관이 값(0·1)은 그대로 두고 Nullable 로 바꾼다.
+    차원 발행은 complex_next 를 이 표 구조로 만들어 교체하므로 이관 뒤 첫 발행부터 미상이 NULL 로 나간다."""
+    old = _columns("complex").replace("land_leasehold  Nullable(UInt8)", "land_leasehold  UInt8")
+    assert "land_leasehold  UInt8," in old
+    ch.command("DROP TABLE complex")
+    ch.command(f"CREATE TABLE aptlake.complex {old} ENGINE = MergeTree ORDER BY complex_key")
+    ch.insert("complex", [["c_a", "11110", "동", "1", "가", 2004, 0, D(2024, 7, 1), 3],
+                          ["c_b", "11110", "동", "2", "나", None, 1, D(2024, 7, 1), 1]],
+              column_names=CX_COLS.split(", "))  # fmt: skip
+    for stmt in _statements(ROOT / "infra/clickhouse/migrate/complex_land_leasehold_nullable.sql"):
+        ch.command(stmt)
+    types = ch.query("SELECT type FROM system.columns WHERE database = 'aptlake' AND table = 'complex' "
+                     "AND name = 'land_leasehold'").result_rows  # fmt: skip
+    assert types == [("Nullable(UInt8)",)]
+    assert ch.query("SELECT complex_key, land_leasehold FROM complex ORDER BY 1").result_rows == [
+        ("c_a", 0),
+        ("c_b", 1),
+    ]
+    # 이관한 표에 차원 발행 — 미상이 NULL 로
+    _publish_dimensions(ch, monkeypatch, [("c_rent_only", "11110", "동", "3", "다", None, None, D(2024, 7, 1), 0)])
+    assert ch.query("SELECT land_leasehold FROM complex").result_rows == [(None,)]

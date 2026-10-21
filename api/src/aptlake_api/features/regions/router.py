@@ -41,7 +41,7 @@ async def region_months(
     check_range(p.plan.plan_id, p.plan.max_range_months, start, end)
 
     async def compute():
-        ver, _ = await request.app.state.dsv.get(request)
+        ver, _, _ = await request.app.state.dsv.get(request)
         repo = _repo(request, ver)
         names = await repo.by_code(ver)
         return await service.region_months(

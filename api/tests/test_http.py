@@ -30,6 +30,33 @@ async def test_anonymous_months_contract(pub):
     assert r2.status_code == 304
 
 
+async def test_code_revision_changes_cache_key_and_etag(pub, monkeypatch):
+    """응답 모양이 바뀌는 배포 뒤 같은 버전·같은 날이어도 옛 캐시 본문·304 를 쓰지 않는다 (코드판이 키에 들어감)."""
+    from aptlake_api.core import http
+
+    params = {"from": "2024-02", "to": "2024-11"}
+    r = await pub.get("/v1/regions/41135/months", params=params)
+    assert r.status_code == 200
+    again = await pub.get("/v1/regions/41135/months", params=params, headers={"If-None-Match": r.headers["etag"]})
+    assert again.status_code == 304
+    monkeypatch.setattr(http, "CODE_REV", "next-deploy")
+    r2 = await pub.get("/v1/regions/41135/months", params=params, headers={"If-None-Match": r.headers["etag"]})
+    assert r2.status_code == 200 and r2.headers["etag"] != r.headers["etag"]
+    assert r2.headers["x-cache"] == "miss"  # 옛 코드판의 캐시 키를 읽지 않는다
+
+
+def test_code_revision_follows_source(tmp_path):
+    from aptlake_api.core.http import code_revision
+
+    (tmp_path / "a.py").write_text("x = 1\n")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "b.py").write_text("y = 2\n")
+    first = code_revision(tmp_path)
+    assert first == code_revision(tmp_path) and len(first) == 12
+    (tmp_path / "sub" / "b.py").write_text("y = 3\n")
+    assert code_revision(tmp_path) != first
+
+
 async def test_plan_range_limits(pub, adm, admin_key):
     r = await pub.get("/v1/regions/41135/months", params={"from": "2023-01", "to": "2024-12"})
     assert r.status_code == 422 and r.json()["code"] == "RANGE_EXCEEDS_PLAN"  # anonymous 12개월
@@ -89,6 +116,32 @@ async def test_cursor_pagination_is_complete_and_signed(pub, adm, admin_key):
     r = await pub.get("/v1/trades", params={**q, "to": "2024-07-30", "cursor": first}, headers=h)
     assert r.status_code == 400 and r.json()["code"] == "INVALID_CURSOR"  # 다른 질의에 재사용
     r = await pub.get("/v1/trades", params={**q, "cursor": first[:-2] + "xx"}, headers=h)
+    assert r.status_code == 400  # 서명 변조
+
+
+async def test_rent_cursor_pages_continue_and_are_bound_to_the_query(pub, adm, admin_key):
+    """전월세 목록 커서: 다음 쪽은 앞 쪽과 겹치지 않고 이어진다(최신 계약일 순), 다른 조건·변조된 커서는 400."""
+    key, _ = await new_key(adm, admin_key)
+    h = {"X-API-Key": key}
+    q = {"sggCd": "41135", "from": "2024-05-01", "to": "2024-07-31", "limit": 30}
+    pages, cursor = [], None
+    while True:
+        r = await pub.get("/v1/rents", params={**q, **({"cursor": cursor} if cursor else {})}, headers=h)
+        assert r.status_code == 200
+        body = r.json()
+        assert (body["summary"] is None) == (cursor is not None)  # 조건 전체 요약은 첫 쪽만
+        pages.append([(x["dealDate"], x["rentId"]) for x in body["items"]])
+        cursor = body["page"]["nextCursor"]
+        if not cursor:
+            break
+    seen = [x for page in pages for x in page]
+    assert [len(page) for page in pages] == [30, 30, 30, 10]
+    assert len(set(seen)) == 100 and seen == sorted(seen, reverse=True)  # 겹침·빠짐 없이 (계약일, ID) 내림차순
+    first = (await pub.get("/v1/rents", params=q, headers=h)).json()["page"]["nextCursor"]
+    for other in ({"kind": "jeonse"}, {"to": "2024-07-30"}, {"minArea": 80}, {"limit": 31}):
+        r = await pub.get("/v1/rents", params={**q, **other, "cursor": first}, headers=h)
+        assert r.status_code == 400 and r.json()["code"] == "INVALID_CURSOR", other  # 다른 조건에 재사용
+    r = await pub.get("/v1/rents", params={**q, "cursor": first[:-2] + "xx"}, headers=h)
     assert r.status_code == 400  # 서명 변조
 
 

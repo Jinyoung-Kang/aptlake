@@ -25,11 +25,11 @@ router = APIRouter(prefix="/v1")
 
 
 def _repo(request: Request) -> RentRepository:
-    return RentRepository(request.app.state.res.ch)
+    return RentRepository(request.app.state.res.ch, request.app.state.res.pg)
 
 
 async def _names(request: Request) -> dict:
-    ver, _ = await request.app.state.dsv.get(request)
+    ver, _, _ = await request.app.state.dsv.get(request)
     return await RegionRepository(request.app.state.res.ch, ver).by_code(ver)
 
 
@@ -55,7 +55,8 @@ async def rent_months(
             provisional_days=settings().provisional_days,
         )
 
-    return await respond(request, "rent_months", {"sgg": sggCd, "a": from_, "b": to}, compute)
+    # uncollectedMonths 는 운영 DB 의 적재·발행 기록으로 정하지만 발행(버전)과 함께만 바뀐다 → 결과 캐시 그대로 (done_partitions)
+    return await respond(request, "rent_months", {"sgg": sggCd, "a": from_, "b": to}, compute, source="rent")
 
 
 @router.get(
@@ -76,7 +77,9 @@ async def jeonse_ratio(
             _repo(request), await _names(request), sggCd, start, end, is_provisional=provisional
         )
 
-    return await respond(request, "jeonse_ratio", {"sgg": sggCd, "a": from_, "b": to}, compute)
+    # 매매·전월세를 함께 쓰는 응답 — 기준 시각은 두 원천 중 이른 쪽.
+    # 창 완결(complete)은 발행(버전)과 함께만 바뀌는 기록으로 정한다 → 결과 캐시·ETag 그대로 (done_partitions)
+    return await respond(request, "jeonse_ratio", {"sgg": sggCd, "a": from_, "b": to}, compute, source="all")
 
 
 @router.get("/regions/{sggCd}/rent/distribution", summary="한 달 전월세 분포: 전세 보증금 ㎡당 히스토그램·면적대")
@@ -94,6 +97,7 @@ async def rent_distribution(
         lambda: service.distribution(
             _repo(request), sggCd, ym, month, month_end(month), provisional=provisional(month)
         ),
+        source="rent",
     )
 
 
@@ -124,6 +128,7 @@ async def rents(
         "rents",
         {**query, "cursor": cursor_token},
         lambda: service.page(_repo(request), f, limit, pos, cursor_key=key, fingerprint=fp),
+        source="rent",
     )
 
 
@@ -135,5 +140,5 @@ async def rent_history(
 ) -> Response:
     yyyymm = service.parse_rent_id(rentId)
     return await respond(
-        request, "rent_history", {"id": rentId}, lambda: service.history(_repo(request), rentId, yyyymm)
+        request, "rent_history", {"id": rentId}, lambda: service.history(_repo(request), rentId, yyyymm), source="rent"
     )

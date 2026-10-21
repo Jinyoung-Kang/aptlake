@@ -3,9 +3,9 @@
   "apiBudget": [],
   "dataAsOf": null,
   "dataset": {
-   "dataAsOf": "2024-08-05T03:00:00+00:00",
-   "publishedAt": "2024-08-05T03:00:00+00:00",
-   "version": "gold@test.1"
+   "dataAsOf": "2024-08-04T03:00:00+00:00",
+   "publishedAt": "2024-08-04T03:00:00+00:00",
+   "version": "gold@test.0"
   },
   "datasetVersion": "gold@test.1",
   "failedChecks7d": [
@@ -27,11 +27,11 @@
    "lastFetchedAt": "2024-08-05T03:00:00+00:00"
   },
   "partitions": {
-   "MERGED": 1,
+   "MERGED": 3,
    "PENDING": 1
   },
   "schemaVersions": {
-   "1": 1
+   "1": 3
   },
   "source": "rent"
  },

@@ -1,8 +1,9 @@
 # 운영 절차
 
 ## 처음 기동
-1. `make init` → `.env` 의 `DATA_GO_KR_KEY`(공공데이터포털 Decoding 키: **아파트 매매 실거래가 상세 자료** + 행정안전부_법정동코드 활용신청), `REB_API_KEY`(R-ONE) 입력
-   - 활용신청이 승인되기 전에 부르면 사유 코드 20 → `KeyRejected` 로 **그날 수집이 멈춘다**. 새 API 는 `tools/` 의 탐침으로 먼저 확인한다: `uv run --project pipeline python tools/probe_tradedev.py 11110:202407` (키는 출력하지 않음)
+1. `make init` → `.env` 의 `DATA_GO_KR_KEY`(공공데이터포털 Decoding 키: **아파트 매매 실거래가 상세 자료** + **아파트 전월세 실거래가 자료** + 행정안전부_법정동코드 활용신청), `REB_API_KEY`(R-ONE) 입력
+   - 활용신청이 승인되기 전에 부르면 사유 코드 20 → `KeyRejected` 로 **그 원천의 그날 수집이 멈춘다**(`make backfill-start` 는 매매·전월세 센서를 함께 켠다). 새 API 는 `tools/` 의 탐침으로 먼저 확인한다(키는 출력하지 않음). `probe_tradedev.py` 는 시군구·월마다 기본판과 상세판을 1회씩(2회) 불러 비교하므로 기본판(아파트 매매 실거래가 자료) 활용신청도 있어야 하고, 기본판이 거부되면 상세판을 부르기 전에 멈춘다. `probe_rent.py` 는 1회:
+     `uv run --project pipeline python tools/probe_tradedev.py 11110:202407`, `uv run --project pipeline python tools/probe_rent.py 11110:202407`
 2. `make up` → `make lake-init` → `make backfill-start`
 3. `make admin-key` 로 관리자 키 발급 (30일 만료, 1회 표시)
 
@@ -17,11 +18,15 @@
 
 ## 인증키가 거부됐을 때 (수집 상태: "인증키 거부 · 키 확인 필요")
 - 포털이 미승인·미등록 키·기간 만료·미등록 IP(사유 코드 20·30·31·32, 또는 사유 없는 401·403)를 주면 파티션을 격리하지 않고 **그날 실행을 멈춘다** (`ops.api_budget.exhausted_reason` 이 `KeyRejected: …`).
-- 공공데이터포털 마이페이지에서 키 상태·활용신청(아파트 매매 실거래가 상세 자료)을 확인하고, 새 키면 `.env` 의 `DATA_GO_KR_KEY` 를 바꾼 뒤 `make pipeline-redeploy`. 그날 멈춤은 KST 자정에 풀린다.
+- 멈춤은 원천별이다 — 어느 원천인지 먼저 본다: `SELECT day, source, exhausted_reason FROM ops.api_budget WHERE exhausted_reason IS NOT NULL ORDER BY day DESC LIMIT 5` (`rtms` = 매매 상세 자료, `rent` = 전월세 자료).
+- 공공데이터포털 마이페이지에서 키 상태와 그 원천의 활용신청(아파트 매매 실거래가 상세 자료 / 아파트 전월세 실거래가 자료)을 확인하고, 새 키면 `.env` 의 `DATA_GO_KR_KEY` 를 바꾼 뒤 `make pipeline-redeploy`. 그날 멈춤은 KST 자정에 풀린다.
 
 ## 매매 원천 판(기본판·상세판) — ADR-049
 - 기본은 상세판(`RTMSDataSvcAptTradeDev`). 상세판에 문제가 생기면 `.env` 에 `RTMS_TRADE_URL=https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade/getRTMSDataSvcAptTrade` 를 넣고 `make pipeline-redeploy` — 공통 20개 항목이 같아 거래 ID 는 그대로이고, 보강 열(`apt_seq`·도로명 등)은 이미 채운 값이 남는다.
-- 두 판이 섞인 정도: `docker compose --profile lake exec -T trino trino --user analyst --execute "SELECT schema_ver, count(DISTINCT sgg_cd || deal_ym) FROM lake.bronze.rtms_raw GROUP BY 1"` (재수집 주기 안에 v2 로 바뀐다, 최대 90일).
+- 두 판이 섞인 정도: 웹 '데이터 품질'(매매)의 판 분포 또는 `/v1/quality/summary` 의 `schemaVersions` — 파티션마다 **마지막 적재본**의 판이다.
+  같은 값을 PG 에서: `SELECT CASE WHEN rows_last = 0 THEN 'empty' ELSE coalesce(schema_ver::text, 'unrecorded') END, count(*) FROM ops.ingest_partition WHERE source = 'rtms' AND status IN ('LOADED','MERGED') GROUP BY 1`.
+  항목이 있는 파티션은 재수집 주기(최대 90일) 안에 v2 로 바뀐다. 마지막 응답이 0건인 파티션(`empty`)은 응답으로 판을 가릴 수 없다.
+  `lake.bronze.rtms_raw` 를 `schema_ver` 로 세면 안 된다 — bronze 는 수집마다 덧붙이는 표라 옛 v1 적재본이 그대로 남는다.
 - 단지 일련번호 충돌 경고(`complex_aptseq_conflicts`): 차원 값은 바꾸지 않는다. `metric` 의 `conflicts`(한 단지에 일련번호 여럿·차원과 다름)·`split`(한 일련번호가 단지 키 여럿 — 이름·지번 표기 차이) 수만 본다.
 
 ## 전월세 (ADR-050)
@@ -29,11 +34,19 @@
   1. 수집 멈춤: `make backfill-stop` 후 `SELECT count(*) FROM runs WHERE status IN ('STARTED','STARTING')` = 0 확인 (dagster DB)
   2. `docker compose up -d --build api api-internal web` — V013(원천 차원)·전월세 서빙 표가 먼저 적용된다. **V013 뒤에는 옛 파이프라인이 발행 대기 기록에서 실패**하므로 바로 다음 단계로
   3. `make pipeline-redeploy` — 두 센서(`due_partitions_sensor`·`due_rent_partitions_sensor`)가 다시 켜진다. 전월세 레이크 표는 첫 실행이 만든다
-  4. 백필: 69개월 × 256 = 17,664회, 전월세 예산(기본 8,000회/일)으로 약 2.2일. 실행 큐(동시 1)를 매매와 함께 쓴다
+  4. 백필: 시작한 달까지의 월 수 × 256 — 2026-10 시작이면 2021-01~2026-10 70개월 × 256 = 17,920회. 하루에 백필로 쓰는 몫은 전월세 상한(기본 8,000회)에서 증분 몫(시군구×3 = 768)을 뺀 7,232회이고, 재확인 대기가 있으면 시군구×12 를 더 뺀다(`budget.ceilings`) → 약 2.5~3일(실제: 2026-10-20 18시 시작, 첫날 4,096·둘째 날 7,232회 — 첫날 4,096 은 백필 등급만 센 값이고 증분·재확인 등급(최근 12개월)까지 그날 28개월 7,168회). 진행·예상은 수집 상태 화면. 실행 큐(동시 1)를 매매와 함께 쓴다
 - 예산·상태는 원천별이다: `SELECT * FROM ops.api_budget WHERE source = 'rent' ORDER BY day DESC`, `SELECT status, count(*) FROM ops.ingest_partition WHERE source = 'rent' GROUP BY 1`.
 - 격리 재시도는 `?source=rent`: `curl -X POST -H "X-API-Key: $ADMIN" "http://127.0.0.1:8611/v1/admin/partitions/41135/2026-08/retry?source=rent"`.
 - 원본은 `s3://raw/rtms_rent/deal_ym=…/sgg_cd=…/<sha>/`, 품질 기록의 자산 이름은 `bronze.rtms_rent_raw`·`silver.apt_rent`.
+- 전월세에만 있는 단지: 전월세 달 반영이 단지 차원에 없는 단지를 넣고(처음 관측일은 매매·전월세 계약 중 가장 이른 날로 낮춘다), 주간 `make maintenance` 첫 단계(`silver.backfill_rent_complexes`, 멱등)가 이미 반영된 달을 따라잡는다(실행 metadata `rent_complexes` 의 `inserted`·`fixed`). 단지 화면·검색(ClickHouse `complex`)에는 다음 dims_and_index(매일 05:30 KST, 또는 `make index`) 뒤에 보인다. 토지임대부는 전월세 원천에 없어 '미상'이다.
+- 전세가율·`uncollectedMonths` 의 '완결'은 그 시군구·달 자료가 **발행에 들어간 적이 있는가**다(수집 상태가 아니라 발행 기록으로 판정 — ADR-050). 백필이 덜 된 달·첫 수집이 격리된 달이 창에 있으면 비율이 null 이고, 그 달이 발행되면 다음 버전부터 채워진다.
 - 수동 한 달: `make rent-month ym=202408`.
+- 파싱 격리(`rows_parse_and_belong_to_partition`)의 원인은 `ops.dq_result` 의 `metric.sample`(예외 문구 앞부분, 최대 3개)에 나온다. 값 오류는 항목 이름과 원문(예 `invalid deposit: '-1'`, `invalid floor: 'x'`), 필수 항목 누락은 `missing required fields: [...]`. 2026-10-21 수정 전 기록은 어느 금액 항목이든 `invalid dealAmount` 로 적혔다(전월세 격리 15건 포함). 원천의 새 값 형식이면 파서를 고친 뒤 재시도한다 — 종전 보증금 음수가 그 예다(ADR-050).
+
+## Redis 를 다시 띄웠을 때 (ADR-051)
+- 호출 예산 키(`budget:*`)는 AOF 로 남고, 없으면 `ops.api_budget` 에서 복원된다(차감·센서 계획 모두). 재시작 뒤 확인: `docker compose logs redis | grep -c NOPERM` = 0.
+- redis 설정(compose `command`)을 바꾸면 `docker compose up -d redis` 로 다시 만든다(잠깐 끊김 — API 한도·결과 캐시는 다시 채워진다).
+- 데이터 기준 시각은 원천별 키 `al:ds:asof:trade`·`al:ds:asof:rent` 다. 발행이 발행 기록에서 맞추고, `make pipeline-redeploy` 끝에서도 맞춘다. 키가 없으면 응답의 `dataAsOf` 가 비므로 `make index` 로 한 번 발행하면 채워진다.
 
 ## 격리(QUARANTINED) 파티션 재시도
 ```bash
@@ -100,7 +113,7 @@ curl -X DELETE -H "X-API-Key: $ADMIN" http://127.0.0.1:8611/v1/admin/keys/<keyId
 ## 코드 교체
 - 파이프라인: `make pipeline-redeploy` (진행 중인 달을 끝낸 뒤 교체 — 중간에 죽이면 그 달은 FETCHING 으로 남았다가 1시간 뒤 다시 수집됨)
 - API·웹: `docker compose up -d --build api api-internal web` (웹 nginx 는 API 컨테이너 IP 변경을 10초 안에 따라감)
-- 서빙 스키마: `ch-migrate`(API 배포 때 먼저 돈다)가 스키마를 멱등 적용하고, 표 구조를 바꾸는 일회성 이관(`infra/clickhouse/migrate/`, 예: region_month 연 파티션)은 조건이 맞을 때만 실행한다. 이관과 그 표를 쓰는 발행 코드가 함께 바뀌면 **수집을 멈추고**(`dagster sensor stop due_partitions_sensor`, 실행 0 확인) 이관 → `make pipeline-redeploy` 순서로.
+- 서빙 스키마: `ch-migrate`(API 배포·`make up`·`make pipeline-redeploy` 때 먼저 돈다 — dagster 가 ch-migrate 완료에 의존)가 스키마를 멱등 적용하고, 표 구조를 바꾸는 일회성 이관(`infra/clickhouse/migrate/`, 예: region_month 연 파티션·전월세 종전 금액 부호·단지 토지임대부 미상)은 조건이 맞을 때만 실행한다. 이관과 그 표를 쓰는 발행 코드가 함께 바뀌면 **수집을 멈추고**(`make backfill-stop` — 두 센서와 차원·시군구 스케줄, 실행 0 확인) 이관(API 배포 또는 `make pipeline-redeploy` — 이쪽은 진행 중 실행 0 을 기다린 뒤라 가장 안전) → `make pipeline-redeploy` → `make backfill-start`(pipeline-redeploy 는 두 센서만 다시 켜고 스케줄은 켜지 않는다) 순서로.
   - 발행 코드가 그대로인 이관은 **스테이징을 먼저 지우고** 시작한다(예: trade_current 입도 1024, ADR-038). 그사이 발행은 스테이징이 없거나 교체 직전 행 수 확인(이관이 새로 만든 빈 스테이징)에서 실패하고, 그 달은 `needs_publish` 가 남아 센서가 발행만 다시 한다 — 수집을 멈추지 않아도 서빙에서 발행이 빠지지 않는다. 다만 그 실패가 표 교체 도중(수 ms)에 걸리면 재시도까지 표끼리 잠깐 어긋날 수 있으니, 가능하면 진행 중 실행이 없을 때(`SELECT count(*) FROM runs WHERE status IN ('STARTED','STARTING')` = 0) 배포한다.
   - 이관이 실패하면 ch-migrate 가 스키마를 다시 적용해 스테이징을 되살리고 원래 표는 그대로다. ch-migrate 가 도중에 강제 종료됐다면 스테이징이 없어 발행이 계속 실패하므로 `docker compose up ch-migrate` 를 다시 돌린다.
   - 이관 뒤 확인: `SELECT name, extract(engine_full, 'index_granularity = ([0-9]+)') FROM system.tables WHERE database='aptlake' AND name LIKE 'trade_current%'` 가 둘 다 1024, 행 수·`sum(cityHash64(toString(tuple(*))))` 가 이관 전과 같음, `trade_current_g1024_new` 가 남지 않음.
@@ -157,7 +170,7 @@ docker compose --profile lake exec trino trino --user analyst --execute "SELECT 
   `.env` 사본을 `backups/` 에 둔다 (git 제외, 권한 700, **비밀값 포함**). `BACKUP_DIR` 로 다른 곳(절대 경로 가능)에.
   - 파이프라인 실행·대기 중이면 거부한다(카탈로그와 파일이 어긋날 수 있음). 확인 질의가 실패해도 거부한다. 주간 레이크 정리(일 04:00) 시간은 피한다.
   - 모든 단계가 끝나야 `pg/<시각>.partial` → `pg/<시각>` 이 된다. `.partial` 이 남아 있으면 실패한 백업이다(지워도 됨).
-  - 백업 시점의 핵심 행 수·사용량 파일 행 수·버킷 객체 목록을 `manifest.txt`·`minio-{raw,lake}.txt` 에 적는다.
+  - 백업 시점의 핵심 행 수(수집 상태 수·최신 발행은 원천별 — 매매·전월세 한쪽만 빠진 복원도 잡힌다)·사용량 파일 행 수·버킷 객체 목록을 `manifest.txt`·`minio-{raw,lake}.txt` 에 적는다.
   - 서빙 표(거래·통계·지수)는 레이크에서 다시 발행하면 되므로 백업하지 않는다.
 - `make backup-verify` — 가장 최근의 완료된 백업을 임시 PostgreSQL 컨테이너에 실제로 복원해 **백업 시점 값**과 비교하고(운영 값과 비교하면 백업 뒤 정상 변화에도 실패한다),
   사용량 파일을 다시 읽어 행 수를, MinIO 는 백업 시점에 있던 객체가 사본에 모두 있는지를 이름으로 확인한다.

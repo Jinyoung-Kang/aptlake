@@ -49,6 +49,7 @@ CASES: list[tuple[str, str, dict]] = [
     ("trade_history_bad_id", "/v1/trades/not-a-trade/history", {}),
     ("complex", "/v1/complexes/c_aaaaaaaaaaaaaaaaaaaa", {}),
     ("complex_missing", "/v1/complexes/c_bbbbbbbbbbbbbbbbbbbb", {}),
+    ("complex_rent_only", "/v1/complexes/c_cccccccccccccccccccc", {}),  # 전월세에만 나온 단지 — 토지임대부 미상(null)
     ("index_nation", "/v1/index", {"regionId": "00"}),
     ("index_missing", "/v1/index", {"regionId": "11"}),
     ("index_summary", "/v1/index/summary", {}),
@@ -122,11 +123,19 @@ async def seeded(apps, stack, adm, admin_key):
     fixed = dt.datetime(2024, 8, 5, 3, 0, tzinfo=dt.UTC)
     with psycopg.connect(stack["su"], autocommit=True) as pg:
         pg.execute(
-            "TRUNCATE ops.ingest_partition, ops.dq_result, ops.publish_lag, ops.dataset_month_file, ops.dataset_version,"
-            " ops.api_budget, ops.region_boundary"
+            "TRUNCATE ops.ingest_partition, ops.month_state, ops.dq_result, ops.publish_lag, ops.dataset_month_file,"
+            " ops.dataset_version, ops.api_budget, ops.region_boundary, ops.region"
             " RESTART IDENTITY"  # 검사 ID(dq:N)가 앞 테스트가 넣은 행 수에 따라 바뀌지 않게
         )
         pg.execute("UPDATE ops.log_view SET cleared_at = NULL, cleared_by = NULL")
+        # 수집 대상 시군구(leaf·active) 2곳 — 수집 상태의 하루 백필 몫(상한 − 시군구×3 …)에 쓰인다. 성남시는 하위 일반구가 있어 대상 아님
+        pg.execute(
+            """INSERT INTO ops.region (sgg_cd, sido_cd, sido_nm, sgg_nm, full_nm, is_leaf, active, source, fetched_at)
+               VALUES ('41135', '41', '경기도', '성남시 분당구', '경기도 성남시 분당구', true, true, 'test', %(t)s),
+                      ('11110', '11', '서울특별시', '종로구', '서울특별시 종로구', true, true, 'test', %(t)s),
+                      ('41130', '41', '경기도', '성남시', '경기도 성남시', false, true, 'test', %(t)s)""",
+            {"t": fixed},
+        )
         pg.execute(
             """INSERT INTO ops.ingest_partition (sgg_cd, deal_ym, status, attempts, rows_last, rows_prev,
                    payload_sha256, last_ingest_id, last_fetched_at, last_changed_at, fetch_count, next_due_at, last_error,
@@ -137,12 +146,24 @@ async def seeded(apps, stack, adm, admin_key):
                       ('11110','202407','PENDING',0,NULL,NULL,NULL,NULL,NULL,NULL,0,%s,NULL,%s)""",
             (fixed, fixed, fixed, fixed, fixed, fixed, dt.datetime.now(tz=dt.UTC), fixed, fixed),
         )
-        pg.execute(  # 전월세 (ADR-050): 같은 (시군구, 계약월)이라도 원천별 상태
-            """INSERT INTO ops.ingest_partition (source, sgg_cd, deal_ym, status, attempts, rows_last, payload_sha256,
-                   last_ingest_id, last_fetched_at, last_changed_at, fetch_count, next_due_at, schema_ver, updated_at)
-               VALUES ('rent','41135','202407','MERGED',0,60, repeat('d',64),'202407-41135-r1',%s,%s,1,%s,1,%s),
-                      ('rent','41135','202408','PENDING',0,NULL,NULL,NULL,NULL,NULL,0,%s,NULL,%s)""",
+        pg.execute(  # 전월세 (ADR-050): 같은 (시군구, 계약월)이라도 원천별 상태.
+            # 202407 은 마지막 전월세 발행(하루 전) 뒤에 새 적재본을 받았다 — 발행 대기 동안은 그 전 적재본(58행)이 서빙에 있다
+            """INSERT INTO ops.ingest_partition (source, sgg_cd, deal_ym, status, attempts, rows_last, rows_prev,
+                   payload_sha256, last_ingest_id, last_fetched_at, last_changed_at, fetch_count, next_due_at, schema_ver,
+                   updated_at)
+               VALUES ('rent','41135','202407','MERGED',0,60,58, repeat('d',64),'202407-41135-r1',%s,%s,1,%s,1,%s),
+                      ('rent','41135','202408','PENDING',0,NULL,NULL,NULL,NULL,NULL,NULL,0,%s,NULL,%s)""",
             (fixed, fixed, fixed, fixed, fixed, fixed),
+        )
+        # 전세가율 창 완결 (ADR-050): 2024-05·06 은 두 원천 모두 적재본을 받은 뒤 발행됐다 → 2024-07 창(05~07)만 완결.
+        # 매매 05·06 은 서빙 표에 거래가 없는 달 = 빈 응답(판 기록 전에 적재돼 판이 NULL), 전월세는 20건씩(판 1)
+        pg.execute(
+            """INSERT INTO ops.ingest_partition (source, sgg_cd, deal_ym, status, rows_last, payload_sha256,
+                   last_fetched_at, last_changed_at, fetch_count, next_due_at, schema_ver, updated_at)
+               SELECT s, '41135', ym, 'MERGED', CASE s WHEN 'rtms' THEN 0 ELSE 20 END, repeat('e', 64),
+                      %(t)s, %(t)s - interval '2 days', 1, %(t)s, CASE s WHEN 'rent' THEN 1 END, %(t)s
+               FROM unnest(ARRAY['rtms', 'rent']) s, unnest(ARRAY['202405', '202406']) ym""",
+            {"t": fixed},
         )
         recent = dt.datetime.now(tz=dt.UTC) - dt.timedelta(hours=2)
         pg.execute(
@@ -156,8 +177,17 @@ async def seeded(apps, stack, adm, admin_key):
         )
         pg.execute(
             """INSERT INTO ops.dataset_version (version, published_at, data_as_of, partitions, snapshots, row_counts)
-               VALUES ('gold@test.1', %s, %s, ARRAY['202407'], '{"silver.apt_trade": 42}', '{"trade_current": 250}')""",
+               VALUES ('gold@test.1', %s, %s, ARRAY['202405', '202406', '202407'], '{"silver.apt_trade": 42}',
+                       '{"trade_current": 250}')""",
             (fixed, fixed),
+        )
+        # 전월세 발행 (버전 번호는 원천 공통) — 원천별 품질 요약·계보가 다른 원천 발행을 집지 않는지 본다
+        pg.execute(
+            """INSERT INTO ops.dataset_version (version, published_at, data_as_of, partitions, snapshots, row_counts,
+                   source)
+               VALUES ('gold@test.0', %(t)s - interval '1 day', %(t)s - interval '1 day', ARRAY['202405', '202406', '202407'],
+                       '{"silver.apt_rent": 7}', '{"rent_current": 100}', 'rent')""",
+            {"t": fixed},
         )
         pg.execute(
             """INSERT INTO ops.region_boundary (sgg_cd, geometry, area_rel_error, source, source_sha256, simplify, fetched_at)

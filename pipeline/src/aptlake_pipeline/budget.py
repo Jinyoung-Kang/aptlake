@@ -128,8 +128,13 @@ class Budget:
             )
 
     def snapshot(self, day: dt.date | None = None) -> dict[str, int]:
+        """그날 누적값. 키가 없으면 reserve 처럼 PG 기록에서 먼저 복원한다 — 빈 값을 사용량 0 으로 읽으면 센서가
+        예산보다 큰 계획을 세운다 (Redis 재시작 직후 전월세 백필이 하루 몫을 넘게 계획돼 일부 시군구만으로 발행됨)."""
         day = day or kst_today()
-        raw = self.r.hgetall(self._key(day))
+        key = self._key(day)
+        if not self.r.exists(key):
+            self._restore_from_pg(day)
+        raw = self.r.hgetall(key)
         out: dict[str, int] = {}
         for k, v in raw.items():
             name = k.decode() if isinstance(k, bytes) else k

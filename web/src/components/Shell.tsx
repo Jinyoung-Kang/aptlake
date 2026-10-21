@@ -125,7 +125,7 @@ export function Shell({ path, meta, children }: { path: string; meta: { version?
       </main>
       <footer className="footer">
         <div className="footer-inner">
-          원천: 국토교통부 아파트 매매 실거래가 자료 · 행정안전부 법정동코드 · 한국부동산원 R-ONE 부동산통계 · 국토정보플랫폼 V-World 행정경계.
+          원천: 국토교통부 아파트 매매 실거래가 상세 자료 · 국토교통부 아파트 전월세 실거래가 자료 · 행정안전부 법정동코드 · 한국부동산원 R-ONE 부동산통계 · 국토정보플랫폼 V-World 행정경계.
           공개 신고 자료를 가공한 학습·포트폴리오용 서비스이며 공식 통계가 아닙니다. 투자 판단의 근거로 쓰지 마세요.
           <br />API 문서 <a href="/docs" target="_blank" rel="noreferrer">/docs</a> · 데이터셋 {meta.version ?? "–"}
         </div>

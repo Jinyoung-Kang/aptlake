@@ -548,11 +548,12 @@ def publish_dimensions() -> dict[str, int]:
     }
     cx = _rows("""SELECT complex_key, sgg_cd, umd_nm, coalesce(jibun, ''), apt_nm, build_year, land_leasehold,
                          first_seen, trades FROM lake.gold.complex_summary""")
+    # 토지임대부 여부: None(미상 — 전월세에만 있는 단지)은 그대로 Nullable 열에 (0 으로 메우면 '아님'이 된다, ADR-018)
     out["complex"] = _exchange(
         client,
         "complex",
         ["complex_key", "sgg_cd", "umd_nm", "jibun", "apt_nm", "build_year", "land_leasehold", "first_seen", "trades"],
-        [[r[0], r[1], r[2], r[3], r[4], r[5], int(r[6]), r[7], r[8]] for r in cx],
+        [[r[0], r[1], r[2], r[3], r[4], r[5], None if r[6] is None else int(r[6]), r[7], r[8]] for r in cx],
     )
     sl = _rows("""SELECT metric, observed_date, sido_cd, reason, lag_days, n FROM lake.gold.source_latency""")
     out["source_latency"] = _exchange(
@@ -634,7 +635,10 @@ def commit_version(
     source: str = "trade",
 ) -> None:
     """버전 기록 + 달 스냅숏 파일 등록을 한 트랜잭션으로 → Redis 현재 버전. 기록된 발행의 파일만 쓰인다(ADR-044).
-    버전 번호는 원천과 관계없이 하나로 오른다 — API 캐시 키·ETag 가 이 하나의 버전을 쓴다."""
+    버전 번호는 원천과 관계없이 하나로 오른다 — API 캐시 키·ETag 가 이 하나의 버전을 쓴다.
+    데이터 기준 시각은 원천마다 따로 둔다(al:ds:asof:trade·al:ds:asof:rent). 키 하나에 쓰면 마지막에 발행한 원천 값으로
+    덮여 매매 응답에 전월세 수집 시각이 나갔다 → 어느 원천이 발행하든 두 키를 발행 기록에서 다시 맞춘다
+    (발행 없이 맞추는 것은 sync_data_as_of)."""
     with ops_db.conn() as c:
         row = c.execute(
             "SELECT max(last_fetched_at) AS t FROM ops.ingest_partition WHERE source = %s", (INGEST_SOURCE[source],)
@@ -645,4 +649,23 @@ def commit_version(
         version, as_of, partitions, snaps, row_counts, run_id, publish_id, files or [], baseline, source
     )
     r = redis.Redis.from_url(str(settings().redis_url))
-    r.mset({"al:ds:ver": version, "al:ds:asof": as_of.isoformat()})
+    # 버전·원천별 기준 시각은 MSET 한 번(원자적). 옛 전역 키(al:ds:asof)는 어느 원천 값인지 알 수 없어 지운다
+    r.mset({"al:ds:ver": version, **_data_as_of_keys()})
+    r.delete("al:ds:asof")
+
+
+def _data_as_of_keys() -> dict[str, str]:
+    """원천별 데이터 기준 시각 키(al:ds:asof:trade·al:ds:asof:rent) — 발행 기록의 원천별 최댓값."""
+    return {f"al:ds:asof:{s}": t.isoformat() for s, t in ops_db.data_as_of_by_source().items() if t}
+
+
+def sync_data_as_of() -> dict[str, str]:
+    """발행 없이 원천별 기준 시각 키만 발행 기록에 맞춘다 (멱등, 버전은 그대로). 파이프라인 재배포 끝에 한 번 부른다.
+    이 키를 쓰는 곳이 발행뿐이라, 옛 전역 키만 쓰던 파이프라인에서 바꾼 뒤 첫 발행(달·차원·지수)까지 원천별 키만 읽는
+    API 의 dataAsOf 가 모두 비었다. 옛 키는 지우지 않는다 — 아직 옛 API 가 읽고 있을 수 있다(다음 발행이 지운다).
+    버전을 올리지 않으므로 키가 빈 동안 나간 응답(본문의 dataAsOf 가 빈 값)은 ETag 가 같아 다음 발행까지 남을 수 있다
+    → 이 단계가 새 API 보다 먼저 돌게 배포한다."""
+    keys = _data_as_of_keys()
+    if keys:  # 발행 기록이 없으면(첫 기동) 쓸 것이 없다
+        redis.Redis.from_url(str(settings().redis_url)).mset(keys)
+    return keys

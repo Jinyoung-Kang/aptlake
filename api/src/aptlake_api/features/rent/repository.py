@@ -1,15 +1,19 @@
-"""전월세 데이터 접근 (ClickHouse, ADR-050). SQL 만 — 규칙은 service 에. 모든 값은 서버측 바인딩({name:Type})."""
+"""전월세 데이터 접근 (ADR-050). SQL 만 — 규칙은 service 에.
+
+서빙 데이터는 ClickHouse(서버측 바인딩 {name:Type}), 창 완결 판단에 쓰는 파티션 적재·발행 기록은 운영 DB(PostgreSQL, 매개변수 바인딩).
+"""
 
 from __future__ import annotations
 
 import datetime as dt
-from typing import Any
+from typing import Any, cast
 
 from clickhouse_connect.driver.asyncclient import AsyncClient
+from psycopg_pool import AsyncConnectionPool
 
 from ...core.values import add_months, month_end
 from ..regions.repository import AREA_EXPR
-from .service import RentFilter
+from .service import RATIO_SOURCES, RentFilter
 
 Row = dict[str, Any]
 RENT_COLS = """rent_id, deal_date, complex_key, apt_nm, umd_nm, jibun, area_m2, floor, deposit_manwon,
@@ -22,6 +26,20 @@ WHERE = "sgg_cd = {s:String} AND deal_date BETWEEN {a:Date} AND {b:Date}"
 # 표본: 매매는 해제·이상치·면적 0 제외(지역 분위수와 같은 기준), 전세는 이상치·면적 0 제외
 TRADE_PRICED = "is_cancelled = 0 AND is_outlier = 0 AND area_m2 > 0"
 JEONSE_PRICED = "is_jeonse = 1 AND is_outlier = 0 AND area_m2 > 0"
+# 파티션이 서빙에 들어갔는지 판단할 기록 (규칙은 service.done_partitions): 마지막 적재본을 받은 시각·그 전 적재본 행 수 +
+# 그 원천·달의 마지막 달 발행 시각. 발행 시각은 발행 기록(ops.dataset_version)에서 — 기록이 커밋된 뒤에 Redis 버전이 오르므로
+# 새 버전을 본 요청은 그 기록도 본다 (ops.month_state.published_at 은 버전을 올린 다음에 쓰여 그 사이 요청이 어긋난다).
+# 서빙을 바꾸지 않는 기준선 기록(snapshot_baseline)은 뺀다. 발행 기록의 원천 이름은 매매 'trade' = 수집 원천 'rtms' (V013)
+STATE_SQL = """WITH pub AS (
+                   SELECT CASE v.source WHEN 'trade' THEN 'rtms' ELSE v.source END AS source, ym AS deal_ym,
+                          max(v.published_at) AS published_at
+                   FROM ops.dataset_version v CROSS JOIN LATERAL unnest(v.partitions) AS ym
+                   WHERE NOT v.snapshot_baseline AND ym BETWEEN %(a)s AND %(b)s
+                   GROUP BY 1, 2)
+               SELECT p.source, p.sgg_cd, p.deal_ym, p.last_changed_at, p.rows_prev, pub.published_at
+               FROM ops.ingest_partition p
+               LEFT JOIN pub ON pub.source = p.source AND pub.deal_ym = p.deal_ym
+               WHERE p.source = ANY(%(src)s) AND p.deal_ym BETWEEN %(a)s AND %(b)s"""
 
 
 def _window_sql(table: str, value: str, priced: str) -> str:
@@ -35,8 +53,8 @@ def _window_sql(table: str, value: str, priced: str) -> str:
 
 
 class RentRepository:
-    def __init__(self, ch: AsyncClient):
-        self.ch = ch
+    def __init__(self, ch: AsyncClient, pg: AsyncConnectionPool):
+        self.ch, self.pg = ch, pg
 
     async def _q(self, sql: str, params: dict[str, Any] | None = None) -> list[Row]:
         return list((await self.ch.query(sql, parameters=params or {})).named_results())
@@ -187,3 +205,10 @@ class RentRepository:
             p,
         )
         return trade, rent
+
+    async def partition_states(self, sgg: str | None, a: dt.date, b: dt.date) -> list[Row]:
+        """계약월 a~b 의 매매·전월세 파티션 적재 기록과 그 달의 마지막 발행 시각 (sgg 가 None 이면 전국) — 한 번의 질의."""
+        params = {"src": list(RATIO_SOURCES), "a": a.strftime("%Y%m"), "b": b.strftime("%Y%m"), "s": sgg}
+        async with self.pg.connection() as c:
+            cur = await c.execute(STATE_SQL + (" AND p.sgg_cd = %(s)s" if sgg else ""), params)
+            return cast(list[Row], await cur.fetchall())

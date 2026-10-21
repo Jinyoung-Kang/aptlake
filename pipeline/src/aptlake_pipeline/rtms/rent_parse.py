@@ -5,6 +5,8 @@
   - 빈 값은 공백 한 칸(" "), 도로명 건물 코드(roadnmbcd)만 빈 문자열("")             → None
   - deposit·preDeposit 은 쉼표 천 단위 만원 문자열("43,500"), monthlyRent 는 빈 값 없이 늘 숫자(0 포함)
   - contractType 은 '신규'·'갱신'·공백, useRRRight 는 '사용'·공백, contractTerm 은 'YY.MM~YY.MM'(드물게 '~YY.MM')
+  - preDeposit(종전 보증금)에 음수가 온다('-19,870' — 2022년 일부 시군구의 갱신 계약, 백필 중 관측). 뜻은 원천 문서로
+    확인하지 못해 해석하지 않고 부호까지 원문 그대로 보관한다. 지문·필수 항목인 보증금·월세는 음수를 받지 않는다
 값의 뜻은 원천 낱말 그대로 쓴다 — 원문을 보관하고 코드로 바꾸지 않는다(ADR-018). 공백은 '미상'.
 페이지 봉투·오류 코드는 매매와 같다 (parse.parse_page).
 """
@@ -94,8 +96,8 @@ def to_typed_rent(row: dict[str, str]) -> TypedRent:
     missing = [f for f in REQUIRED_RENT_FIELDS if blank_to_none(row.get(f)) is None]
     if missing:
         raise ValueError(f"missing required fields: {missing}")
-    deposit = parse_amount(row.get("deposit"))
-    rent = parse_amount(row.get("monthlyRent"))
+    deposit = parse_amount(row.get("deposit"), "deposit")
+    rent = parse_amount(row.get("monthlyRent"), "monthlyRent")
     assert deposit is not None and rent is not None
     return TypedRent(
         sgg_cd=row["sggCd"].strip(),
@@ -106,13 +108,13 @@ def to_typed_rent(row: dict[str, str]) -> TypedRent:
         deal_date=deal_date(row.get("dealYear"), row.get("dealMonth"), row.get("dealDay")),
         deposit_manwon=deposit,
         monthly_rent_manwon=rent,
-        floor=parse_int(row.get("floor")),
-        build_year=parse_int(row.get("buildYear")),
+        floor=parse_int(row.get("floor"), "floor"),
+        build_year=parse_int(row.get("buildYear"), "buildYear"),
         contract_type=blank_to_none(row.get("contractType")),
         contract_term=blank_to_none(row.get("contractTerm")),
         use_rr_right=blank_to_none(row.get("useRRRight")),
-        pre_deposit_manwon=parse_amount(row.get("preDeposit")),
-        pre_monthly_rent_manwon=parse_amount(row.get("preMonthlyRent")),
+        pre_deposit_manwon=parse_amount(row.get("preDeposit"), "preDeposit", signed=True),
+        pre_monthly_rent_manwon=parse_amount(row.get("preMonthlyRent"), "preMonthlyRent", signed=True),
         apt_seq=blank_to_none(row.get("aptSeq")),
         road_nm=blank_to_none(row.get("roadnm")),
     )

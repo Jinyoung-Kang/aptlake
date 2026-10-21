@@ -164,3 +164,90 @@ def test_index_point_confirmed_month(monkeypatch):
         "yoy": 21.0,
     }
     assert index_point({this: 99.0}, this, is_provisional=provisional)["mom"] is None  # 앞 달이 없으면 변화율 없음
+
+
+@pytest.mark.parametrize(
+    "pending,share,days",
+    [
+        # 운영 실측 (전월세, 수집 대상 시군구 256): 2026-10-20 재확인 대기 중 백필 4,096 ≤ 4,160,
+        # 2026-10-21 재확인 대기 없음 백필 7,232 (+ 증분 768 = 상한 8,000)
+        (True, 8000 - 256 * 3 - 256 * 12, 1),
+        (False, 8000 - 256 * 3, 1),
+    ],
+)
+def test_backfill_estimate_divides_by_the_backfill_share_not_the_cap(pending, share, days):
+    """백필은 상한에서 증분 몫(시군구×3)과, 재확인 대기 중이면 재확인 몫(시군구×12)을 남기고 쓴다 (파이프라인 budget.ceilings)."""
+    assert ops.backfill_share(8000, 256, pending) == share
+    est = ops._estimate(
+        {"PENDING": 3570, "RETRY": 462, "MERGED": 13873}, 8000, {"regions": 256, "recheck_pending": pending}
+    )
+    assert est["remainingCalls"] == 4032 and est["days"] == days
+    assert f"하루 백필 몫 {share:,}회" in est["basis"] and "증분 몫 768(시군구 256 × 3개월)" in est["basis"]
+    assert ("재확인 몫 3,072(시군구 256 × 12개월, 재확인 대기 중)" in est["basis"]) is pending
+    # 백필 몫으로 나눈다 — 상한(8,000)으로 나누면 1일인 남은 양이 백필 몫으로는 2일
+    assert ops._estimate({"PENDING": 8000}, 8000, {"regions": 256, "recheck_pending": pending})["days"] == 2
+
+
+def test_backfill_estimate_without_share_or_remaining():
+    assert ops.backfill_share(500, 256, True) == 0  # 몫이 남지 않으면 백필은 못 한다
+    assert ops._estimate({"PENDING": 10}, 500, {"regions": 256, "recheck_pending": True})["days"] is None
+    assert ops._estimate({"MERGED": 10}, 8000, {"regions": 0, "recheck_pending": False}) == {
+        "remainingCalls": 0,
+        "days": 0,
+        "basis": "남은 파티션 수 ÷ 하루 백필 몫 8,000회 = 일일 호출 상한 8,000 − 증분 몫 0(시군구 0 × 3개월)"
+        " (같은 날 증분·재확인이 백필보다 먼저 호출하거나 다른 프로그램과 키를 공유하면 더 걸림)",
+    }
+
+
+class _StatusFake:
+    """status() 용 가짜 오케스트레이터·운영 저장소 — 재확인 대기 여부만 원천마다 다르다 (상한·남은 양은 같게)."""
+
+    def __init__(self, pending_source: str):
+        self.pending_source = pending_source
+
+    async def runs(self, statuses=None, created_after=None, limit=50):
+        return []
+
+    async def instigators(self):
+        return {"schedules": [], "sensors": []}
+
+    async def budget_day(self, day, source="rtms"):
+        return {"limit_calls": 10000, "used_calls": 0, "by_priority": {}, "exhausted_reason": None,
+                "exhausted_at": None}  # fmt: skip
+
+    async def partition_counts(self, source="rtms"):
+        return {"PENDING": 7000, "RETRY": 232, "MERGED": 100}
+
+    async def budget_reserves(self, source="rtms"):
+        return {"regions": 256, "recheck_pending": source == self.pending_source}
+
+    async def month_counts(self, source="rtms"):
+        return None
+
+    async def last_version(self):
+        return None
+
+
+@pytest.mark.parametrize("pending_source", ["rtms", "rent"])
+async def test_status_backfill_estimate_uses_each_sources_recheck_reserve(pending_source):
+    """원천마다 자기 재확인 대기 값으로 백필 몫을 센다 — 매매만 재확인 대기인 날 전월세 예상이
+    매매 몫(4,160)으로 계산되면(인자 누락·원천 뒤바뀜) 여기서 걸린다."""
+    import datetime as dt
+
+    fake = _StatusFake(pending_source)
+    body, _ = await ops.status(
+        fake,
+        fake,
+        today=dt.date(2026, 10, 21),
+        budget_pct=80,
+        rent_budget_pct=80,
+        now=dt.datetime(2026, 10, 21, tzinfo=dt.UTC),
+    )
+    s = body["summary"]
+    for est, src in ((s["backfillEstimate"], "rtms"), (s["rent"]["backfillEstimate"], "rent")):
+        pending = src == pending_source
+        share = 8000 - 768 - (3072 if pending else 0)  # 상한 8,000 − 증분 몫 768 [− 재확인 몫 3,072]
+        assert est["remainingCalls"] == 7232
+        assert est["days"] == (2 if pending else 1)  # 7,232 ÷ 4,160 → 2일, ÷ 7,232 → 1일
+        assert f"하루 백필 몫 {share:,}회" in est["basis"]
+        assert ("재확인 몫 3,072" in est["basis"]) is pending
