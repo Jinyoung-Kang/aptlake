@@ -98,7 +98,7 @@ services:
     logging: *logging
 
   lakekeeper-init:
-    image: curlimages/curl:8.22.0
+    image: curlimages/curl:8.23.0
     entrypoint: ["/bin/sh", "/init.sh"]
     environment:
       MINIO_CATALOG_SECRET: ${MINIO_CATALOG_SECRET}
@@ -359,7 +359,7 @@ services:
 
   # ───────────────────────── 관측 (obs 프로필) ─────────────────────────
   prometheus:
-    image: prom/prometheus:v3.13.4
+    image: prom/prometheus:v3.13.5
     profiles: ["obs"]
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=15d"]
     volumes:
@@ -379,6 +379,15 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
+      # 바깥(grafana.com·gravatar)으로 HTTPS 를 내보내지 않는다 — 업데이트·플러그인 확인, 프로필 사진, 서명 공개키 받기,
+      # 플러그인 사전 설치·카탈로그, 외부 스냅숏. 수정 전 Go 의 인증서 검증 결함이 닿지 않게 한다 (ADR-040)
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+      GF_PLUGINS_PUBLIC_KEY_RETRIEVAL_DISABLED: "true"
+      GF_PLUGINS_PREINSTALL_DISABLED: "true"
+      GF_PLUGINS_PLUGIN_ADMIN_ENABLED: "false"
+      GF_SNAPSHOTS_EXTERNAL_ENABLED: "false"
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - ./infra/grafana/dashboards:/var/lib/grafana/dashboards:ro

@@ -307,6 +307,8 @@
   - Silo 예외 파일(`infra/trivy/silo.yaml`)을 새로 만들었다. 로컬 점검에서 서드파티 9종 모두 0건.
   - 2026-10-20 (kin-openapi·pcre2·x/text 로 다시 실패): 같은 줄의 새 태그로 올렸다 — Silo RELEASE.2026-10-18 은 예외 없이 0건이라 `silo.yaml` 을 지웠고, Grafana 12.4.13 은 Go 3건이 사라졌다. 새 Silo 는 Object Lock·IAM 검사를 강화해 QA 에서 계정별 권한·보존·서명 URL·Lakekeeper STS 경로를 확인했다.
     - 남은 항목은 2026-11-30 예외로 두었다. Grafana 의 kin-openapi 는 요청 검증(openapi3filter)이 링크되지 않았다. Trino launcher 의 x/text 는 취약한 secure/precis 가 링크되지 않았다. Trino 484 도 x/text 가 고쳐지지 않아 483 에 둔다.
+  - 2026-10-21 (Go crypto/x509 의 emSign 중간 인증서 결함 CVE-2026-111943·curl 이미지의 libssh2 로 다시 실패): Prometheus v3.13.5(Go 1.26.10)·curl 8.23.0(libssh2 r4)으로 올렸다. 나머지는 수정된 빌드가 없어 2026-11-30 예외로 두었다 — 바깥 서버에 TLS 로 붙을 때만 닿는데, postgres(gosu)·Trino(launcher)·grafana-server/cli 에는 `Certificate.Verify` 가 링크되지 않았고 Silo 는 바깥 연결이 없다(실측 0).
+    - Grafana 는 10분마다 grafana.com 에 플러그인 업데이트를 묻고 있었다. 자동으로 바깥에 나가는 HTTPS 를 설정으로 끄고(업데이트 확인·gravatar·서명 공개키·사전 설치·카탈로그·외부 스냅숏) 실측 외부 연결 0 을 확인한 뒤 예외로 두었다. 관리자가 직접 여는 grafana.com 프록시(대시보드 가져오기 등)만 남는다.
 
 ## ADR-041 성능(QA-009): 같은 요청 합치기와 월 계열 캐시, 효과 없는 설정은 두지 않는다
 - **문제:** NFR-04(200+100 RPS 에서 months p95 < 80 ms · trades p95 < 150 ms)를 QA 스택에서 만족하지 못했다. QA 보고서는 같은 요청 합치기(A2)·ClickHouse CPU 분리·워커 수·VM CPU 조정을 권고했다.

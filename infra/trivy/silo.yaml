@@ -1,0 +1,14 @@
+# pgsty/silo:RELEASE.2026-10-18T00-00-00Z (MinIO 호환 저장소) 의 남은 HIGH·CRITICAL 예외 — tools/scan_images.sh third-party 가 읽는다.
+# 새 태그로 올리면 다시 스캔해 사라진 항목은 지우고, 만료일이 지나면 다시 판단한다 (지나면 점검이 실패한다).
+#
+# 2026-10 crypto/x509 1건(CVE-2026-111943) — 유출된 emSign 중간 인증서가 든 체인을 Certificate.Verify 가 받아들이는 결함이라,
+# 이 실행 파일이 TLS 클라이언트로 바깥 서버에 붙을 때 닿는다 (이미지의 CA 묶음에는 emSign 루트가 있다).
+# - silo: 바깥에 붙는 기능(KMS·OpenID·LDAP·알림 대상·복제·티어링·callhome)을 설정하지 않았고, 업데이트 확인은 Silo 가 영구히 껐다
+#   (소스의 globalInplaceUpdateDisabled). 서버는 TLS 없이 열려 클라이언트 인증서도 검증하지 않는다. 운영 컨테이너 14분 실측에서 외부 연결 0.
+# - mcli: minio-init·healthcheck·백업·복원 훈련에서 http://minio:9000(또는 localhost)에만 쓴다. 이 포크는 업데이트 확인을 뺐다.
+# 최신 태그(RELEASE.2026-10-18)도 Go 1.27.2 라 짧은 만료일로 두고 수정된 Go(1.26.10·1.27.3)로 빌드한 태그가 나오면 올린다.
+vulnerabilities:
+  - id: CVE-2026-111943
+    paths: ["usr/bin/silo", "usr/bin/mcli"]
+    expired_at: 2026-11-30
+    statement: 바깥으로 TLS 연결을 하지 않는다 — 외부 연동 미설정·업데이트 확인 영구 꺼짐, mcli 는 내부망 http 에만 쓴다
