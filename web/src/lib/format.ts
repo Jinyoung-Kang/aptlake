@@ -10,9 +10,10 @@ export function num(v: number | null | undefined, digits = 0): string {
   return (digits === 0 ? nf0 : digits === 1 ? nf1 : nf2).format(v);
 }
 
-/** 만원 단위 금액 → '19억 5,200만' (표·툴팁용). */
+/** 만원 단위 금액 → '19억 5,200만' (표·툴팁용). 음수(원천이 보낸 종전 보증금 등)는 부호를 앞에 한 번만 — '-1억 9,870만'. */
 export function manwon(v: number | null | undefined): string {
   if (v == null) return DASH;
+  if (v < 0) return `-${manwon(-v)}`;
   const eok = Math.floor(v / 10000);
   const rest = Math.round(v % 10000);
   if (eok === 0) return `${nf0.format(rest)}만`;

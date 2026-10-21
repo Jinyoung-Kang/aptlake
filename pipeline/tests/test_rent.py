@@ -49,6 +49,23 @@ def test_real_rent_page_parses_all_items():
     assert any(t.pre_deposit_manwon for t in typed) and any(t.road_nm for t in typed)
 
 
+def test_negative_previous_deposit_is_kept_as_sent():
+    """원천이 종전 보증금에 음수를 보낸다(2022년 일부 갱신 계약, 41360/202206 에 14건) — 뜻을 해석하지 않고 부호까지 보관한다.
+    예전에는 파싱 실패로 파티션 전체가 격리됐다. 보증금·월세(지문·필수)는 여전히 음수를 받지 않는다."""
+    t = to_typed_rent({**ITEMS[0], "contractType": "갱신", "preDeposit": "-19,870", "preMonthlyRent": "5"})
+    assert (t.pre_deposit_manwon, t.pre_monthly_rent_manwon) == (-19870, 5)
+    with pytest.raises(
+        ValueError, match="invalid deposit"
+    ):  # 어느 항목인지 오류에 이름이 나온다 (예전엔 늘 dealAmount)
+        to_typed_rent({**ITEMS[0], "deposit": "-3,500"})
+    with pytest.raises(ValueError, match="invalid monthlyRent"):
+        to_typed_rent({**ITEMS[0], "monthlyRent": "-1"})
+    neg = XML.replace("<preDeposit> </preDeposit>", "<preDeposit>-19,870</preDeposit>", 1)
+    assert neg != XML
+    checks = {c.name: c for c in validate(_result(neg), 161, spec=RENT)}
+    assert checks["rows_parse_and_belong_to_partition"].passed
+
+
 def test_required_fields_and_amounts():
     with pytest.raises(ValueError, match="monthlyRent"):
         to_typed_rent({**ITEMS[0], "monthlyRent": " "})

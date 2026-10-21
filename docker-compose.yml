@@ -176,6 +176,9 @@ services:
         if [ "$$(ch -q "SELECT extract(engine_full, 'index_granularity = ([0-9]+)') FROM system.tables WHERE database = 'aptlake' AND name = 'trade_current'")" != 1024 ]; then
           if ch --multiquery < /migrate/trade_current_granularity.sql; then echo ch trade_current → index_granularity 1024;
           else ch --multiquery < /init/01-schema.sql; exit 1; fi;
+        fi &&
+        if [ "$$(ch -q "SELECT type FROM system.columns WHERE database = 'aptlake' AND table = 'rent_current' AND name = 'pre_deposit_manwon'")" = "Nullable(UInt32)" ]; then
+          ch --multiquery < /migrate/rent_signed_pre_amounts.sql && echo ch rent previous amounts → signed;
         fi && echo ch schema up to date
     environment:
       CLICKHOUSE_ADMIN_PASSWORD: ${CLICKHOUSE_ADMIN_PASSWORD}

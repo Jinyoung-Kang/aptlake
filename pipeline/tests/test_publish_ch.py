@@ -348,7 +348,7 @@ def _rent_gold(ym: str, contracts: int) -> dict[str, list[tuple]]:
                 "신규" if i else "",
                 "24.08~26.08",
                 "",
-                None,
+                -19870 if i == 1 else None,  # 종전 보증금 음수 — 원천 그대로 (부호 있는 열)
                 None,
                 2004,
                 False,
@@ -382,3 +382,24 @@ def test_rent_month_publish_swaps_four_tables_together(ch, monkeypatch):
     assert ch.query("SELECT DISTINCT contract_type FROM rent_current ORDER BY 1").result_rows == [("",), ("신규",)]
     for t in publish.RENT_TABLES:
         assert ch.query(f"SELECT count() FROM {t}_staging").first_row[0] == 0
+    assert ch.query("SELECT min(pre_deposit_manwon) FROM rent_current").first_row[0] == -19870
+
+
+def test_rent_previous_amounts_migration_to_signed(ch):
+    """처음 배포한 전월세 표는 종전 금액이 UInt32 였다 — 이관이 값은 그대로 두고 네 표를 함께 Int32 로 바꾼다."""
+    for t in ("rent_current", "rent_current_staging", "rent_version", "rent_version_staging"):
+        ch.command(f"TRUNCATE TABLE {t}")
+        ch.command(f"ALTER TABLE {t} MODIFY COLUMN pre_deposit_manwon Nullable(UInt32), "
+                   "MODIFY COLUMN pre_monthly_rent_manwon Nullable(UInt32)")  # fmt: skip
+    ch.insert("rent_version", [["r11110-202407-0000000000000000-0", D(2024, 7, 1), 1, dt.datetime(2026, 10, 20), None, 1,
+                                "갱신", "", "", 55000, 12, 2004]],
+              column_names=["rent_id", "deal_date", "version", "valid_from", "valid_to", "is_current", "contract_type",
+                            "contract_term", "use_rr_right", "pre_deposit_manwon", "pre_monthly_rent_manwon",
+                            "build_year"])  # fmt: skip
+    for stmt in _statements(ROOT / "infra/clickhouse/migrate/rent_signed_pre_amounts.sql"):
+        ch.command(stmt)
+    types = dict(ch.query(
+        "SELECT table || '.' || name, type FROM system.columns WHERE database = 'aptlake' AND name LIKE 'pre_%_manwon'"
+    ).result_rows)  # fmt: skip
+    assert set(types.values()) == {"Nullable(Int32)"} and len(types) == 8
+    assert ch.query("SELECT pre_deposit_manwon, pre_monthly_rent_manwon FROM rent_version").result_rows == [(55000, 12)]

@@ -134,13 +134,14 @@ def blank_to_none(v: str | None) -> str | None:
     return s or None
 
 
-def parse_amount(v: str | None) -> int | None:
+def parse_amount(v: str | None, field: str = "dealAmount", signed: bool = False) -> int | None:
+    """쉼표 천 단위 만원 문자열 → 정수. signed=True 면 앞의 '-' 를 받는다 (원천이 음수를 보내는 항목, 원문 그대로)."""
     s = blank_to_none(v)
     if s is None:
         return None
     s = s.replace(",", "")
-    if not re.fullmatch(r"\d+", s):
-        raise ValueError(f"invalid dealAmount: {v!r}")
+    if not re.fullmatch(r"-?\d+" if signed else r"\d+", s):
+        raise ValueError(f"invalid {field}: {v!r}")
     return int(s)
 
 
