@@ -34,6 +34,7 @@
 - 격리 재시도는 `?source=rent`: `curl -X POST -H "X-API-Key: $ADMIN" "http://127.0.0.1:8611/v1/admin/partitions/41135/2026-08/retry?source=rent"`.
 - 원본은 `s3://raw/rtms_rent/deal_ym=…/sgg_cd=…/<sha>/`, 품질 기록의 자산 이름은 `bronze.rtms_rent_raw`·`silver.apt_rent`.
 - 수동 한 달: `make rent-month ym=202408`.
+- 파싱 격리(`rows_parse_and_belong_to_partition`)는 `ops.dq_result` 의 `metric.sample` 에 항목 이름과 원문이 나온다(예 `invalid deposit: '-1'`). 원천의 새 값 형식이면 파서를 고친 뒤 재시도한다 — 종전 보증금 음수가 그 예다(ADR-050).
 
 ## 격리(QUARANTINED) 파티션 재시도
 ```bash
