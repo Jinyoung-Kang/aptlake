@@ -555,7 +555,7 @@
 - **결정:** PyIceberg 카탈로그 속성에 `s3.request-timeout=30` — 레이크 S3 요청이 약 90초 멈춤까지 견딘다. 운영 Lakekeeper 의 표 설정이 덮어쓰지 않고 표 FileIO 의 pyarrow 파일시스템까지 가는 것을 확인했고, 시험으로 고정했다. 저장소가 정말 죽었으면 실패가 최대 약 80초 늦어질 뿐. bronze 적재 재시도(ae328bd)·Trino/ClickHouse 단계 1회 재시도(ADR-034)는 그대로.
 - **하지 않은 것 (사용자 결정):** VM 전체 부족 자체 — VM 메모리, 다른 프로젝트와 무거운 실행이 겹치지 않게 하기(ADR-034 와 같은 이유). MinIO 한도 — 이번 원인이 아니고 VM 메모리가 가장 모자란 자원이라 512MiB 그대로. 올린다면 768MiB(Go 440MB + 캐시 자리)로 바꾸고 한도 도달·swap·요청 지연을 다시 잰다. Trino 메모리 다시 재기(ADR-035 수치 갱신 → ADR-054).
 
-## ADR-054 Trino 메모리 다시 재기 — 힙 1.08GiB 는 늘 확보돼 있고, 힙 밖 0.7GiB 의 셋 중 하나는 메타스페이스, 절반은 glibc malloc
+## ADR-054 Trino 메모리 다시 재기 — 힙 1.08GiB 는 한 번 차면 내려오지 않고, 힙 밖 0.7GiB 의 셋 중 하나는 메타스페이스, 절반은 glibc malloc
 - **배경:** ADR-035 의 '최대 1.26GB' 는 483 으로 올린 직후 값이다. VM 전체가 모자랄 때마다 가장 큰 프로세스인 Trino 가 죽어서(ADR-053) 실제 구성을 다시 쟀다. 대상은 2026-10-21 12:03 UTC 에 다시 뜬 운영 Trino(483, JDK 25.0.3, aarch64, 한도 2GiB, `-Xmx1100M -Xms512M`)이고, 12:03 재시작은 주간 정리 중 힙 OOM 때문이었다.
 - **방법 (읽기 전용):** cgroup `memory.stat`·`memory.events`, `/proc/1/smaps` 를 주소로 나눴다(힙·메타스페이스 노드·코드 캐시 주소는 jcmd 출력에서). jcmd 는 `GC.heap_info`·`VM.metaspace`·`Compiler.codecache`·`VM.info`(C-Heap 사용·보유)·`System.native_heap_info`(glibc `malloc_info`)·`PerfCounter.print` 를 썼다. jcmd·CLI 는 Trino cgroup 에 JVM 을 더하지 않으려고 같은 이미지의 다른 컨테이너에서 돌렸다(runbook). NMT 는 재시작해야 켜져서 쓰지 않았다. 부하는 dims_and_index 의 dbt `source_latency`·`complex_summary` 와 같은 SELECT 를 analyst 로 동시에 돌렸다. 질의 최대 메모리는 467MiB 로, 13:02 실제 실행의 `source_latency`(473MiB)와 비슷했다.
 - **측정 (MiB, 2026-10-21 UTC):**
@@ -576,13 +576,17 @@
   - **부하 때 힙은 모자란다.** 13:02 실제 dims_and_index 때 GC 직전 사용량이 1,038~1,076MiB 였고, Full GC 뒤 525MiB 였다(`VM.info` 의 GC 기록). 12:03 뒤 Full GC 는 35번이고 그중 5번은 이번 부하 92초 동안 났다. 12:03 의 힙 OOM 도 있었다(ADR-050). 질의 풀은 854MiB(힙 − 여유 250MB), 질의당 상한은 600MB 다.
   - **malloc 은 부하 때 늘지 않았다.** 부하 전후에 확보량은 541MiB 로 같았고, 사용량은 350~375MiB 사이였다. 그래서 다이렉트 버퍼(256M 상한)가 부하를 따라 커지는 몫은 아니다. 다만 사용 360MiB 의 출처(JVM 내부·다이렉트 버퍼·네이티브 라이브러리)는 NMT 없이 나누지 못했다. 확인된 것은 심볼 표 26MiB 뿐이다.
   - **빈 공간을 돌려주지 않는다.** 주 영역은 198MiB 중 154MiB 가 빈 공간인데 RSS 가 193MiB 다. `VM.info` 는 "Periodic native trim disabled" 다. 64KiB 이상 덩어리만 세도 빈 공간이 100MiB 를 넘는다.
-  - THP(VM 설정 `always`)는 큰 원인이 아니다. 거대 페이지 778~940MiB 중 힙이 718~880MiB 인데 힙은 어차피 다 닿아 있고, 스택은 JVM 이 THP 에서 뺀다. khugepaged 가 빈칸을 메운 양은 재지 못했다.
+  - THP(VM 설정 `always`)가 차지하는 몫은 프로세스마다 달랐다. 12:03 프로세스는 거대 페이지 778~940MiB 의 대부분이 힙이었고(힙은 어차피 다 닿아 있다), malloc 보조 영역은 확보 343MiB 중 상주+swap 이 188MiB 뿐이었다. 16:17 프로세스(아래 정기 실행)는 malloc 영역·메타스페이스·코드 캐시까지 거대 페이지로 채워져 malloc 이 확보 352MiB 중 347MiB 상주였다. 거대 페이지가 확보만 하고 쓰지 않은 곳까지 상주시키는 것으로 보인다(추정, 따로 재지 않음). 그래도 힙 밖 합은 둘 다 약 0.71GiB 로 같았다. 스택은 JVM 이 THP 에서 뺀다.
   - cgroup `memory.events` 는 12:03 뒤 `max 0`·`oom_kill 0` 이다(최대 1,996MiB, 페이지 캐시 포함). swap 101MiB 는 컨테이너 한도가 아니라 VM 전체 회수(kswapd)에서 나왔다.
+- **실제 정기 실행 (10-22 05:30 KST `daily_dims_and_index`, 20:30:07~20:31:58 UTC, 수동 관측):** 대상은 ADR-055 로 16:17 UTC 에 다시 만든 프로세스다. 그 뒤로 무거운 질의가 없어서 힙이 512MiB(`-Xms`) 그대로였다.
+  - 실행 전 RSS 1,080MiB(swap 0): 힙 472 · 메타스페이스+클래스 공간 168 · malloc 347(사용 320 / 빈 40) · 코드 캐시 37 · 기타 57.
+  - 실행 1분 사이 힙이 512 → 1,104MiB(20:30:57 → 20:31:19)로 커지고 RSS 가 최대 1,829MiB 였다. 질의 풀 예약은 최대 441MiB, Full GC 는 0 → 4번, 스레드는 350개였다. VM 가용은 약 4,000 → 2,486MiB 까지 내려갔다.
+  - 끝나고 33분 동안 RSS 1,816~1,827MiB, 힙 1,104MiB 그대로였다. **정기 실행 한 번에 쉬는 중 몫이 0.74GiB 늘고, 다음 재시작까지 남는다.** 실행 뒤 malloc 은 403MiB(사용 342 / 빈 75), 메타스페이스 확보는 153 → 176MiB.
 - **권고 (적용은 사용자 결정 — 이 ADR 은 설정을 바꾸지 않는다):**
   - `-Xmx1100M` 그대로 둔다. 부하 때 힙이 다 차고 Full GC·힙 OOM 이 이미 나므로 줄이면 안 된다. 늘리려면 컨테이너 한도도 올려야 해서 VM 몫과 함께 정할 문제다(ADR-034). `-Xms512M` 도 그대로 둔다. 기본 비율이면 줄어드는 바닥(864)이 512 보다 높다.
-  - `-XX:TrimNativeHeapInterval=60000` (JDK 25 정식 옵션, 기본 0=끔, 전용 스레드가 glibc 힙을 다듬는다): 쉬는 중 RSS 가 0.15~0.19GiB 줄 것으로 추정한다(주 영역 빈 공간 154 + 보조 38MiB). 재시작해야 적용된다. 적용 전에 `jcmd 1 System.trim_native_heap`(한 번 다듬기, 재시작 없음)으로 실제 감소량을 재 볼 수 있다.
-  - `-XX:G1PeriodicGCInterval=300000` (런타임에 바꿀 수 있는 플래그, JEP 346 — 마지막 GC 뒤 5분 동안 GC 가 없으면 동시 주기를 돌리고, 끝에 Min/MaxHeapFreeRatio 로 힙 크기를 다시 정한다): 쉬는 중 힙이 1,104 → 약 864MiB(−0.24GiB, 부하 중 관측과 같은 기제)로 줄고, 생성 클래스도 내려간다. `jcmd 1 VM.set_flag G1PeriodicGCInterval 300000` 으로 재시작 없이 시험할 수 있다(되돌리기 0). `MaxHeapFreeRatio` 를 낮추면 더 줄지만, 부하 중 Full GC 뒤에도 줄었다 다시 커지는 일이 늘어서 재지 않고는 바꾸지 않는다.
-  - 두 가지를 다 하면 쉬는 중 RSS + swap 이 약 1,820 → 1,400MiB 로 줄 것으로 추정한다. **부하 때 최대값(RSS 약 1.8GiB)은 그대로**라서 VM 이 모자랄 때 Trino 가 먼저 죽는 구조도 그대로다. 줄어드는 것은 Trino 가 쉬는 동안 다른 프로젝트와 겹칠 때의 몫이다.
+  - `-XX:TrimNativeHeapInterval=60000` (JDK 25 정식 옵션, 기본 0=끔, 전용 스레드가 glibc 힙을 다듬는다): 쉬는 중 RSS 가 0.04~0.19GiB 줄 것으로 추정한다. glibc 빈 공간이 12:03 프로세스(시작 1.7시간 뒤)는 191MiB, 16:17 프로세스는 정기 실행 뒤 75MiB 였다. 재시작해야 적용된다. 적용 전에 `jcmd 1 System.trim_native_heap`(한 번 다듬기, 재시작 없음)으로 실제 감소량을 재 볼 수 있다.
+  - `-XX:G1PeriodicGCInterval=300000` (런타임에 바꿀 수 있는 플래그, JEP 346 — 마지막 GC 뒤 5분 동안 GC 가 없으면 동시 주기를 돌리고, 끝에 Min/MaxHeapFreeRatio 로 힙 크기를 다시 정한다): 정기 실행 뒤 1,104MiB 로 남는 힙이 약 864MiB(−0.24GiB, 부하 중 관측과 같은 기제)로 줄고, 생성 클래스도 내려간다. `jcmd 1 VM.set_flag G1PeriodicGCInterval 300000` 으로 재시작 없이 시험할 수 있다(되돌리기 0). `MaxHeapFreeRatio` 를 낮추면 더 줄지만, 부하 중 Full GC 뒤에도 줄었다 다시 커지는 일이 늘어서 재지 않고는 바꾸지 않는다.
+  - 두 가지를 다 하면 쉬는 중 RSS + swap 이 약 1,820 → 1,400~1,540MiB 로 줄 것으로 추정한다. **부하 때 최대값(RSS 약 1.8GiB)은 그대로**라서 VM 이 모자랄 때 Trino 가 먼저 죽는 구조도 그대로다. 줄어드는 것은 Trino 가 쉬는 동안 다른 프로젝트와 겹칠 때의 몫이다.
   - `MaxDirectMemorySize=256M`·`MaxMetaspaceSize=256M`·`ReservedCodeCacheSize=96M` 는 그대로 둔다. 다이렉트 사용량은 재지 못했다. 메타스페이스는 확보 204MiB(80%)가 부하 전후로 그대로지만, 넘치면 OOM → `ExitOnOutOfMemoryError` 로 재시작되니 지켜본다.
 - **확인하지 못한 것:** iceberg_maintenance(주간, 다음 10-25 04:00 KST)를 돌리는 동안의 값(12:37 수동 실행 기록은 질의 메모리 1MB 미만이고, 힙 OOM 이 난 11:57 실행은 재시작으로 기록이 없다). malloc 사용 360MiB 의 출처(NMT summary 는 재시작이 필요하다). 실제 다듬기 감소량. 10-20 OOM 때 Trino 가 쉬는 중이었는지.
 
