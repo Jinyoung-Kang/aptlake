@@ -120,6 +120,11 @@ services:
       - ./infra/trino/etc/access-control.properties:/etc/trino/access-control.properties:ro
       - ./infra/trino/etc/rules.json:/etc/trino/rules.json:ro
       - ./infra/trino/etc/catalog:/etc/trino/catalog:ro
+      # 힙 OOM 덤프 자리(ADR-055): 이미지에 있는 trino 소유 홈에 붙인다 — 이미지에 없는 경로에 붙이면 root 소유라 쓸 수 없다
+      - trino_heapdump:/home/trino
+      - ./infra/trino/start.sh:/usr/lib/trino/bin/aptlake-start.sh:ro
+    # 같은 덤프 이름(java_pid1.hprof)을 비운 뒤 이미지의 run-trino 를 exec 한다 (Java 는 PID 1 그대로)
+    command: ["bash", "/usr/lib/trino/bin/aptlake-start.sh"]
     depends_on: { lakekeeper-init: { condition: service_completed_successfully } }
     # 호스트 포트 없음: 사용자 이름만으로 접속하는 구성이라 밖에 열지 않는다. 직접 질의는 docker compose exec trino trino
     healthcheck:
@@ -413,5 +418,6 @@ volumes:
   ch: {}
   redis: {}
   dagster_home: {}
+  trino_heapdump: {}
   prom: {}
   grafana: {}
