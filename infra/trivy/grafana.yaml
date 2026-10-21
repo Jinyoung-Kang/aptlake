@@ -7,6 +7,15 @@
 # 이 바이너리에는 openapi3filter 가 링크되지 않았고(strings 확인), kin-openapi 는 grafana-app-sdk 가 내장 앱 매니페스트의 스키마를
 # 변환할 때와 plugin-sdk 의 e2e 저장소에만 쓰인다 — 12.4 의 Grafana 코드에는 요청 본문을 VisitJSON 으로 검증하는 곳이 없다.
 # 12.4 최신(12.4.13)에도 남아(2026-10-20 레지스트리 확인) 짧은 만료일로 두고 새 태그가 나오면 올린다.
+#
+# 2026-10 crypto/x509 1건(CVE-2026-111943) — 유출된 emSign 중간 인증서가 든 체인을 Certificate.Verify 가 받아들이는 결함이라,
+# grafana 가 TLS 클라이언트로 바깥 서버에 붙을 때 닿는다 (이미지의 CA 묶음에는 emSign 루트가 있다). 기본 설정은 10분마다
+# grafana.com 에 플러그인 업데이트를 묻고 있어(운영 로그) docker-compose.yml 에서 자동으로 나가는 HTTPS 를 모두 껐다 —
+# 업데이트·플러그인 확인, gravatar, 서명 공개키 받기, 사전 설치, 플러그인 카탈로그, 외부 스냅숏. 끈 뒤 임시 컨테이너를
+# 15분(기동·UI 호출·10분 주기 포함) 재어 외부 연결 0 (같은 방법으로 운영 Grafana 에서는 grafana.com 연결이 잡혔다).
+# 남은 경로는 grafana.com 프록시(/api/gnet)뿐인데, 로그인한 관리자가 대시보드 가져오기 등을 직접 열 때만 쓰인다(계정은 관리자 하나).
+# grafana-server·grafana-cli 는 grafana 를 exec 하는 얇은 실행 파일이라 Certificate.Verify 가 링크되지 않았다(함수 이름표 확인).
+# 12.4·13.x 모두 수정된 Go(1.26.10·1.27.3) 빌드가 없어(2026-10-21 레지스트리 확인) 짧은 만료일로 둔다.
 vulnerabilities:
   - id: CVE-2026-21728
     paths: ["usr/share/grafana/bin/grafana"]
@@ -28,3 +37,11 @@ vulnerabilities:
     paths: ["usr/share/grafana/bin/grafana"]
     expired_at: 2026-11-30
     statement: 요청 검증(openapi3filter) 미링크, 내장 매니페스트 변환에만 쓴다 — 게다가 127.0.0.1·내부망의 신뢰 클라이언트만 닿는 서비스 거부
+  - id: CVE-2026-111943
+    paths: ["usr/share/grafana/bin/grafana"]
+    expired_at: 2026-11-30
+    statement: 자동으로 바깥에 나가는 HTTPS 를 설정으로 껐다(실측 외부 연결 0) — 남은 grafana.com 프록시는 로그인한 관리자가 직접 열 때뿐
+  - id: CVE-2026-111943
+    paths: ["usr/share/grafana/bin/grafana-server", "usr/share/grafana/bin/grafana-cli"]
+    expired_at: 2026-11-30
+    statement: grafana 를 exec 하는 얇은 실행 파일로 crypto/x509 Certificate.Verify 가 링크되지 않았다

@@ -1,25 +1,10 @@
-# prom/prometheus:v3.13.4 의 남은 HIGH·CRITICAL 예외 (QA-005) — tools/scan_images.sh third-party 가 읽는다.
+# prom/prometheus:v3.13.5 의 남은 HIGH·CRITICAL 예외 (QA-005) — tools/scan_images.sh third-party 가 읽는다.
 # 새 태그로 올리면 다시 스캔해 사라진 항목은 지우고, 만료일이 지나면 다시 판단한다 (지나면 점검이 실패한다).
 #
 # gRPC-Go 의 xDS 서버(xds.NewGRPCServer) 결함이다. Prometheus 는 gRPC 서버를 열지 않는다. 3.13 은 LTS(2027-07 까지)라
 # 수정판이 있는 3.15(2026-11 지원 종료)로 옮기지 않고 3.13 의 다음 패치를 기다린다 (ADR-035).
-#
-# 2026-10 Go 표준 라이브러리(net/http Range·HTTP/2 SETTINGS, crypto/tls ECH) 3건 — 모두 서비스 거부다. 아래 이유로 닿지 않지만,
-# 수정된 Go(1.26.9·1.27.2)로 빌드한 태그가 아직 없어(2026-10-10 레지스트리 확인) 짧은 만료일로 두고 새 태그가 나오면 올린다.
 vulnerabilities:
   - id: CVE-2026-84445
     paths: ["bin/prometheus", "bin/promtool"]
     expired_at: 2026-12-31
     statement: gRPC(xDS) 서버를 열지 않는다
-  - id: CVE-2026-78667
-    paths: ["bin/prometheus", "bin/promtool"]
-    expired_at: 2026-11-30
-    statement: TLS 없이 127.0.0.1(호스트)·내부망에서만 열리고 내부 서비스만 수집한다 — 신뢰 상대만 닿는 서비스 거부, promtool 은 실행하지 않는다
-  - id: CVE-2026-78669
-    paths: ["bin/prometheus", "bin/promtool"]
-    expired_at: 2026-11-30
-    statement: TLS 없이 127.0.0.1(호스트)·내부망에서만 열리고 내부 서비스만 수집한다 — 신뢰 상대만 닿는 서비스 거부, promtool 은 실행하지 않는다
-  - id: CVE-2026-97031
-    paths: ["bin/prometheus", "bin/promtool"]
-    expired_at: 2026-11-30
-    statement: TLS 없이 127.0.0.1(호스트)·내부망에서만 열리고 내부 서비스만 수집한다 — 신뢰 상대만 닿는 서비스 거부, promtool 은 실행하지 않는다

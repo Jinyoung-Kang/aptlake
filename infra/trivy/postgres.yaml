@@ -6,6 +6,10 @@
 #
 # 2026-10 Go 표준 라이브러리(net/http Range·HTTP/2 SETTINGS, crypto/tls ECH) 3건 — 모두 서비스 거부다. 아래 이유로 닿지 않지만,
 # 수정된 Go(1.26.9·1.27.2)로 빌드한 태그가 아직 없어(2026-10-10 레지스트리 확인) 짧은 만료일로 두고 새 태그가 나오면 올린다.
+#
+# 2026-10 crypto/x509 1건(CVE-2026-111943) — 유출된 emSign 중간 인증서가 든 체인을 Certificate.Verify 가 받아들이는 결함이다.
+# gosu 에는 Certificate.Verify 가 링크되지 않았다(amd64·arm64 실행 파일의 함수 이름표 확인). 16-alpine 이 최신(2026-09-21 빌드)이라
+# 수정된 Go(1.26.10·1.27.3)로 다시 빌드되면 사라진다 — 짧은 만료일로 둔다.
 vulnerabilities:
   - id: CVE-2025-61726
     paths: ["usr/local/bin/gosu"]
@@ -107,3 +111,7 @@ vulnerabilities:
     paths: ["usr/local/bin/gosu"]
     expired_at: 2026-11-30
     statement: gosu 는 기동 때 권한 낮추기만 하고 네트워크·파싱을 하지 않는다
+  - id: CVE-2026-111943
+    paths: ["usr/local/bin/gosu"]
+    expired_at: 2026-11-30
+    statement: gosu 에 crypto/x509 Certificate.Verify 가 링크되지 않았다 (TLS 를 하지 않는다)

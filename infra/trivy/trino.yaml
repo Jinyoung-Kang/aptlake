@@ -9,6 +9,10 @@
 #
 # 2026-10 golang.org/x/text 1건 — Nickname 프로필(secure/precis)의 서비스 거부다. launcher 에는 x/net/idna 가 쓰는
 # bidirule·bidi·norm 만 링크되고 secure/precis 는 없다(strings 확인). 484(2026-10-20 최신)도 x/text 0.40.0 이라 고쳐지지 않았다.
+#
+# 2026-10 crypto/x509 1건(CVE-2026-111943, 유출된 emSign 중간 인증서) — launcher 에는 Certificate.Verify 가 링크되지 않았다
+# (amd64·arm64 함수 이름표 확인). 484(2026-10-21 최신)도 Go 1.26.5 라 고쳐지지 않았고, iceberg 플러그인의 parquet-jackson 에
+# Jackson 4건이 새로 생겨 483 에 둔다.
 vulnerabilities:
   - id: CVE-2026-33818
     paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
@@ -114,3 +118,7 @@ vulnerabilities:
     paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
     expired_at: 2026-11-30
     statement: launcher 에 secure/precis(Nickname 프로필)가 링크되지 않았고, 기동 때 JVM 을 띄우기만 한다 (네트워크 입력 없음)
+  - id: CVE-2026-111943
+    paths: ["usr/lib/trino/bin/linux-amd64/launcher", "usr/lib/trino/bin/linux-arm64/launcher"]
+    expired_at: 2026-11-30
+    statement: launcher 에 crypto/x509 Certificate.Verify 가 링크되지 않았고, 기동 때 JVM 을 띄우기만 한다 (TLS 없음)
