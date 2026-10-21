@@ -145,12 +145,13 @@ def parse_amount(v: str | None, field: str = "dealAmount", signed: bool = False)
     return int(s)
 
 
-def parse_int(v: str | None) -> int | None:
+def parse_int(v: str | None, field: str = "integer") -> int | None:
+    """정수 문자열 → 정수. field: 오류에 남길 원천 항목 이름 — 파싱 격리 기록(metric.sample)에서 어느 항목인지 보이게."""
     s = blank_to_none(v)
     if s is None:
         return None
     if not re.fullmatch(r"-?\d+", s):
-        raise ValueError(f"invalid integer: {v!r}")
+        raise ValueError(f"invalid {field}: {v!r}")
     return int(s)
 
 
@@ -165,22 +166,28 @@ def parse_area(v: str | None) -> Decimal | None:
     return d.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
 
 
-def parse_short_date(v: str | None) -> dt.date | None:
-    """'25.11.27' → 2025-11-27. 원천 제공 범위가 2006년 이후라 세기는 20YY 로 둔다."""
+def parse_short_date(v: str | None, field: str = "short date") -> dt.date | None:
+    """'25.11.27' → 2025-11-27. 원천 제공 범위가 2006년 이후라 세기는 20YY 로 둔다. field: 오류에 남길 원천 항목 이름."""
     s = blank_to_none(v)
     if s is None:
         return None
     m = re.fullmatch(r"(\d{2})\.(\d{1,2})\.(\d{1,2})", s)
     if not m:
-        raise ValueError(f"invalid short date: {v!r}")
-    return dt.date(2000 + int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        raise ValueError(f"invalid {field}: {v!r}")
+    try:
+        return dt.date(2000 + int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError as e:  # 없는 날짜: 날짜 모듈의 문구엔 항목·원문이 없다
+        raise ValueError(f"invalid {field}: {v!r}") from e
 
 
 def deal_date(year: str | None, month: str | None, day: str | None) -> dt.date:
-    y, m, d = parse_int(year), parse_int(month), parse_int(day)
+    y, m, d = parse_int(year, "dealYear"), parse_int(month, "dealMonth"), parse_int(day, "dealDay")
     if y is None or m is None or d is None:
         raise ValueError(f"incomplete deal date: {year!r}-{month!r}-{day!r}")
-    return dt.date(y, m, d)
+    try:
+        return dt.date(y, m, d)
+    except ValueError as e:  # 없는 날짜(13월·2월 30일): 날짜 모듈의 문구엔 원문이 없다
+        raise ValueError(f"invalid deal date: {year!r}-{month!r}-{day!r}") from e
 
 
 @dataclass(frozen=True)
@@ -230,11 +237,11 @@ def to_typed(row: dict[str, str]) -> TypedTrade:
         area_m2=parse_area(row.get("excluUseAr")),
         deal_date=deal_date(row.get("dealYear"), row.get("dealMonth"), row.get("dealDay")),
         price_manwon=price,
-        floor=parse_int(row.get("floor")),
-        build_year=parse_int(row.get("buildYear")),
+        floor=parse_int(row.get("floor"), "floor"),
+        build_year=parse_int(row.get("buildYear"), "buildYear"),
         is_cancelled=blank_to_none(row.get("cdealType")) == "O",
-        cancel_date=parse_short_date(row.get("cdealDay")),
-        registered_date=parse_short_date(row.get("rgstDate")),
+        cancel_date=parse_short_date(row.get("cdealDay"), "cdealDay"),
+        registered_date=parse_short_date(row.get("rgstDate"), "rgstDate"),
         apt_dong=blank_to_none(row.get("aptDong")),
         deal_kind=blank_to_none(row.get("dealingGbn")),
         agent_sgg_nm=blank_to_none(row.get("estateAgentSggNm")),

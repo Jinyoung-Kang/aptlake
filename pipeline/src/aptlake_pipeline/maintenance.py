@@ -7,6 +7,11 @@
 → 파티션이 많은 표는 '파일이 2개 이상인 파티션'만, 앞 열 값 하나 + 마지막 열 목록(IN) 단위로 90개씩 나눠 압축한다.
    (Trino 는 optimize 의 WHERE 를 파티션 열 조건으로 완전히 내려보낼 수 있어야 해서 열 사이 OR 는 쓰지 않는다.)
 한 표가 실패해도 나머지 표의 스냅샷 만료·정리는 계속하고, 실패는 끝에서 모아 알린다.
+
+정리 전에 멱등 보정 한 가지를 먼저 한다: 전월세 현재 행 전체 기준으로 단지 차원 바로잡기 — 없는 단지 더하기, 처음
+관측일 낮추기, 매매 기록 없는 단지의 빈 건축년도·일련번호 채우기(silver.backfill_rent_complexes). 달 반영도 같은 일을
+하지만 그 기능 전에 반영된 달은 빠져 있다 — 배포 뒤 make maintenance 한 번으로 따라잡고, 그 뒤로는 달 반영이 놓친
+단지의 안전망이다 (보통 넣은 수·고친 수 0). 새로 쓴 파일은 바로 이어지는 압축 대상이 된다.
 """
 
 from __future__ import annotations
@@ -109,6 +114,12 @@ def _optimize(table: str) -> int:
 def run() -> dict[str, dict[str, int | str]]:
     out: dict[str, dict[str, int | str]] = {}
     failed: dict[str, str] = {}
+    try:  # 실패해도 표 정리는 계속한다 (끝에서 함께 알림)
+        from .silver import backfill_rent_complexes
+
+        out["rent_complexes"] = backfill_rent_complexes()
+    except Exception as e:
+        failed["rent_complexes"] = f"{type(e).__name__}: {e}"[:300]
     cat = catalog()
     for t in TABLES:
         if not cat.table_exists(t):  # 아직 첫 실행 전인 표(예: 배포 직후 전월세 gold) — 실패가 아니라 건너뜀

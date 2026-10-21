@@ -142,6 +142,14 @@ def seed_clickhouse(c, regs, months: int) -> None:
     c.command("""INSERT INTO aptlake.complex
         SELECT complex_key, any(sgg_cd), any(umd_nm), any(jibun), any(apt_nm), any(build_year), 0, min(deal_date), count()
         FROM aptlake.trade_current GROUP BY complex_key""")
+    # 전월세에만 있는 단지(매매 기록 없음): 토지임대부 여부는 원천에 없어 미상(NULL), 유효 거래 0 — 0(아님)으로 메우지 않는다
+    # (ADR-018, 운영 차원 발행과 같게). 시군구마다 3곳, 단지 키 모양은 매매 단지와 같다 (c_ + 16 + 4 자리)
+    c.command("""INSERT INTO aptlake.complex
+        SELECT concat('c_', leftPad(lower(hex(cityHash64(r.sgg_cd, 'rent-only', n.number))), 16, '0'),
+                      leftPad(lower(hex(n.number)), 4, '0')),
+               r.sgg_cd, concat('QA', toString(n.number), '동'), concat(toString(900 + n.number), '-1'),
+               concat('QA전월세', toString(n.number), '단지'), toUInt16(1995 + n.number), NULL, toDate('2021-01-01'), 0
+        FROM aptlake.region AS r CROSS JOIN numbers(3) AS n""")
     ids = ["00"] + [s for s, _ in SIDO]
     c.command(f"""INSERT INTO aptlake.price_index
         SELECT rid, 'HEDONIC_TD_v1', addMonths(toDate('2021-01-01'), number), v, v * 0.985, v * 1.015, n, 'qa' FROM (
@@ -233,7 +241,10 @@ def main() -> None:
     seed_clickhouse(ch, regs, a.months)
     seed_postgres(f"postgresql://postgres:{e['POSTGRES_PASSWORD']}@127.0.0.1:5592/aptlake", regs, a.months)
     r = redis.Redis(host="127.0.0.1", port=6539, username="pipeline", password=e["REDIS_PIPELINE_PASSWORD"])
-    r.mset({"al:ds:ver": VERSION, "al:ds:asof": AS_OF.isoformat()})
+    # 데이터 기준 시각은 원천별 키 (발행 파이프라인과 같은 계약, ADR-050). 시드의 발행 기록은 매매 하나뿐이라 전월세 키는 두지 않고,
+    # 옛 전역 키(al:ds:asof)와 이전 시드·발행이 남긴 전월세 키는 지운다 (기록과 어긋난 값이 남지 않게)
+    r.mset({"al:ds:ver": VERSION, "al:ds:asof:trade": AS_OF.isoformat()})
+    r.delete("al:ds:asof", "al:ds:asof:rent")
     counts = {t: ch.query(f"SELECT count() FROM aptlake.{t}").first_row[0]
               for t in ("region", "trade_current", "trade_version", "region_month", "rollup_month", "complex", "price_index")}  # fmt: skip
     print("QA 시험 데이터:", counts)

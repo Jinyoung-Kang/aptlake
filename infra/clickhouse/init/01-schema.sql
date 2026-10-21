@@ -149,7 +149,7 @@ CREATE TABLE IF NOT EXISTS aptlake.complex
     jibun           String,
     apt_nm          String,
     build_year      Nullable(UInt16),
-    land_leasehold  UInt8,
+    land_leasehold  Nullable(UInt8),  -- NULL = 미상 (전월세에만 있는 단지 — 원천에 항목 없음) — ../migrate/complex_land_leasehold_nullable.sql
     first_seen      Date,
     trades          UInt32
 ) ENGINE = MergeTree ORDER BY complex_key;

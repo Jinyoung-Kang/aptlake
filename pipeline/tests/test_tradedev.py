@@ -99,3 +99,23 @@ def test_merge_branches_line_up_with_stage_column_order():
     assert parts[STAGE_COLS.index("ingest_id")] == "p.ingest_id"
     assert parts[STAGE_COLS.index("apt_seq")] == "CAST(NULL AS varchar)"
     assert STAGE_COLS.index("apt_seq") > STAGE_COLS.index("fetch_seq")  # 표에 뒤로 붙은 순서 그대로
+
+
+def _newver(sql: str, key: str) -> tuple[list[str], str]:
+    """NEWVER 갈래의 stage 열 목록과 그 갈래가 조인하는 이전 현재행(cur)의 열 목록."""
+    branch = sql.split("'NEWVER', c.version + 1, ", 1)[1].split("\n    FROM s JOIN cur c", 1)[0]
+    cur = sql.split("cur AS (\n        SELECT ", 1)[1].split(" FROM ", 1)[0]
+    assert cur.startswith(f"{key}, dup_seq, sgg_cd, attr_hash, version")
+    return re.findall(r"coalesce\(s\.\w+, c\.\w+\)|s\.\w+", branch), cur  # coalesce 안의 쉼표는 나누지 않는다
+
+
+def test_new_version_keeps_enrichment_when_stage_has_none():
+    """상세판 롤백(기본판 v1) 동안 속성이 바뀐 거래: 새 버전은 stage 의 보강 열이 비면 이전 현재행 값을 잇는다.
+    stage 값을 그대로 넣으면 이미 채운 일련번호·도로명이 새 현재행에서 NULL 이 됐다 ('속성 같음' 분기와 같은 규칙)."""
+    from aptlake_pipeline.silver import STAGE_COLS
+
+    sql = merge_sql("202407", "('11110', 'iid', TIMESTAMP '2024-08-01 00:00:00.000000 UTC', 1)")
+    cols, cur = _newver(sql, "trade_key")
+    # 위치로 맞춰지는 갈래 — stage 열 순서 그대로, 보강 열만 coalesce(stage, 이전 현재행)
+    assert cols == [f"coalesce(s.{c}, c.{c})" if c in ENRICH_COLUMNS else f"s.{c}" for c in STAGE_COLS]
+    assert all(f", {c}" in cur for c in ENRICH_COLUMNS)

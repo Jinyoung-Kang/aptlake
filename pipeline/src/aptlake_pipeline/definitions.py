@@ -597,7 +597,7 @@ def price_index(context: AssetExecutionContext) -> MaterializeResult:
     key=AssetKey(["ops", "iceberg_maintenance"]),
     group_name="ops",
     pool="trino_write",
-    description="작은 파일 압축(optimize), 스냅샷 만료, 고아 파일 정리 — 주 1회",
+    description="전월세 계약으로 단지 차원 보정(멱등) → 작은 파일 압축(optimize), 스냅샷 만료, 고아 파일 정리 — 주 1회",
 )
 def iceberg_maintenance(context: AssetExecutionContext) -> MaterializeResult:
     return MaterializeResult(metadata={k: json.dumps(v) for k, v in maintenance.run().items()})
@@ -684,11 +684,11 @@ def _tick(context: SensorEvaluationContext, source: str):
             """SELECT deal_ym, status, array_agg(sgg_cd ORDER BY sgg_cd) AS sgg
                FROM ops.ingest_partition
                WHERE ((next_due_at <= now() AND status IN ('PENDING','RETRY','MERGED','LOADED'))
-                      -- 죽은 실행이 남긴 FETCHING (1시간 넘게 갱신 없음) 도 다시 수집
-                      OR (status = 'FETCHING' AND updated_at < now() - interval '1 hour'))
+                      -- 죽은 실행이 남긴 FETCHING (실패한 실행의 재시도 간격만큼 갱신 없음) 도 다시 수집
+                      OR (status = 'FETCHING' AND updated_at < now() - %s::interval))
                  AND source = %s AND deal_ym BETWEEN %s AND %s AND sgg_cd = ANY(%s)
                GROUP BY deal_ym, status""",
-            (source, keys[0], keys[-1], list(leaf)),
+            (ops_db.FAILED_RUN_RETRY_AFTER, source, keys[0], keys[-1], list(leaf)),
         ).fetchall()
     active = context.instance.get_runs(
         filters=RunsFilter(
@@ -755,9 +755,11 @@ definitions_schedules = [
 
 silver_complex_spec = AssetSpec(
     key=AssetKey(["silver", "apt_complex"]),
-    deps=[SILVER_KEY],
+    deps=[SILVER_KEY, RENT_SILVER_KEY],
     group_name="silver",
-    description="단지 차원 (complex_key). silver.apt_trade 자산이 같은 실행에서 MERGE 로 함께 갱신한다 (FR-205)",
+    description="단지 차원 (complex_key). silver.apt_trade 자산이 같은 실행에서 MERGE 로 함께 갱신한다 (FR-205)."
+    " silver.apt_rent 자산은 차원에 없는 단지를 더하고 처음 관측일을 더 이른 계약일로 낮추며, 매매 기록이 없는 단지의"
+    " 빈 건축년도·일련번호를 채운다(이미 반영된 달은 주간 유지보수가 따라잡음)",
 )
 
 defs = Definitions(

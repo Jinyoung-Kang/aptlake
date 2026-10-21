@@ -14,6 +14,7 @@ import pytest
 from dagster import DagsterInstance, RunRequest, SkipReason, build_sensor_context
 
 from aptlake_pipeline import definitions as d
+from aptlake_pipeline.ops_db import FAILED_RUN_RETRY_AFTER
 
 TODAY = dt.date(2026, 10, 3)
 KEYS = [f"{y}{m:02d}" for y in (2025, 2026) for m in range(1, 13)][:23]  # 202501 ~ 202611
@@ -107,7 +108,10 @@ def test_priority_order_and_per_priority_ceilings(world):
     ]
     # 범위 밖 달·현존하지 않는 시군구는 조회에서부터 뺀다 (ADR-033)
     sql, params = world.conn.sql[0]
-    assert params == ("rtms", KEYS[0], KEYS[-1], LEAF) and "BETWEEN" in sql and "source = %s" in sql
+    assert params == (FAILED_RUN_RETRY_AFTER, "rtms", KEYS[0], KEYS[-1], LEAF)
+    assert "BETWEEN" in sql and "source = %s" in sql
+    # 죽은 실행의 FETCHING 은 실패한 실행의 재시도 간격과 같은 값으로 다시 잡는다
+    assert "updated_at < now() - %s::interval" in sql
 
 
 def test_recheck_reserve_shrinks_backfill_ceiling(world):
@@ -165,7 +169,7 @@ def test_rent_sensor_plans_its_own_job_with_its_own_budget(world):
         ("202603", "publish-only", (), False),
     ]
     assert all(r.run_key.startswith("rent-") for r in out)  # 매매 실행과 run_key 가 겹치지 않게
-    assert world.conn.sql[0][1][0] == "rent" and world.job_filter == "rent_month_pipeline"
+    assert world.conn.sql[0][1][1] == "rent" and world.job_filter == "rent_month_pipeline"
     assert world.grid_source == "rent"
 
 

@@ -69,7 +69,7 @@ backfill-stop: ## 수집 센서·스케줄 끄기 (원천 API 를 부르지 않�
 	-$(DAGSTER) dagster schedule stop daily_dims_and_index -m aptlake_pipeline.definitions
 	-$(DAGSTER) dagster schedule stop monthly_regions -m aptlake_pipeline.definitions
 
-pipeline-redeploy: init ## 파이프라인 코드 무중단 교체: (새 내부 비밀 생성) 센서 멈춤 → 대기 실행 취소 → 진행 중 실행 완료 대기 → 재빌드 → 센서 재개
+pipeline-redeploy: init ## 파이프라인 코드 무중단 교체: (새 내부 비밀 생성) 센서 멈춤 → 대기 실행 취소 → 진행 중 실행 완료 대기 → 재빌드 → 센서 재개 → 데이터 기준 시각 키 맞춤
 	-$(DAGSTER) dagster sensor stop due_partitions_sensor -m aptlake_pipeline.definitions
 	-$(DAGSTER) dagster sensor stop due_rent_partitions_sensor -m aptlake_pipeline.definitions
 	$(DAGSTER) python -c "from dagster import DagsterInstance as I, RunsFilter as F, DagsterRunStatus as S; i=I.get(); [i.report_run_canceled(r, message='redeploy') for r in i.get_runs(filters=F(statuses=[S.QUEUED]))]"
@@ -78,6 +78,8 @@ pipeline-redeploy: init ## 파이프라인 코드 무중단 교체: (새 내부 
 	@until $(LAKE) logs dagster --since 2m 2>&1 | grep -q "Serving dagster-webserver"; do sleep 3; done
 	$(DAGSTER) dagster sensor start due_partitions_sensor -m aptlake_pipeline.definitions
 	$(DAGSTER) dagster sensor start due_rent_partitions_sensor -m aptlake_pipeline.definitions
+# 원천별 데이터 기준 시각 키를 발행 기록에서 다시 맞춘다 (멱등, 발행 없이) — 없으면 다음 발행까지 API 의 dataAsOf 가 빈다
+	$(DAGSTER) python -c "from aptlake_pipeline.publish import sync_data_as_of as s; print('data as of:', s())"
 
 # 아래 수동 실행은 큐를 거친다 (동시 실행 1개 — 센서가 띄운 실행과 한 컨테이너 메모리를 나눠 쓰지 않도록). 진행은 Dagster UI
 month: ## 한 달 파티션 실행 요청 (예: make month ym=202408)
@@ -89,7 +91,7 @@ rent-month: ## 전월세 한 달 파티션 실행 요청 (예: make rent-month y
 index: ## 단지 차원·자체 지수·R-ONE 검증 산출 + 발행 요청
 	$(DAGSTER) dagster job launch -m aptlake_pipeline.definitions -j dims_and_index
 
-maintenance: ## Iceberg 압축·스냅샷 만료·고아 파일 정리 요청
+maintenance: ## 전월세에만 있는 단지 차원 보정(멱등) + Iceberg 압축·스냅샷 만료·고아 파일 정리 요청
 	$(DAGSTER) dagster job launch -m aptlake_pipeline.definitions -j iceberg_maintenance
 
 snapshot-baseline: ## 달별 스냅숏 기준선 요청 — 지금 서빙 중인 모든 달을 파일로 (기능 시작 때 한 번, ADR-044)

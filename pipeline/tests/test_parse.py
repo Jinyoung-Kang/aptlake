@@ -72,6 +72,8 @@ def test_blank_and_ints():
     assert parse_int("-1") == -1 and parse_int(" ") is None
     with pytest.raises(ValueError):
         parse_int("1층")
+    with pytest.raises(ValueError, match=r"^invalid floor: '1층'$"):  # 오류에 원천 항목 이름 (파싱 격리 기록에서 찾게)
+        parse_int("1층", "floor")
 
 
 def test_area_quantized_to_4dp():
@@ -94,6 +96,27 @@ def test_deal_date_combines_parts():
         deal_date("2024", " ", "1")
     with pytest.raises(ValueError):
         deal_date("2024", "2", "30")
+
+
+@pytest.mark.parametrize(
+    ("bad", "message"),
+    [
+        ({"floor": "3층"}, "invalid floor: '3층'"),
+        ({"buildYear": "x"}, "invalid buildYear: 'x'"),
+        ({"dealMonth": "7월"}, "invalid dealMonth: '7월'"),
+        ({"dealMonth": "13"}, "invalid deal date: '2024'-'13'-'1'"),
+        ({"cdealType": "O", "cdealDay": "24.02.30"}, "invalid cdealDay: '24.02.30'"),
+        ({"rgstDate": "2024-07-05"}, "invalid rgstDate: '2024-07-05'"),
+    ],
+)
+def test_trade_parse_errors_name_the_source_field(bad, message):
+    """매매도 전월세와 같은 파서 함수 — 정수·날짜 오류에 항목 이름과 원문 (예전엔 'invalid integer'·'invalid short date',
+    없는 날짜는 날짜 모듈 문구라 원문이 없었다)."""
+    row = {"sggCd": "11110", "umdNm": "숭인동", "aptNm": "가", "dealYear": "2024", "dealMonth": "7", "dealDay": "1",
+           "dealAmount": "1,000", **bad}  # fmt: skip
+    with pytest.raises(ValueError) as e:
+        to_typed(row)
+    assert str(e.value) == message
 
 
 def test_required_field_missing():

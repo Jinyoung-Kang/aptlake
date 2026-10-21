@@ -21,6 +21,10 @@ from .rtms.fingerprint import UmdAliases, norm_text
 
 MAX_ATTEMPTS = 3
 TRADE = "rtms"
+# 앞 실행이 수집 중(FETCHING)에 정리 없이 끝난 파티션의 재시도 사유 (다음 실행이 시작할 때 되돌린다)
+INTERRUPTED = "interrupted: previous run ended while fetching"
+# 실패한 실행이 되돌린 파티션을 다시 받기까지 — 센서가 죽은 실행의 FETCHING 을 다시 잡는 간격도 이 값(definitions._tick)
+FAILED_RUN_RETRY_AFTER = dt.timedelta(hours=1)
 
 
 @contextmanager
@@ -100,17 +104,19 @@ def mark_fetching(deal_ym: str, sgg_cd: str, source: str = TRADE) -> None:
         )
 
 
-def mark_unchanged(deal_ym: str, sgg_cd: str, fetched_at: dt.datetime, prev_status: str, source: str = TRADE) -> None:
-    """원본 해시가 마지막 적재본과 같음 → bronze·silver 변화 없음. 관측 횟수만 올린다.
-    아직 silver 에 반영 전(LOADED)이면 그대로 두고, 그 외엔 MERGED 로 돌린다."""
-    status = "LOADED" if prev_status == "LOADED" else "MERGED"
+def mark_unchanged(deal_ym: str, sgg_cd: str, fetched_at: dt.datetime, source: str = TRADE) -> None:
+    """원본 해시가 마지막 적재본과 같음 → bronze 변화 없음. 관측 횟수만 올린다.
+    상태는 반영 기록으로 정한다: 마지막 적재본(last_ingest_id)이 silver 에 반영됐으면(merged_ingest_id, V014) MERGED,
+    아니면 LOADED(다음 반영 대상). 직전 상태값으로 정하면 반영 전 적재본이 수집 중 되돌리기(RETRY)·예산 소진·수집 실패를
+    거친 뒤 같은 원본을 다시 받을 때 MERGED 로 넘어가, 그 적재본은 silver 에 들어가지 않고 발행 대기도 켜지지 않았다."""
     with conn() as c:
         c.execute(
             """UPDATE ops.ingest_partition
-               SET status = %s, attempts = 0, last_error = NULL, last_fetched_at = %s,
+               SET status = CASE WHEN last_ingest_id IS DISTINCT FROM merged_ingest_id THEN 'LOADED' ELSE 'MERGED' END,
+                   attempts = 0, last_error = NULL, last_fetched_at = %s,
                    fetch_count = fetch_count + 1, next_due_at = %s, updated_at = now()
                WHERE source=%s AND sgg_cd=%s AND deal_ym=%s""",
-            (status, fetched_at, next_due(deal_ym, fetched_at), source, sgg_cd, deal_ym),
+            (fetched_at, next_due(deal_ym, fetched_at), source, sgg_cd, deal_ym),
         )
 
 
@@ -174,14 +180,25 @@ def release_attempt(deal_ym: str, sgg_cd: str, source: str = TRADE) -> None:
         )
 
 
-def reset_fetching(deal_ym: str, source: str = TRADE) -> None:
-    """중단된 실행이 남긴 FETCHING 을 RETRY 로 되돌린다 (재실행 멱등)."""
+def reset_fetching(
+    deal_ym: str, source: str = TRADE, reason: str = INTERRUPTED, retry_after: dt.timedelta | None = None
+) -> int:
+    """FETCHING 으로 남은 파티션을 RETRY 로 되돌리고 사유를 남긴다 (재실행 멱등) → 되돌린 수.
+    실행 시작: 앞 실행이 정리 없이 끝난 흔적(프로세스 종료 등) — 기본 사유. 실행 실패: 그 실행이 직접 실패 사유로 부른다.
+    사유 없이 RETRY 로만 두면 수집 상태 화면에 빈 사유의 재시도가 쌓였다 (2026-10-21 전월세 446곳 — bronze 적재 실패로 끝난
+    두 실행이 남긴 FETCHING 을 다음 실행이 사유 없이 되돌렸고, 그 실행은 예산 상한에 걸려 다시 받지 못했다).
+    재시도 횟수(attempts)는 올리지 않는다 — 파티션 결함이 아니다.
+    retry_after: 실행 실패 경로만 — 다음 기한을 지금 + 이 간격으로 둔다. 백필·재확인 파티션은 기한이 이미 지나 있어 그대로
+    두면 센서 다음 틱(5분)이 같은 달을 다시 받는다 — 적재 단계가 계속 실패하면(결정적 오류, 긴 MinIO 장애) attempts 0 인 채
+    5분마다 원천 호출(예산)을 쓴다. 원래 기한이 더 뒤여도(수동 실행이 기한 전 파티션까지 받은 경우) 이 간격으로 — 받은 원천을
+    적재하지 못했으니 원래 기한까지 미루지 않는다 (예전 'FETCHING 1시간' 규칙과 같은 동작). 없으면 기한은 그대로."""
     with conn() as c:
-        c.execute(
-            """UPDATE ops.ingest_partition SET status='RETRY', updated_at=now()
+        return c.execute(
+            """UPDATE ops.ingest_partition SET status='RETRY', last_error=left(%s, 500),
+                     next_due_at=coalesce(now() + %s::interval, next_due_at), updated_at=now()
                      WHERE source=%s AND deal_ym=%s AND status='FETCHING'""",
-            (source, deal_ym),
-        )
+            (reason, retry_after, source, deal_ym),
+        ).rowcount
 
 
 def loaded_partitions(deal_ym: str, source: str = TRADE) -> list[dict[str, Any]]:
@@ -203,9 +220,10 @@ def fetch_counts(deal_ym: str, source: str = TRADE) -> dict[str, int]:
 
 
 def mark_merged(deal_ym: str, sgg_codes: Iterable[str], source: str = TRADE) -> None:
+    """silver 반영을 마친 파티션: 상태와 함께 반영한 적재본(merged_ingest_id)을 남긴다 — 같은 원본 재수집의 판단 근거."""
     with conn() as c:
         c.execute(
-            """UPDATE ops.ingest_partition SET status='MERGED', updated_at=now()
+            """UPDATE ops.ingest_partition SET status='MERGED', merged_ingest_id = last_ingest_id, updated_at=now()
                WHERE source=%s AND deal_ym=%s AND sgg_cd = ANY(%s) AND status='LOADED'""",
             (source, deal_ym, list(sgg_codes)),
         )
@@ -328,6 +346,14 @@ def record_dataset_version(
                    VALUES (%s, %s, %s, %s, %s, %s)""",
                 (publish_id, f.deal_ym, f.object_key, f.rows, f.bytes, f.sha256),
             )
+
+
+def data_as_of_by_source() -> dict[str, dt.datetime]:
+    """발행 기록의 원천('trade'·'rent')별 데이터 기준 시각 — 그 원천 발행들의 기준 시각 중 가장 늦은 값.
+    마지막 발행 하나의 값이 아니라 최댓값이라 다른 원천이 발행하거나 이른 기준으로 다시 발행해도 뒤로 가지 않는다."""
+    with conn() as c:
+        rows = c.execute("SELECT source, max(data_as_of) AS t FROM ops.dataset_version GROUP BY source").fetchall()
+    return {r["source"]: r["t"] for r in rows}
 
 
 def last_month_file(deal_ym: str) -> str | None:
