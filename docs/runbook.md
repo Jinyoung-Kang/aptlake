@@ -144,9 +144,10 @@ cd web && npx vitest run -u                                        # src/pages/_
 - 힙 밖 분해: 컨테이너 안 `/proc/1/smaps` 를 힙·코드 캐시 주소(`GC.heap_info`·`Compiler.codecache`)와 메타스페이스 노드 주소(`VM.metaspace vslist`)로 나눈다. NMT 는 재시작해야 켜진다.
 
 ## Trino 힙 OOM 뒤 덤프 확인 (ADR-055)
-- 덤프가 끝났는지: `docker logs -t aptlake-trino-1 2>&1 | grep -E 'Dumping heap|Heap dump file created|Unable to create|Terminating due to|ResourceExhausted'`. `Heap dump file created [N bytes ...]` 가 있어야 완성이다. `ResourceExhausted ... killing current process!` 가 뒤따르면 jvmkill 이 덤프를 끊은 것이다(0바이트거나 잘린 파일). `Unable to create ...: File exists` 는 같은 이름 파일이 남아 덤프를 못 한 것이다.
-- 지금 구성(jvmkill + `HeapDumpPath=/tmp`)에서는 덤프가 거의 남지 않는다. 바꾸는 안은 ADR-055.
-- 꺼내기: `docker cp aptlake-trino-1:/tmp/java_pid1.hprof .` — 컨테이너를 다시 만들기 전에(`/tmp` 는 쓰기 층이라 함께 사라진다). 여는 것은 호스트에서 한다(VM 메모리를 쓰지 않게).
+- 덤프가 끝났는지: `docker logs -t aptlake-trino-1 2>&1 | grep -E 'Dumping heap|Heap dump file created|Dump file is incomplete|Unable to create|Terminating due to'`. `Heap dump file created [N bytes ...]` 가 있어야 완성이다. 커널 OOM kill 처럼 덤프 도중 밖에서 죽으면 이 줄이 없고 파일이 잘린다.
+- 자리: 볼륨 `aptlake_trino_heapdump` 의 `/home/trino/heapdump`. 갓 쓴 덤프는 `java_pid1.hprof` 이고, 다음 시작 때 시작 스크립트가 `oom-<UTC 수정 시각>.hprof` 로 옮긴다(로그 `heapdump: ... -> ...`). 최근 2개만 남고, 빈 파일·조각(`.pN`)은 지운다. 볼륨이라 컨테이너를 다시 만들어도 남는다(`make clean` 은 지운다).
+- 꺼내기: `docker compose --profile lake exec trino ls -la /home/trino/heapdump` → `docker cp aptlake-trino-1:/home/trino/heapdump/<파일> .`. 하나에 약 1GB 다. 여는 것은 호스트에서 한다(VM 메모리를 쓰지 않게). 다 본 덤프는 지워도 된다(`docker compose --profile lake exec trino rm /home/trino/heapdump/<파일>`).
+- jvmkill 은 쓰지 않는다. 그래서 스레드 생성 실패(`unable to create native thread`)는 Trino 를 끝내지 않는다. 이 줄이 보이면 손으로 `docker compose --profile lake restart trino`.
 - 덤프 없이 클래스별 크기: 위 cgroup 밖 jcmd 로 `GC.class_histogram -all` (`-all` 이면 Full GC 없이, 도달할 수 없는 객체까지 센다).
 
 ## 서빙에 달이 빠졌을 때
