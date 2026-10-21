@@ -131,6 +131,12 @@ cd web && npx vitest run -u                                        # src/pages/_
 - 컨테이너가 재시작되면 시작 스크립트가 남은 STARTED 실행을 실패 처리하고 풀 슬롯을 반납한다 (로그 `startup:`).
 - 수동: `docker compose exec dagster python -m aptlake_pipeline.startup`
 
+## 단계가 시간 초과·SIGKILL 로 실패했을 때 — VM 메모리 부족인지 (ADR-053)
+- OOM kill 시각: `grep -h 'oom-kills' ~/Library/Containers/com.docker.docker/Data/log/vm/console.log* | grep 'C->S'` (대상 프로세스는 남지 않는다).
+- 대상: 같은 시각에 다시 뜬 컨테이너. Trino 는 `docker logs -t aptlake-trino-1 2>&1 | grep 'launcher_opts=('` 가 재시작마다 한 줄. 컨테이너를 다시 만들면 로그·RestartCount 가 사라지니 먼저 본다.
+- VM 전체인지: obs 프로필이 떠 있었으면 Prometheus 에서 `ClickHouseAsyncMetrics_OSMemoryAvailable`(VM 가용)·`rate(ClickHouseAsyncMetrics_PSI_MEM_full[1m])`(전체 멈춤 비율). 가용 1GB 아래·PSI full 수 % 면 VM 전체 부족이다 — 그 시각에 뜬 다른 프로젝트는 `docker ps -a` 의 시작 시각.
+- 컨테이너 자기 한도인지: 컨테이너 안 `/sys/fs/cgroup/memory.events`(max·oom_kill)·`memory.swap.current`.
+
 ## 서빙에 달이 빠졌을 때
 - `SELECT * FROM ops.month_state WHERE needs_publish;` 에 있으면 센서가 5분 안에 발행 전용 실행(원천 호출 0회)을 요청한다.
 - 수동: `make month ym=202607` 대신 발행만 하려면 Dagster UI 에서 month_pipeline 을 run config `ops.bronze__rtms_raw.config.fetch: false` 로 실행.

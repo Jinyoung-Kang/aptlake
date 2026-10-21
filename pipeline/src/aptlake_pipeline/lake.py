@@ -15,6 +15,7 @@ import trino
 from pyiceberg.catalog import Catalog
 from pyiceberg.catalog.rest import RestCatalog
 from pyiceberg.expressions import BooleanExpression, EqualTo, In
+from pyiceberg.io import S3_REQUEST_TIMEOUT
 
 from .config import settings
 
@@ -189,15 +190,18 @@ def ensure_columns() -> None:
                 execute(f"ALTER TABLE lake.{table} ADD COLUMN IF NOT EXISTS {c} varchar")
 
 
+CATALOG_PROPERTIES: dict[str, str] = {
+    # Lakekeeper 에 테이블 범위 단기 자격증명 발급을 요청 (엔진은 스토리지 키를 갖지 않음)
+    "header.X-Iceberg-Access-Delegation": "vended-credentials",
+    # 레이크 S3 요청은 1바이트/초 미만이 3초 이어지면 끊기고(AWS SDK 기본) 세 번 시도하면 약 9.5초에 실패한다.
+    # VM 메모리가 모자라면 MinIO 가 그보다 길게 멈춰 단계가 통째로 실패했다 → 30초 (세 번이면 약 90초, ADR-053)
+    S3_REQUEST_TIMEOUT: "30",
+}
+
+
 def catalog() -> Catalog:
     s = settings()
-    return RestCatalog(
-        "lake",
-        uri=s.catalog_uri,
-        warehouse=s.catalog_warehouse,
-        # Lakekeeper 에 테이블 범위 단기 자격증명 발급을 요청 (엔진은 스토리지 키를 갖지 않음)
-        **{"header.X-Iceberg-Access-Delegation": "vended-credentials"},
-    )
+    return RestCatalog("lake", uri=s.catalog_uri, warehouse=s.catalog_warehouse, **CATALOG_PROPERTIES)
 
 
 def current_snapshot_id(table: str) -> int | None:
