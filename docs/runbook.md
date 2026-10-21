@@ -137,6 +137,12 @@ cd web && npx vitest run -u                                        # src/pages/_
 - VM 전체인지: obs 프로필이 떠 있었으면 Prometheus 에서 `ClickHouseAsyncMetrics_OSMemoryAvailable`(VM 가용)·`rate(ClickHouseAsyncMetrics_PSI_MEM_full[1m])`(전체 멈춤 비율). 가용 1GB 아래·PSI full 수 % 면 VM 전체 부족이다 — 그 시각에 뜬 다른 프로젝트는 `docker ps -a` 의 시작 시각.
 - 컨테이너 자기 한도인지: 컨테이너 안 `/sys/fs/cgroup/memory.events`(max·oom_kill)·`memory.swap.current`.
 
+## Trino 메모리 재기 — 힙과 힙 밖 (ADR-054)
+- 잴 때는 jcmd·trino CLI 를 `docker compose exec trino` 로 돌리지 않는다. JVM 하나가 Trino cgroup(한도 2GiB)에 더해진다. 같은 이미지로 다른 컨테이너를 띄워 jcmd 는 PID 이름공간만, CLI 는 네트워크만 함께 쓴다(CLI: `docker run --rm --network aptlake_default --entrypoint /usr/bin/trino trinodb/trino:483 --server http://trino:8080 --user analyst ...`):
+  `docker run --rm --pid=container:aptlake-trino-1 --user 1000:1000 --memory 256m --network none --entrypoint /usr/lib/jvm/jdk-25.0.3+9/bin/jcmd trinodb/trino:483 1 GC.heap_info` (JDK 경로는 이미지가 바뀌면 `/proc/1/cmdline` 으로 확인)
+- 읽기만 하는 명령: `GC.heap_info`, `VM.metaspace`, `Compiler.codecache`, `VM.info`(`C-Heap outstanding allocations ... retained` 줄, GC 기록 20개), `System.native_heap_info`(glibc 영역별 사용·빈 공간), `PerfCounter.print`(`sun.gc.collector.1.invocations` = Full GC 횟수). `GC.run`·`GC.class_histogram`(Full GC)·`System.trim_native_heap`·`VM.set_flag` 는 프로세스 상태를 바꾼다.
+- 힙 밖 분해: 컨테이너 안 `/proc/1/smaps` 를 힙·코드 캐시 주소(`GC.heap_info`·`Compiler.codecache`)와 메타스페이스 노드 주소(`VM.metaspace vslist`)로 나눈다. NMT 는 재시작해야 켜진다.
+
 ## 서빙에 달이 빠졌을 때
 - `SELECT * FROM ops.month_state WHERE needs_publish;` 에 있으면 센서가 5분 안에 발행 전용 실행(원천 호출 0회)을 요청한다.
 - 수동: `make month ym=202607` 대신 발행만 하려면 Dagster UI 에서 month_pipeline 을 run config `ops.bronze__rtms_raw.config.fetch: false` 로 실행.
