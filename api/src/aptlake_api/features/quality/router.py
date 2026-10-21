@@ -9,7 +9,7 @@ from fastapi import APIRouter, Path, Query, Request
 from fastapi.responses import Response
 
 from ...core.auth import Principal
-from ...core.http import require_scope, respond
+from ...core.http import AsOfSource, require_scope, respond
 from ...core.params import SGG, YM_Q
 from ...core.values import ym_to_date
 from . import service
@@ -24,6 +24,8 @@ def _repo(request: Request) -> QualityRepository:
 
 # 원천: rtms = 아파트 매매(기본), rent = 전월세 (ADR-050)
 SOURCE = Annotated[Literal["rtms", "rent"], Query(description="원천: rtms(매매, 기본)·rent(전월세)")]
+# 수집 원천 → 데이터 기준 시각의 원천 (dataAsOf·X-Data-As-Of)
+AS_OF: dict[str, AsOfSource] = {"rtms": "trade", "rent": "rent"}
 
 
 @router.get("/quality/latency", summary="원천 반영 지연 분포 — 신고·해제 반영(일), 수집→발행(분)")
@@ -46,7 +48,12 @@ async def quality_latency(
 @router.get("/quality/summary", summary="전체 신선도·파티션 상태·최근 실패 검사")
 async def quality_summary(request: Request, source: SOURCE = "rtms", p: Principal = require_scope("read")) -> Response:
     return await respond(
-        request, "quality_summary", {"src": source}, lambda: service.summary(_repo(request), source), cache=False
+        request,
+        "quality_summary",
+        {"src": source},
+        lambda: service.summary(_repo(request), source),
+        cache=False,
+        source=AS_OF[source],
     )
 
 
@@ -69,6 +76,7 @@ async def quality_grid(
         {"a": from_, "b": to, "s": sido, "src": source},
         lambda: service.grid(_repo(request), from_, to, start, end, sido, source),
         cache=False,
+        source=AS_OF[source],
     )
 
 
@@ -88,6 +96,7 @@ async def quality_rollup(
         {"a": from_, "b": to, "src": source},
         lambda: service.rollup(_repo(request), from_, to, start, end, source),
         cache=False,
+        source=AS_OF[source],
     )
 
 
@@ -105,4 +114,5 @@ async def quality_partition(
         {"s": sggCd, "m": dealYm.replace("-", ""), "src": source},
         lambda: service.partition(_repo(request), sggCd, dealYm, source),
         cache=False,
+        source=AS_OF[source],
     )

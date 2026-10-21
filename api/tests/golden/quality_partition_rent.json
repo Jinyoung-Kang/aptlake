@@ -16,7 +16,9 @@
   "dataAsOf": null,
   "datasetVersion": "gold@test.1",
   "lineage": [
-   "s3://raw/rtms_rent/deal_ym=202407/sgg_cd=41135/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/"
+   "s3://raw/rtms_rent/deal_ym=202407/sgg_cd=41135/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/",
+   "silver.apt_rent@snap 7",
+   "clickhouse (gold@test.0, 2024-08-04T03:00:00+00:00)"
   ],
   "partition": {
    "attempts": 0,
@@ -27,7 +29,7 @@
    "nextDueAt": "2024-08-05T03:00:00+00:00",
    "observations": 1,
    "rows": 60,
-   "rowsPrev": null,
+   "rowsPrev": 58,
    "sggCd": "41135",
    "status": "MERGED"
   }

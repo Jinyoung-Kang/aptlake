@@ -1,4 +1,4 @@
-"""시장 개요·시세 띠·경계 데이터 접근. 집계는 ClickHouse(서버측 바인딩), 경계는 운영 DB(PostgreSQL)."""
+"""시장 개요·시세 띠·경계 데이터 접근. 집계는 ClickHouse(서버측 바인딩), 경계·적재·발행 기록은 운영 DB(PostgreSQL)."""
 
 from __future__ import annotations
 
@@ -14,8 +14,8 @@ Row = dict[str, Any]
 
 
 class MarketRepository:
-    def __init__(self, ch: AsyncClient):
-        self.ch = ch
+    def __init__(self, ch: AsyncClient, pg: AsyncConnectionPool):
+        self.ch, self.pg = ch, pg
 
     async def _q(self, sql: str, params: dict[str, Any] | None = None) -> list[Row]:
         return list((await self.ch.query(sql, parameters=params or {})).named_results())
@@ -50,7 +50,11 @@ class MarketRepository:
 
     async def ratio_by_sgg(self, a: dt.date, b: dt.date) -> tuple[list[Row], list[Row]]:
         """시군구별 (매매, 전세) ㎡당 중앙값·표본 — 전세가율 지도 (ADR-050)."""
-        return await RentRepository(self.ch).ratio_by_sgg(a, b)
+        return await RentRepository(self.ch, self.pg).ratio_by_sgg(a, b)
+
+    async def partition_states(self, a: dt.date, b: dt.date) -> list[Row]:
+        """전국 매매·전월세 파티션 적재·발행 기록 — 전세가율 창의 완결 판단 (ADR-050)."""
+        return await RentRepository(self.ch, self.pg).partition_states(None, a, b)
 
     async def index_tail(self, method: str, regions: list[str], per_region: int) -> list[Row]:
         return await self._q(

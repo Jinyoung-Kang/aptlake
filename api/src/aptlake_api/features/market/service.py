@@ -13,12 +13,23 @@ from typing import Any, Protocol
 from ...core.problems import ApiError
 from ...core.texts import DISCLAIMER
 from ...core.values import add_months, month_end, pct_change, rnd
-from ..rent.service import RATIO_MIN_SAMPLE, RATIO_NOTE, RATIO_WINDOW_MONTHS, ratio_pct
+from ..rent.service import (
+    RATIO_MIN_SAMPLE,
+    RATIO_NOTE,
+    RATIO_WINDOW_MONTHS,
+    done_partitions,
+    ratio_pct,
+    window_complete,
+)
 
 Row = dict[str, Any]
 MIN_SAMPLE_FOR_CHANGE = 30  # 변화율 순위: 두 달 모두 표본 30건 이상인 시군구만 (작은 표본의 착시 방지)
 TICKER_INDEX = {"00": "전국", "11": "서울", "41": "경기", "26": "부산"}
 INDEX_METHOD = "HEDONIC_TD_v1"
+MAP_RATIO_COMPLETE_NOTE = (
+    f"시군구 전세가율은 창({RATIO_WINDOW_MONTHS}개월)의 모든 달에서 그 시군구의 매매·전월세 자료가 모두 발행된 적이 있는 곳만"
+    " — 아니면 jeonseRatio 는 null. 재수집 중이거나 새 신고가 발행을 기다리는 달은 마지막으로 발행된 자료로 계산한다."
+)
 
 
 class MarketStore(Protocol):
@@ -28,6 +39,7 @@ class MarketStore(Protocol):
     async def nation_months(self, m: dt.date, pm: dt.date, py: dt.date) -> list[Row]: ...
     async def index_tail(self, method: str, regions: list[str], per_region: int) -> list[Row]: ...
     async def ratio_by_sgg(self, a: dt.date, b: dt.date) -> tuple[list[Row], list[Row]]: ...
+    async def partition_states(self, a: dt.date, b: dt.date) -> list[Row]: ...
 
 
 def default_month(latest: dt.date, is_provisional: Callable[[dt.date], bool]) -> dt.date:
@@ -44,12 +56,18 @@ def _cancel_rate(cancelled: int, reported: int) -> float | None:
     return round(cancelled / reported * 100, 2) if reported else None
 
 
-def jeonse_ratios(trade: list[Row], rent: list[Row]) -> dict[str, float | None]:
-    """시군구별 전세가율(%) — 양쪽 표본이 기준 이상인 곳만 값 (지역 전세가율과 같은 정의, ADR-050)."""
+def jeonse_ratios(
+    trade: list[Row], rent: list[Row], done: set[tuple[str, str, str]], month: dt.date
+) -> dict[str, float | None]:
+    """시군구별 전세가율(%) — 양쪽 표본이 기준 이상이고 month 까지의 창이 두 원천 모두 완결인 곳만 값
+    (지역 전세가율과 같은 정의, ADR-050). done 은 완결 파티션 (시군구, 원천, 계약월)."""
     t = {r["sgg_cd"]: r for r in trade}
     out: dict[str, float | None] = {}
     for r in rent:
         tr = t.get(r["sgg_cd"])
+        if not window_complete(done, r["sgg_cd"], month, RATIO_WINDOW_MONTHS):
+            out[r["sgg_cd"]] = None
+            continue
         out[r["sgg_cd"]] = ratio_pct(
             r["med"], tr["med"] if tr else None, r["n"], tr["n"] if tr else 0, RATIO_MIN_SAMPLE
         )
@@ -124,7 +142,9 @@ async def overview(
     if not (lo <= month <= hi):
         raise ApiError(422, "MONTH_OUT_OF_RANGE", "Month Out Of Range", f"{lo:%Y-%m} ~ {hi:%Y-%m} 사이만 가능")
     prev_m, prev_y = add_months(month, -1), add_months(month, -12)
-    ratios = jeonse_ratios(*await store.ratio_by_sgg(add_months(month, -(RATIO_WINDOW_MONTHS - 1)), month_end(month)))
+    window_from = add_months(month, -(RATIO_WINDOW_MONTHS - 1))
+    trade, rent = await store.ratio_by_sgg(window_from, month_end(month))
+    ratios = jeonse_ratios(trade, rent, done_partitions(await store.partition_states(window_from, month)), month)
     sgg_out = sgg_summaries(await store.sgg_months(month, prev_m, prev_y), month, ratios)
     series: dict[str, list[Row]] = {}
     for r in await store.rollups(add_months(month, -11), month, prev_y):
@@ -154,6 +174,7 @@ async def overview(
             "cancelRate": "해제 건수 ÷ 신고 건수(%)",
             "jeonseRatio": RATIO_NOTE,
         },
+        "notes": [MAP_RATIO_COMPLETE_NOTE],
         "disclaimer": DISCLAIMER,
     }, 0
 

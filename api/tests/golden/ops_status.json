@@ -101,7 +101,7 @@
   "serverTime": "<recent>",
   "summary": {
    "backfillEstimate": {
-    "basis": "남은 파티션 수 ÷ 일일 호출 상한 (다른 프로그램과 키를 공유하면 더 걸림)",
+    "basis": "남은 파티션 수 ÷ 하루 백필 몫 7,994회 = 일일 호출 상한 8,000 − 증분 몫 6(시군구 2 × 3개월) (같은 날 증분·재확인이 백필보다 먼저 호출하거나 다른 프로그램과 키를 공유하면 더 걸림)",
     "days": 1,
     "remainingCalls": 1
    },
@@ -120,7 +120,7 @@
     "version": "gold@test.1"
    },
    "partitions": {
-    "MERGED": 1,
+    "MERGED": 3,
     "PENDING": 1,
     "QUARANTINED": 1
    },
@@ -128,7 +128,7 @@
    "publishedMonths": 0,
    "rent": {
     "backfillEstimate": {
-     "basis": "남은 파티션 수 ÷ 일일 호출 상한 (다른 프로그램과 키를 공유하면 더 걸림)",
+     "basis": "남은 파티션 수 ÷ 하루 백필 몫 7,994회 = 일일 호출 상한 8,000 − 증분 몫 6(시군구 2 × 3개월) (같은 날 증분·재확인이 백필보다 먼저 호출하거나 다른 프로그램과 키를 공유하면 더 걸림)",
      "days": 1,
      "remainingCalls": 1
     },
@@ -143,14 +143,14 @@
      "used": 0
     },
     "partitions": {
-     "MERGED": 1,
+     "MERGED": 3,
      "PENDING": 1
     },
     "publishPending": 0,
     "publishedMonths": 0,
-    "totalPartitions": 2
+    "totalPartitions": 4
    },
-   "totalPartitions": 3
+   "totalPartitions": 5
   }
  },
  "etag": true,

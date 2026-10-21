@@ -1,0 +1,89 @@
+{
+ "body": {
+  "complex": {
+   "aptName": "전월세단지",
+   "buildYear": 1995,
+   "complexKey": "c_cccccccccccccccccccc",
+   "firstSeen": "2023-10-01",
+   "jibun": null,
+   "landLeasehold": null,
+   "sggCd": "41135",
+   "umdName": "정자동",
+   "validTrades": 0
+  },
+  "dataAsOf": null,
+  "datasetVersion": "gold@test.1",
+  "history": [],
+  "historyFields": [
+   "dealDate",
+   "areaM2",
+   "floor",
+   "priceManwon",
+   "pricePerM2",
+   "cancelled",
+   "outlier"
+  ],
+  "recentTrades": [],
+  "rent": {
+   "byArea": [
+    {
+     "band": "60m² 미만",
+     "jeonse": 1,
+     "jeonseMedianDeposit": 30000.0,
+     "jeonseMedianPerM2": 501.7,
+     "ratioPct": null,
+     "tradeMedianPerM2": null,
+     "tradeSample": 0,
+     "wolse": 0,
+     "wolseMedianDeposit": null,
+     "wolseMedianRent": null
+    }
+   ],
+   "contracts": 1,
+   "notes": [
+    "단지 전세가율은 자체 산출 값 — 같은 전용면적 구간, 최근 12개월의 전세 보증금 ㎡당 중앙값 ÷ 매매 ㎡당 중앙값. 양쪽 표본이 모두 3건 이상일 때만.",
+    "창(12개월)의 모든 달에서 이 단지 시군구의 매매·전월세 자료가 모두 발행된 적이 있을 때만 단지 전세가율을 낸다 — 아니면(수집 전·첫 수집 실패·그 달 첫 발행 전) window.complete=false 이고 ratioPct 는 null. 구간별 계약 수·중앙값은 그때도 발행된 계약만으로 낸 값이다(창의 일부 달 자료가 아직 없다).",
+    "전세 = 월세가 0 인 계약 (원천에 전세·월세 구분 항목이 없어 정의로 나눈다)"
+   ],
+   "recent": [
+    {
+     "areaM2": 59.8,
+     "complex": {
+      "aptName": "전월세단지",
+      "buildYear": 1995,
+      "complexKey": "c_cccccccccccccccccccc",
+      "jibun": null,
+      "umdName": "정자동"
+     },
+     "contractTerm": "23.11~25.11",
+     "contractType": "신규",
+     "dealDate": "2023-10-14",
+     "depositManwon": 30000,
+     "depositPerM2": 501.7,
+     "floor": 7,
+     "kind": "jeonse",
+     "missingSince": null,
+     "monthlyRentManwon": 0,
+     "outlier": false,
+     "previousDepositManwon": null,
+     "previousMonthlyRentManwon": null,
+     "renewalRightUsed": null,
+     "rentId": "r41135-202310-00000000000000cc-0",
+     "version": 1
+    }
+   ],
+   "window": {
+    "complete": false,
+    "from": "2023-08",
+    "to": "2024-07"
+   }
+  }
+ },
+ "etag": true,
+ "headers": {
+  "cache-control": "private, max-age=60",
+  "content-type": "application/json",
+  "x-dataset-version": "gold@test.1"
+ },
+ "status": 200
+}

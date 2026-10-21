@@ -39,11 +39,12 @@
    "lastFetchedAt": "2024-08-05T03:00:00+00:00"
   },
   "partitions": {
-   "MERGED": 1,
+   "MERGED": 3,
    "PENDING": 1,
    "QUARANTINED": 1
   },
   "schemaVersions": {
+   "empty": 2,
    "unrecorded": 1
   },
   "source": "rtms"

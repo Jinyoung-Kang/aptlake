@@ -1,4 +1,7 @@
-"""단지: 상세(단지 정보·최근 거래·거래 이력)와 단지명·법정동 검색 — 업무 규칙 (순수)."""
+"""단지: 상세(단지 정보·최근 거래·거래 이력)와 단지명·법정동 검색 — 업무 규칙 (순수).
+
+단지 차원에는 전월세에만 나온 단지도 있다 (ADR-050) — 매매 원천에만 있는 항목(토지임대부)은 그 단지에서 미상(null).
+"""
 
 from __future__ import annotations
 
@@ -37,7 +40,8 @@ async def detail(store: ComplexStore, key: str, rent_store: RentStore | None = N
             "jibun": cx["jibun"] or None,
             "aptName": cx["apt_nm"],
             "buildYear": cx["build_year"],
-            "landLeasehold": bool(cx["land_leasehold"]),
+            # 토지임대부는 매매 원천에만 있는 항목 — 전월세에만 나온 단지는 NULL 로 발행된다 → null(미상), false 로 읽지 않는다
+            "landLeasehold": None if cx["land_leasehold"] is None else bool(cx["land_leasehold"]),
             "firstSeen": cx["first_seen"].isoformat(),
             "validTrades": cx["trades"],
         },

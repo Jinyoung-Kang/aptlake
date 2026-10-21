@@ -92,9 +92,14 @@ def _build(name: str, internal: bool) -> FastAPI:
     app = FastAPI(
         title="AptLake 데이터 API" + (" (internal)" if internal else ""),
         version="1.0.0",
-        description="전국 아파트 매매 실거래 — 정합성 검사를 통과한 데이터만 제공합니다. "
+        description="전국 아파트 매매·전월세 실거래 — 정합성 검사를 통과한 데이터만 제공합니다. "
+        "원천: 국토교통부 아파트 매매 실거래가 상세 자료 · 국토교통부 아파트 전월세 실거래가 자료 · 행정안전부 법정동코드 · "
+        "한국부동산원 R-ONE 부동산통계 · 국토정보플랫폼 V-World 행정경계. "
+        "전세가율과 자체 지수는 이 자료로 계산한 자체 산출 값이며 공식 통계가 아닙니다. "
         "인증: `X-API-Key: al_live_<keyId>.<secret>` (없으면 anonymous 플랜). "
-        "오류는 RFC 9457 Problem Details.",
+        "오류는 RFC 9457 Problem Details. "
+        "`dataAsOf`·`X-Data-As-Of` 는 응답 원천의 데이터 기준 시각(그 원천을 발행할 때의 마지막 수집 시각) — "
+        "매매·전월세를 함께 쓰는 응답은 둘 중 이른 쪽, 모르면 null.",
         lifespan=lifespan,
         default_response_class=OrjsonResponse,
         docs_url=None,  # 아래 /docs — 외부 스크립트를 버전 고정 + SRI 로 (QA-004)

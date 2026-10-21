@@ -41,8 +41,9 @@ class QualityRepository:
             ).fetchall()
             schema = await (
                 await c.execute(
-                    """SELECT schema_ver, count(*) AS n FROM ops.ingest_partition
-                       WHERE source = %s AND status IN ('LOADED', 'MERGED') GROUP BY schema_ver ORDER BY schema_ver""",
+                    """SELECT schema_ver, coalesce(rows_last = 0, false) AS empty, count(*) AS n
+                       FROM ops.ingest_partition WHERE source = %s AND status IN ('LOADED', 'MERGED')
+                       GROUP BY 1, 2 ORDER BY 2, 1""",
                     (source,),
                 )
             ).fetchall()
@@ -53,10 +54,11 @@ class QualityRepository:
                     (source,),
                 )
             ).fetchone()
-            ver = await (
+            ver = await (  # 이 원천의 마지막 발행 (버전 번호는 원천 공통이라 거르지 않으면 다른 원천 발행이 나온다)
                 await c.execute(
                     """SELECT version, published_at, data_as_of FROM ops.dataset_version
-                       ORDER BY published_at DESC LIMIT 1"""
+                       WHERE source = %s ORDER BY published_at DESC LIMIT 1""",
+                    (DATASET_SOURCE[source],),
                 )
             ).fetchone()
             failed = await (

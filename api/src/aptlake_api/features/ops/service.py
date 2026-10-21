@@ -51,6 +51,8 @@ SCHEDULE_LABEL = {
 }
 ACTIVE = ["QUEUED", "NOT_STARTED", "STARTING", "STARTED", "CANCELING"]
 DEFAULT_DAILY_LIMIT = 10000  # 오늘 예산 행이 아직 없을 때 (파이프라인이 첫 호출 때 만든다)
+# 백필이 남겨 두는 몫의 달 수 — 파이프라인 budget.ceilings 의 증분(최근 3개월)·재확인(12개월)과 같은 값
+INCREMENTAL_MONTHS, RECHECK_MONTHS = 3, 12
 CHECK_TIMEOUT_S = 2.0
 MAX_ENTRIES = 500
 
@@ -79,6 +81,7 @@ class Orchestrator(Protocol):
 class OpsStore(Protocol):
     async def budget_day(self, day: dt.date, source: str = "rtms") -> Row | None: ...
     async def partition_counts(self, source: str = "rtms") -> dict[str, int]: ...
+    async def budget_reserves(self, source: str = "rtms") -> Row: ...
     async def month_counts(self, source: str = "rtms") -> Row | None: ...
     async def last_version(self) -> Row | None: ...
     async def log_view(self) -> Row | None: ...
@@ -224,13 +227,27 @@ def _budget_view(b: Row | None, today: dt.date, budget_pct: int) -> tuple[dict[s
     }, cap
 
 
-def _estimate(counts: dict[str, int], cap: int) -> dict[str, Any]:
-    # 추정: 남은 파티션(시군구×월) 1개 = 원천 호출 1회, 하루 상한만큼 쓴다고 가정한 단순 계산
+def backfill_share(cap: int, regions: int, recheck_pending: bool) -> int:
+    """하루 백필 몫 — 파이프라인 budget.ceilings 와 같은 규칙: 상한에서 증분 몫(시군구 × 최근 3개월)과,
+    재확인 대기 중이면 재확인 몫(시군구 × 12개월)을 남겨 둔다 (백필은 그 아래에서만 호출한다)."""
+    return max(cap - regions * INCREMENTAL_MONTHS - (regions * RECHECK_MONTHS if recheck_pending else 0), 0)
+
+
+def _estimate(counts: dict[str, int], cap: int, reserves: Row) -> dict[str, Any]:
+    # 추정: 남은 파티션(시군구×월) 1개 = 원천 호출 1회, 하루 백필 몫만큼 쓴다고 가정한 단순 계산
     remaining_calls = counts.get("PENDING", 0) + counts.get("RETRY", 0)
+    n, pending = int(reserves["regions"]), bool(reserves["recheck_pending"])
+    share = backfill_share(cap, n, pending)
+    basis = (
+        f"남은 파티션 수 ÷ 하루 백필 몫 {share:,}회 = 일일 호출 상한 {cap:,}"
+        f" − 증분 몫 {n * INCREMENTAL_MONTHS:,}(시군구 {n:,} × {INCREMENTAL_MONTHS}개월)"
+    )
+    if pending:
+        basis += f" − 재확인 몫 {n * RECHECK_MONTHS:,}(시군구 {n:,} × {RECHECK_MONTHS}개월, 재확인 대기 중)"
     return {
         "remainingCalls": remaining_calls,
-        "days": math.ceil(remaining_calls / cap) if cap else None,
-        "basis": "남은 파티션 수 ÷ 일일 호출 상한 (다른 프로그램과 키를 공유하면 더 걸림)",
+        "days": math.ceil(remaining_calls / share) if share else None,
+        "basis": basis + " (같은 날 증분·재확인이 백필보다 먼저 호출하거나 다른 프로그램과 키를 공유하면 더 걸림)",
     }
 
 
@@ -269,7 +286,7 @@ async def status(
         "publishedMonths": months["published"] if months else 0,
         "publishPending": months["pending"] if months else 0,
         "budget": budget,
-        "backfillEstimate": _estimate(counts, cap),
+        "backfillEstimate": _estimate(counts, cap, await store.budget_reserves()),
         "lastPublish": {"version": ver["version"], "at": ts(ver["published_at"])} if ver else None,
     }
     if rent_budget_pct is not None:  # 전월세 (ADR-050): 상태·예산은 원천별
@@ -282,7 +299,7 @@ async def status(
             "publishedMonths": r_months["published"] if r_months else 0,
             "publishPending": r_months["pending"] if r_months else 0,
             "budget": r_budget,
-            "backfillEstimate": _estimate(r_counts, r_cap),
+            "backfillEstimate": _estimate(r_counts, r_cap, await store.budget_reserves("rent")),
         }
     return {
         "pipeline": pipeline,

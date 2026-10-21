@@ -307,6 +307,9 @@ class FakeMarket:
     async def ratio_by_sgg(self, a, b):
         return [], []
 
+    async def partition_states(self, a, b):
+        return []
+
 
 def sgg_row(code: str, month: dt.date, trades: int, median: float) -> dict:
     return {"sgg_cd": code, "month": month, "trades": trades, "cancelled": 0, "priced": 50,
@@ -630,6 +633,59 @@ async def test_latency_metrics_exclusions_and_empty_state():
     assert l3["unit"] == "minute" and l3["n"] == 0 and l3["p50"] is None and len(l3["distribution"]) == 8
     with pytest.raises(ApiError):
         await quality.latency(FakeLatency([]), b, a, None)
+
+
+# ───── 품질 요약: 원천 스키마 판 (ADR-049·050) ─────
+def test_schema_versions_counts_empty_responses_apart():
+    """마지막 응답이 0건이면 판을 판정할 수 없다 — 빈 응답의 판 기록은 1(판 기록 뒤 적재, 두 원천 모두)이거나 NULL(판 기록
+    전 적재)이지만 어느 쪽도 판정이 아니라 'empty' 로 따로 센다."""
+    rows = [
+        {"schema_ver": None, "empty": False, "n": 16865},  # 판 기록 전 적재 (항목 있음)
+        {"schema_ver": 2, "empty": False, "n": 739},
+        {"schema_ver": None, "empty": True, "n": 314},  # 판 기록 전에 적재된 빈 응답 — 원본이 같으면 NULL 그대로
+        {"schema_ver": 1, "empty": True, "n": 593},  # 판 기록 뒤 적재된 빈 응답 — 판 1 로 기록되지만 판정한 것이 아니다
+    ]
+    assert quality.schema_versions(rows) == {"unrecorded": 16865, "2": 739, "empty": 907}
+    assert quality.schema_versions([]) == {}
+
+
+async def test_quality_summary_passes_source_to_store():
+    class Store:
+        async def overview(self, source):
+            self.source = source
+            ver = {"version": "gold@2026-10-21.3", "published_at": None, "data_as_of": None}
+            return {"status": [{"status": "MERGED", "n": 2}], "fresh": {"fetched": None, "changed": None},
+                    "schema": [{"schema_ver": 1, "empty": False, "n": 2}], "ver": ver, "failed": [], "budget": []}  # fmt: skip
+
+    store = Store()
+    body, _ = await quality.summary(store, "rent")
+    assert store.source == "rent" and body["source"] == "rent" and body["schemaVersions"] == {"1": 2}
+    assert body["dataset"]["version"] == "gold@2026-10-21.3"
+
+
+# ───── 단지 상세: 매매 원천에만 있는 항목 (ADR-050) ─────
+class FakeComplexes:
+    def __init__(self, leasehold):
+        self.row = {"complex_key": "c_" + "b" * 20, "sgg_cd": "41135", "umd_nm": "정자동", "jibun": "", "apt_nm": "단지",
+                    "build_year": None, "land_leasehold": leasehold, "first_seen": dt.date(2024, 5, 1), "trades": 0}  # fmt: skip
+
+    async def get(self, key):
+        return self.row
+
+    async def recent_trades(self, sgg, key, limit):
+        return []
+
+    async def trade_points(self, sgg, key, limit):
+        return []
+
+
+@pytest.mark.parametrize("stored,shown", [(None, None), (0, False), (1, True)])
+async def test_complex_land_leasehold_null_is_unknown_not_false(stored, shown):
+    """전월세에만 나온 단지는 토지임대부가 NULL 로 발행된다 — false(일반)로 읽지 않고 null(미상)."""
+    from aptlake_api.features.complexes import service as complexes
+
+    body, rows = await complexes.detail(FakeComplexes(stored), "c_" + "b" * 20)
+    assert body["complex"]["landLeasehold"] is shown and body["complex"]["validTrades"] == 0 and rows == 1
 
 
 # ───── 플랜·사용량 (ADR-047) ─────
