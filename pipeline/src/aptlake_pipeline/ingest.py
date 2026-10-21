@@ -16,9 +16,11 @@ import contextlib
 import datetime as dt
 import json
 import logging
+import time
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 import boto3
 import pyarrow as pa
@@ -39,6 +41,11 @@ log = logging.getLogger(__name__)
 RAW_BUCKET = "raw"
 ROW_DROP_RATIO = 0.7  # 이전 적재 대비 30% 넘게 줄면 의심 → 격리
 ROW_DROP_MIN_PREV = 20  # 작은 파티션은 자연 변동이 커서 제외
+# bronze 적재(레이크 쓰기)의 일시 오류는 여기서 다시 한다 — 원천 호출은 이미 끝나 예산을 썼으므로, 실행 단위 재시도
+# (원천을 다시 부름, ADR-034 에서 제외)로 넘기면 그 달 전체를 다시 호출하게 된다. MinIO 쓰기 시간 초과(curl 28)가
+# 백필 중 두 번 있었고, 그때마다 시군구 256곳을 다시 받았다.
+APPEND_ATTEMPTS = 3
+APPEND_BACKOFF_S = 20.0
 
 BRONZE_SCHEMA = pa.schema(
     [
@@ -332,21 +339,9 @@ def ingest_month(
         pending.append((r, ingest_id, _bronze_rows(r, ingest_id, uri, spec)))
 
     if pending:
-        table = catalog().load_table(spec.bronze)
-        shas = {r.sha256 for r, _, _ in pending}
-        existing = (
-            set(
-                table.scan(row_filter=eq("deal_ym", deal_ym), selected_fields=("payload_sha256",))
-                .to_arrow()
-                .column("payload_sha256")
-                .to_pylist()
-            )
-            & shas
+        table, existing, summary.bronze_rows = append_bronze(
+            lambda: catalog().load_table(spec.bronze), deal_ym, pending
         )
-        new_rows = [row for r, _, rows in pending if r.sha256 not in existing for row in rows]
-        if new_rows:
-            table.append(pa.Table.from_pylist(new_rows, schema=BRONZE_SCHEMA))
-            summary.bronze_rows = len(new_rows)
         snap = table.refresh().current_snapshot()
         summary.bronze_snapshot = snap.snapshot_id if snap else None
         for r, ingest_id, rows in pending:
@@ -364,6 +359,41 @@ def ingest_month(
             )
             summary.loaded.append(r.sgg_cd)
     return summary
+
+
+def append_bronze(
+    load_table: Callable[[], Any],
+    deal_ym: str,
+    pending: list[tuple[FetchResult, str, list[dict]]],
+    sleep: Callable[[float], None] = time.sleep,
+) -> tuple[Any, set[str], int]:
+    """bronze 에 없는 원본만 한 번의 커밋으로 더한다 → (표, 이미 있던 원본 해시, 더한 행 수).
+    레이크 쓰기의 일시 오류(OSError — 저장소 연결 시간 초과·카탈로그 연결 오류)는 원천을 다시 부르지 않고 여기서 다시 한다.
+    시도마다 이미 있는 원본을 다시 확인한다 — 앞 시도가 커밋까지 됐는데 응답만 끊겼으면 같은 행을 두 번 넣지 않는다."""
+    shas = {r.sha256 for r, _, _ in pending}
+    for attempt in range(APPEND_ATTEMPTS):
+        try:
+            table = load_table()
+            existing = (
+                set(
+                    table.scan(row_filter=eq("deal_ym", deal_ym), selected_fields=("payload_sha256",))
+                    .to_arrow()
+                    .column("payload_sha256")
+                    .to_pylist()
+                )
+                & shas
+            )
+            new_rows = [row for r, _, rows in pending if r.sha256 not in existing for row in rows]
+            if new_rows:
+                table.append(pa.Table.from_pylist(new_rows, schema=BRONZE_SCHEMA))
+            return table, existing, len(new_rows)
+        except OSError as e:  # 커밋 전 실패면 올린 데이터 파일은 고아가 되고 주간 정리가 지운다
+            if attempt == APPEND_ATTEMPTS - 1:
+                raise
+            log.warning("bronze append %s failed (%s), retry %d/%d", deal_ym, type(e).__name__, attempt + 1,
+                        APPEND_ATTEMPTS - 1)  # fmt: skip
+            sleep(APPEND_BACKOFF_S * (attempt + 1))
+    raise AssertionError("unreachable")
 
 
 def _existing_ingest_id(table, deal_ym: str, r: FetchResult) -> str:
