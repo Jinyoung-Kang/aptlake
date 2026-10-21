@@ -12,7 +12,7 @@
 
 ## 명령
 - 검사: `make lint` (ruff·mypy·tsc), 테스트: `make test-pipeline`, `make test-api`(Testcontainers, Docker 필요)
-- 레이크 통합 테스트: `make test-integration` — **실제 운영 레이크·ops DB 를 쓴다**. 수집 실행과 겹치지 않을 때만, 끝나면 합성 파티션(99999/209901) 흔적이 없는지 확인
+- 레이크 통합 테스트: `make test-integration` — **실제 운영 레이크·ops DB 를 쓴다**. 수집 실행과 겹치지 않을 때만, 끝나면 합성 파티션(99999/209901·209902) 흔적이 없는지 확인
 - 배포:
   - 파이프라인: `make pipeline-redeploy` (진행 중 실행이 끝난 뒤 교체, 센서 자동 재개). `docker compose restart dagster` 로 실행 중 작업을 죽이지 말 것
   - API·웹: `docker compose up -d --build api api-internal web` (ch-migrate·db-migrate 가 먼저 멱등 적용됨)
