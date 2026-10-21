@@ -1,5 +1,6 @@
-// 데이터 품질 화면의 규칙 (React·차트 무관): 상태 이름·순서, 완결도, 히트맵 칸.
+// 데이터 품질 화면의 규칙 (React·차트 무관): 상태 이름·순서, 원천 스키마 판, 완결도, 히트맵 칸.
 import type { FailedCheck, LatencyMetric, QualityGrid, QualityRollup } from "../api/types";
+import { num } from "../lib/format";
 
 export const STATUS_LABEL: Record<string, string> = {
   MERGED: "반영 완료", LOADED: "적재·반영 대기", PENDING: "미수집", FETCHING: "수집 중", RETRY: "재시도 대기", QUARANTINED: "격리",
@@ -10,6 +11,16 @@ export const STATUS_ORDER = ["MERGED", "LOADED", "FETCHING", "PENDING", "RETRY",
 export const STATUS_TONE: Record<string, "good" | "info" | "none" | "warn" | "bad"> = {
   MERGED: "good", LOADED: "info", FETCHING: "info", PENDING: "none", RETRY: "warn", QUARANTINED: "bad",
 };
+
+/** 원천 스키마 판 이름: 'empty' = 마지막 응답이 0건이라 판을 가릴 수 없음, 'unrecorded' = 판 기록 이전 적재 */
+export function schemaVersionLabel(v: string): string {
+  return v === "empty" ? "빈 응답" : v === "unrecorded" ? "판 기록 전" : `v${v}`;
+}
+
+/** 판별 파티션 수 한 줄 — '판 이름 건수' 를 ' · ' 로 */
+export function schemaVersionText(versions: Record<string, number>): string {
+  return Object.entries(versions).map(([v, n]) => `${schemaVersionLabel(v)} ${num(n)}`).join(" · ");
+}
 
 /** 파티션(시군구×월) 반영 완료 비율 */
 export function completion(partitions: Record<string, number>) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { completion, gridCells, latencyBars, latencyExcluded, latencyValue, latencyWindow, parseCell, rollupCells, rollupMonths } from "./quality";
+import { completion, gridCells, latencyBars, latencyExcluded, latencyValue, latencyWindow, parseCell, rollupCells, rollupMonths, schemaVersionLabel, schemaVersionText } from "./quality";
 
 describe("데이터 품질", () => {
   it("완결도 = 반영 완료 ÷ 전체 파티션", () => {
@@ -13,6 +13,10 @@ describe("데이터 품질", () => {
     expect(rollupCells(rollup, ["11", "41"], months)).toEqual([[0, 0, 0, "미수집 2"], [1, 1, 75, "반영 완료 3 · 재시도 대기 1"]]);
     const grid = { cells: { "41135": { "202407": ["QUARANTINED", null] as [string, null] } } };
     expect(gridCells(grid, ["41131", "41135"], months)).toEqual([[1, 1, 5, null]]);
+  });
+  it("원천 스키마 판 이름: 빈 응답·판 기록 전·vN", () => {
+    expect(["empty", "unrecorded", "1", "2"].map(schemaVersionLabel)).toEqual(["빈 응답", "판 기록 전", "v1", "v2"]);
+    expect(schemaVersionText({ "2": 1200, "1": 30, empty: 4 })).toBe("v1 30 · v2 1,200 · 빈 응답 4");
   });
   it("선택 칸 'sgg:YYYYMM' 해석 — 모르는 시군구·형식 오류는 무시", () => {
     const known = (c: string) => c === "41135";

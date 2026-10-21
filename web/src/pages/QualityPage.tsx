@@ -7,7 +7,7 @@ import { DASH, esc, kst, num, relative, ymAdd, ymLabel, ymOf } from "../lib/form
 import { setParams, type Route } from "../lib/router";
 import { useRegions } from "../lib/regions";
 import { completion, failingChecks, gridCells, LATENCY_DESC, LATENCY_LABEL, latencyBars, latencyExcluded, latencyValue, latencyWindow, type LatencyKey,
-         parseCell, rollupCells, rollupMonths, STATUS_LABEL, STATUS_ORDER, STATUS_TONE } from "../domain/quality";
+         parseCell, rollupCells, rollupMonths, schemaVersionText, STATUS_LABEL, STATUS_ORDER, STATUS_TONE } from "../domain/quality";
 import { paths, type Source } from "../api/endpoints";
 import type { QualityGrid, QualityLatency, QualityPartition, QualityRollup, QualitySummary } from "../api/types";
 
@@ -98,7 +98,8 @@ function LatencySection() {
   );
 }
 
-const SUMMARY_KPIS = ["최근 원천 수집", "데이터셋 버전", "반영 완료 파티션 (시군구×월)", "현재 실패 중인 검사"];
+// 둘째 칸은 고른 원천의 마지막 발행 버전이다 — 머리의 메타 칩(전체 최신 버전)과 다를 수 있어 이름에 원천을 밝힌다
+const SUMMARY_KPIS = ["최근 원천 수집", "이 원천의 마지막 발행", "반영 완료 파티션 (시군구×월)", "현재 실패 중인 검사"];
 
 export default function QualityPage({ route }: { route: Route }) {
   const { sidos, byCode, sidoName } = useRegions();
@@ -115,6 +116,7 @@ export default function QualityPage({ route }: { route: Route }) {
   const picked = parseCell(cell, (code) => byCode.has(code));
 
   const months = useMemo(() => rollupMonths(rollup.data), [rollup.data]);
+  // 원천을 바꾼 직후 useApi 는 이전 원천의 결과를 stale=true 로 돌려준다 — 새 원천 이름 아래에서는 흐리게만 둔다 (data-stale)
   const s = summary.data;
   const { total, merged, pct } = completion(s?.partitions ?? {});
   const failing = failingChecks(s?.failedChecks7d ?? [], withResolved);
@@ -164,9 +166,9 @@ export default function QualityPage({ route }: { route: Route }) {
       </div>
       <ErrorBox error={summary.error} onRetry={summary.reload} />
       {s ? (
-        <div className="kpis">
+        <div className="kpis" data-stale={summary.stale} aria-busy={summary.loading}>
           <Kpi k="최근 원천 수집" v={relative(s.freshness.lastFetchedAt)} d={`${kst(s.freshness.lastFetchedAt, false)} · 내용 변경 ${relative(s.freshness.lastChangedAt)}`} />
-          <Kpi k="데이터셋 버전" v={<span style={{ fontSize: 17 }}>{s.dataset?.version ?? DASH}</span>} d={`발행 ${kst(s.dataset?.publishedAt, false)}`} />
+          <Kpi k="이 원천의 마지막 발행" v={<span style={{ fontSize: 17 }}>{s.dataset?.version ?? DASH}</span>} d={`발행 ${kst(s.dataset?.publishedAt, false)}`} />
           <Kpi k="반영 완료 파티션 (시군구×월)" v={`${num(pct, 1)}%`}
                d={<>{num(merged)} / {num(total)} · 격리 {num(s.partitions.QUARANTINED ?? 0)} · 재시도 {num(s.partitions.RETRY ?? 0)}<div className="progress"><span style={{ width: `${pct}%` }} /></div></>} />
           <Kpi k="현재 실패 중인 검사" v={num((s.failedChecks7d ?? []).filter((f) => !f.resolved).length)} unit="건" d="최근 7일, 이후 통과한 검사는 제외" />
@@ -183,7 +185,7 @@ export default function QualityPage({ route }: { route: Route }) {
           <h2>시도별 수집 완결도</h2><span className="sub">칸 = 시도 × 계약월, 색 = 시군구 중 반영 완료 비율 · 칸을 누르면 시군구별</span>
         </div>
         <ErrorBox error={rollup.error} onRetry={rollup.reload} />
-        <div className="panel panel-pad">
+        <div className="panel panel-pad" data-stale={rollup.stale} aria-busy={rollup.loading}>
           {rollup.data && sidos.length ? (
             <Chart build={buildRollup} deps={[rollup.data, sidos, months]} height={Math.max(360, sidos.length * 22 + 80)} label="시도별 월별 반영 완료 비율 히트맵"
                    onClick={(e) => { const d = e.data as [number, number] | undefined; if (d) setParams(route, { sido: sidos[d[1]].sidoCd, cell: null }); }} />
@@ -192,9 +194,11 @@ export default function QualityPage({ route }: { route: Route }) {
       </section>
 
       {source === "rtms" && <LatencySection />}
-      {s?.schemaVersions && Object.keys(s.schemaVersions).length > 1 && (
-        <p className="note">원천 스키마 판별 반영 파티션: {Object.entries(s.schemaVersions).map(([v, n]) => `${v === "unrecorded" ? "판 기록 전" : `v${v}`} ${num(n)}`).join(" · ")}
-          {source === "rtms" ? " — 매매 상세판(v2) 전환 뒤 재수집 주기 안에 v2 로 바뀐다 (ADR-049)" : ""}</p>
+      {/* 이전 원천의 판 분포는 새 원천 문구와 섞이지 않게 숨긴다 */}
+      {s?.schemaVersions && !summary.stale && Object.keys(s.schemaVersions).length > 1 && (
+        <p className="note">원천 스키마 판별 반영 파티션: {schemaVersionText(s.schemaVersions)}
+          {source === "rtms" ? " — 항목이 있는 파티션은 재수집 주기(최대 90일) 안에 v2(상세판)로 바뀐다 (ADR-049)" : ""}
+          {"empty" in s.schemaVersions ? ". 빈 응답 = 마지막 응답이 0건이라 판을 가릴 수 없는 파티션" : ""}</p>
       )}
 
       {sido && (
@@ -221,6 +225,7 @@ export default function QualityPage({ route }: { route: Route }) {
           <span className="sub">차단 = 하위 반영·발행을 멈춤 · 경고 = 기록만</span>
           <div className="tools"><Switch checked={withResolved} onChange={setWithResolved} label="이후 통과한 항목 포함" /></div>
         </div>
+        <div data-stale={summary.stale} aria-busy={summary.loading}>
         <DataTable rows={failing} rowKey={(f) => `${f.asset}:${f.partition}:${f.check}:${f.at}`} empty="실패 중인 검사가 없습니다." maxHeight={420}
           columns={[
             { key: "at", header: "시각", cell: (f) => kst(f.at, false), sort: (f) => f.at },
@@ -229,6 +234,7 @@ export default function QualityPage({ route }: { route: Route }) {
             { key: "sev", header: "등급", cell: (f) => <>{f.blocking ? <Badge tone="bad">차단</Badge> : <Badge tone="warn">경고</Badge>} {f.resolved && <Badge tone="good">이후 통과</Badge>}</> },
             { key: "m", header: "지표", cell: (f) => <code style={{ whiteSpace: "normal" }}>{JSON.stringify(f.metric).slice(0, 140)}</code> },
           ]} />
+        </div>
         <p className="note">자세한 오류 원문과 전체 복사는 <a href="#/ops">수집 상태</a> 메뉴의 오류 로그에서 볼 수 있습니다.</p>
       </section>
     </>

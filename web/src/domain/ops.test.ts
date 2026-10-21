@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { LogEntry, OpsJob } from "../api/types";
-import { entryState, entryText, filterEntries, jobDuration, logFileName, logText, pipelineSummary, queueOrder, recentOrder } from "./ops";
+import { capText, entryState, entryText, filterEntries, jobDuration, logFileName, logText, pipelineSummary, queueOrder, recentOrder } from "./ops";
 
 const job = (o: Partial<OpsJob>): OpsJob => ({
   runId: "r", job: "month_pipeline", jobLabel: "월 수집", partition: null, priority: null, priorityLabel: "수동", trigger: "수동",
@@ -32,6 +32,12 @@ describe("작업 큐", () => {
     expect(jobDuration(job({ startedAt: "2026-10-01T00:08:00Z" }), now)).toBe("2분 경과");
     expect(jobDuration(job({ requestedAt: "2026-10-01T00:09:30Z" }), now)).toBe("대기 30초");
     expect(jobDuration(job({}), now)).toBe("–");
+  });
+  it("예산 문구의 비율은 상한 ÷ 한도로 계산한다 (고정 80% 아님)", () => {
+    expect(capText({ limit: 10000, cap: 8000 })).toBe("일 한도 10,000의 80%");
+    expect(capText({ limit: 1000, cap: 500 })).toBe("일 한도 1,000의 50%");
+    expect(capText({ limit: 3000, cap: 2000 })).toBe("일 한도 3,000의 66.7%");
+    expect(capText({ limit: 0, cap: 0 })).toBe("일 한도 0");
   });
   it("실행·대기 수와 반영 완료 비율", () => {
     expect(pipelineSummary(null)).toEqual({ running: 0, queued: 0, merged: 0, total: 0, mergedPct: 0 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ComplexDetail } from "../api/types";
-import { bandOf, inBand, presentBands, validMedian } from "./complex";
+import { bandOf, hasTrades, inBand, presentBands, validMedian } from "./complex";
 import { complexSearchTerm } from "./search";
 
 // [계약일, 전용면적, 층, 금액, m²당, 해제, 이상치]
@@ -19,6 +19,12 @@ describe("단지 거래 이력", () => {
   it("중위가는 해제·이상치를 뺀 거래로", () => {
     expect(validMedian(inBand(H, bandOf("m")))).toEqual({ median: 1100, n: 2 });
     expect(validMedian([])).toEqual({ median: null, n: 0 });
+  });
+  it("매매 거래 유무: 전월세에만 있는 단지는 없음, 해제만 있는 단지는 있음", () => {
+    const cx = (validTrades: number) => ({ validTrades }) as ComplexDetail["complex"];
+    expect(hasTrades({ complex: cx(0), history: [], recentTrades: [] })).toBe(false);
+    expect(hasTrades({ complex: cx(0), history: [["2024-03-04", 84.9, 11, 95000, 1100, 1, 0]], recentTrades: [] })).toBe(true);
+    expect(hasTrades({ complex: cx(3), history: [], recentTrades: [] })).toBe(true);
   });
 });
 

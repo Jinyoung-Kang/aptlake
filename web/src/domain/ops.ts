@@ -1,6 +1,6 @@
-// 수집 상태·오류 로그 화면의 규칙 (React 무관): 상태 이름, 큐 순서, 소요 시간, 로그 거르기·내보내기 문구.
+// 수집 상태·오류 로그 화면의 규칙 (React 무관): 상태 이름, 큐 순서, 소요 시간, 예산 문구, 로그 거르기·내보내기 문구.
 import type { LogEntry, OpsJob, OpsStatus } from "../api/types";
-import { DASH, duration, kst } from "../lib/format";
+import { DASH, duration, kst, num } from "../lib/format";
 
 export const JOB_STATUS: Record<string, { label: string; cls: string }> = {
   QUEUED: { label: "대기", cls: "wait" }, NOT_STARTED: { label: "시작 전", cls: "wait" }, STARTING: { label: "시작 중", cls: "run" },
@@ -47,6 +47,13 @@ export function pipelineSummary(s: OpsStatus | null) {
   const merged = s?.summary.partitions.MERGED ?? 0;
   const total = s?.summary.totalPartitions ?? 0;
   return { running, queued, merged, total, mergedPct: total ? (merged / total) * 100 : 0 };
+}
+
+/** 예산 문구: 사용 상한(cap)이 일 한도(limit)의 몇 %인지 — 설정값에서 계산한다 (고정 숫자를 적지 않는다). 한도를 모르면 한도만 */
+export function capText(b: { limit: number; cap: number }): string {
+  if (!(b.limit > 0)) return `일 한도 ${num(b.limit)}`;
+  const share = (b.cap / b.limit) * 100;
+  return `일 한도 ${num(b.limit)}의 ${num(share, Number.isInteger(share) ? 0 : 1)}%`;
 }
 
 /** 전월세 수집 요약 (ADR-050): 반영 완료 비율 — 원천별 상태라 매매와 따로 센다. */

@@ -71,6 +71,14 @@ export function axisY(p: Palette, extra: Record<string, unknown> = {}) {
   };
 }
 
+/** 잠정 달 음영 (선 계열의 markArea) — 잠정인 첫 달~마지막 달을 덮고 '잠정'이라 적는다. 지역 분석의 매매·전월세·전세가율 차트 공용 */
+export function provisionalArea(p: Palette, months: string[]) {
+  return {
+    silent: true, itemStyle: { color: p.grid, opacity: 0.6 }, label: { show: true, color: p.text3, fontSize: 11, position: "insideTop" },
+    data: months.length ? [[{ xAxis: months[0], name: "잠정" }, { xAxis: months[months.length - 1] }]] : [],
+  };
+}
+
 type Props = {
   build: (p: Palette) => echarts.EChartsCoreOption;
   deps: unknown[];

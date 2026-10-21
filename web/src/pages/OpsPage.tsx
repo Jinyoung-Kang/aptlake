@@ -7,7 +7,7 @@ import { DASH, kst, kstShort, num, relative, ymLabel } from "../lib/format";
 import { setParams, type Route } from "../lib/router";
 import { paths } from "../api/endpoints";
 import type { OpsErrors, OpsJob, OpsStatus } from "../api/types";
-import { entryState, entryText, filterEntries, JOB_STATUS, jobDuration, LOG_SOURCES, logFileName, logText, pipelineSummary, rentSummary, PRIORITY_TONE, queueOrder, recentOrder, SOURCE_LABEL } from "../domain/ops";
+import { capText, entryState, entryText, filterEntries, JOB_STATUS, jobDuration, LOG_SOURCES, logFileName, logText, pipelineSummary, rentSummary, PRIORITY_TONE, queueOrder, recentOrder, SOURCE_LABEL } from "../domain/ops";
 import { useLogClear } from "../hooks/useLogClear";
 import { useNow } from "../hooks/useNow";
 import { useToggleSet } from "../hooks/useToggleSet";
@@ -75,7 +75,7 @@ export default function OpsPage({ route }: { route: Route }) {
         <div className="kpis">
           <Kpi k="파이프라인" v={s.pipeline.available ? `${running} 실행 · ${queued} 대기` : "연결 안 됨"} d={`최근 48시간 ${num(s.jobs.recent.length)}건 완료·실패`} />
           <Kpi k={`오늘 원천 호출 (${b?.day ?? ""})`} v={`${num(b?.used)} / ${num(b?.cap)}`}
-               d={<>{b?.exhaustedReason ? <Badge tone="warn" title={b.stopLabel ?? b.exhaustedReason}>{b.exhaustedReason.startsWith("KeyRejected") ? "인증키 거부 · 키 확인 필요" : "원천 한도 소진 · 자정 뒤 재개"}</Badge> : `일 한도 ${num(b?.limit)}의 80%`}
+               d={<>{b?.exhaustedReason ? <Badge tone="warn" title={b.stopLabel ?? b.exhaustedReason}>{b.exhaustedReason.startsWith("KeyRejected") ? "인증키 거부 · 키 확인 필요" : "원천 한도 소진 · 자정 뒤 재개"}</Badge> : capText(s.summary.budget)}
                    <div className={`progress ${b && b.used >= b.cap ? "warn" : ""}`}><span style={{ width: `${b ? Math.min(100, (b.used / b.cap) * 100) : 0}%` }} /></div></>} />
           <Kpi k="수집 진행 (시군구×월)" v={`${num(mergedPct, 1)}%`}
                d={<>남은 {num(s.summary.backfillEstimate.remainingCalls)}개 · 추정 {s.summary.backfillEstimate.days ?? DASH}일<div className="progress"><span style={{ width: `${mergedPct}%` }} /></div></>}
@@ -88,7 +88,7 @@ export default function OpsPage({ route }: { route: Route }) {
         // 전월세 (ADR-050): 호출 예산·수집 상태가 원천별 — 포털 한도도 API 별로 따로 센다
         <div className="kpis">
           <Kpi k={`전월세 오늘 호출 (${rent.budget.day})`} v={`${num(rent.budget.used)} / ${num(rent.budget.cap)}`}
-               d={<>{rent.budget.exhaustedReason ? <Badge tone="warn" title={rent.budget.stopLabel ?? rent.budget.exhaustedReason}>{rent.budget.exhaustedReason.startsWith("KeyRejected") ? "인증키 거부 · 활용신청 확인" : "원천 한도 소진 · 자정 뒤 재개"}</Badge> : `일 한도 ${num(rent.budget.limit)}의 80%`}
+               d={<>{rent.budget.exhaustedReason ? <Badge tone="warn" title={rent.budget.stopLabel ?? rent.budget.exhaustedReason}>{rent.budget.exhaustedReason.startsWith("KeyRejected") ? "인증키 거부 · 활용신청 확인" : "원천 한도 소진 · 자정 뒤 재개"}</Badge> : capText(rent.budget)}
                    <div className={`progress ${rent.budget.used >= rent.budget.cap ? "warn" : ""}`}><span style={{ width: `${Math.min(100, (rent.budget.used / Math.max(rent.budget.cap, 1)) * 100)}%` }} /></div></>} />
           <Kpi k="전월세 수집 진행 (시군구×월)" v={`${num(rent.mergedPct, 1)}%`}
                d={<>남은 {num(rent.backfillEstimate.remainingCalls)}개 · 추정 {rent.backfillEstimate.days ?? DASH}일<div className="progress"><span style={{ width: `${rent.mergedPct}%` }} /></div></>}

@@ -8,12 +8,12 @@ const page = (ids: string[], next: string | null) => ({
   items: ids.map((id) => ({ tradeId: id })), summary: { count: 9, cancelled: 0, medianPpm2: 1, medianPrice: 1 }, page: { nextCursor: next },
 });
 
-let pending: { url: string; resolve: (body: unknown) => void }[] = [];
+let pending: { url: string; resolve: (body: unknown) => void; respond?: (res: Response) => void }[] = [];
 beforeEach(() => {
   vi.resetModules();  // 클라이언트 조회 캐시를 테스트마다 새로
   pending = [];
   vi.stubGlobal("fetch", vi.fn((url: string) => new Promise((res) => {
-    pending.push({ url, resolve: (body) => res(new Response(JSON.stringify(body), { status: 200 })) });
+    pending.push({ url, resolve: (body) => res(new Response(JSON.stringify(body), { status: 200 })), respond: res });
   })));
 });
 afterEach(() => vi.unstubAllGlobals());
@@ -56,6 +56,30 @@ describe("거래 목록 페이지 넘김", () => {
     await flush(2, page(["x"], null));
     await flush(1, page(["late"], null));
     expect(h.get().rows.map((r) => r.tradeId)).toEqual(["x"]);
+  });
+});
+
+describe("조건 전체 요약", () => {
+  const withCount = (count: number) => ({ ...page(["a"], null), summary: { count, cancelled: 0, medianPpm2: 1, medianPrice: 1 } });
+  it("조건이 바뀌면 새 첫 페이지가 올 때까지 이전 조건의 요약을 보이지 않는다", async () => {
+    const h = await mount(Q);
+    await flush(0, withCount(9));
+    expect(h.get().summary?.count).toBe(9);
+    await h.setQuery({ ...Q, sgg: "11110" });  // pending[1]
+    expect(h.get().summary).toBeNull();
+    await flush(1, withCount(3));
+    expect(h.get().summary?.count).toBe(3);
+  });
+  it("새 조건의 첫 페이지가 실패하면 요약도 비운다", async () => {
+    const h = await mount(Q);
+    await flush(0, withCount(9));
+    await h.setQuery({ ...Q, sgg: "11110" });  // pending[1]
+    // 400 은 재시도하지 않는 오류 — 바로 실패로 끝난다
+    await act(async () => { pending[1].respond?.(new Response(JSON.stringify({ status: 400, code: "INVALID_RANGE", title: "Invalid Range" }), { status: 400 })); await Promise.resolve(); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    expect(h.get().error).not.toBeNull();
+    expect(h.get().summary).toBeNull();
+    expect(h.get().rows).toEqual([]);
   });
 });
 
