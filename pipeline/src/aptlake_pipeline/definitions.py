@@ -620,6 +620,9 @@ dims_and_index = define_asset_job(
         AssetKey(["gold", "index_reference"]),
         AssetKey(["gold", "price_index"]),
     ),
+    # 단계는 하나씩. 지수 산출이 dbt 단계(단계 프로세스 + dbt)와 겹쳐 상주 프로세스와 합이 컨테이너 한도를 넘어
+    # SIGKILL 됐다(ADR-052). 지수는 1분 안쪽이라 순서대로 돌려도 실행이 그만큼만 길어진다
+    config={"execution": {"config": {"multiprocess": {"max_concurrent": 1}}}},
 )
 regions_job = define_asset_job(
     "refresh_regions",

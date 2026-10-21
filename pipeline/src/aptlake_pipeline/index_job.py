@@ -57,6 +57,8 @@ def build_index(log: logging.Logger | None = None) -> dict[str, object]:
         "ppm2": pc.fill_null(pc.cast(arrow["ppm2"], pa.float64()), np.nan).to_numpy(zero_copy_only=False),
     }
     del arrow
+    # Arrow 메모리 풀(mimalloc)은 놓은 메모리를 쥐고 있다 — 아래 numpy 계산이 쓸 수 있게 OS 에 돌려준다 (실측 약 145MB)
+    pa.default_memory_pool().release_unused()
     ref_rows = cat.load_table("gold.index_reference").scan().to_arrow().to_pylist()
     reference: dict[str, dict[str, float]] = {}
     for r in ref_rows:
@@ -65,9 +67,10 @@ def build_index(log: logging.Logger | None = None) -> dict[str, object]:
     now = dt.datetime.now(tz=dt.UTC)
     points, validation = [], []
     for region in ["00", *sorted(sido_names)]:
-        mask = np.ones(len(sido_idx), bool) if region == "00" else sido_idx == sido_names.index(region)
+        # 전국은 거르지 않고 그대로 넘긴다 (모두 참인 마스크로 거르면 다섯 열을 통째로 한 벌 더 복사한다)
+        sel = slice(None) if region == "00" else sido_idx == sido_names.index(region)
         pts = hedonic.fit(
-            cols["complex"][mask], cols["period"][mask], cols["floor"][mask], cols["area"][mask], cols["ppm2"][mask]
+            cols["complex"][sel], cols["period"][sel], cols["floor"][sel], cols["area"][sel], cols["ppm2"][sel]
         )
         if not pts:
             continue
