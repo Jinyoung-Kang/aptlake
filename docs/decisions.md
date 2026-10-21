@@ -585,3 +585,62 @@
   - 두 가지를 다 하면 쉬는 중 RSS + swap 이 약 1,820 → 1,400MiB 로 줄 것으로 추정한다. **부하 때 최대값(RSS 약 1.8GiB)은 그대로**라서 VM 이 모자랄 때 Trino 가 먼저 죽는 구조도 그대로다. 줄어드는 것은 Trino 가 쉬는 동안 다른 프로젝트와 겹칠 때의 몫이다.
   - `MaxDirectMemorySize=256M`·`MaxMetaspaceSize=256M`·`ReservedCodeCacheSize=96M` 는 그대로 둔다. 다이렉트 사용량은 재지 못했다. 메타스페이스는 확보 204MiB(80%)가 부하 전후로 그대로지만, 넘치면 OOM → `ExitOnOutOfMemoryError` 로 재시작되니 지켜본다.
 - **확인하지 못한 것:** iceberg_maintenance(주간, 다음 10-25 04:00 KST)를 돌리는 동안의 값(12:37 수동 실행 기록은 질의 메모리 1MB 미만이고, 힙 OOM 이 난 11:57 실행은 재시작으로 기록이 없다). malloc 사용 360MiB 의 출처(NMT summary 는 재시작이 필요하다). 실제 다듬기 감소량. 10-20 OOM 때 Trino 가 쉬는 중이었는지.
+
+## ADR-055 Trino 힙 OOM 덤프가 0바이트였다 — 이미지에 든 옛 jvmkill 이 덤프 도중 프로세스를 끝냈고, 남은 같은 이름 파일이 다음 덤프도 막는다
+- **겪은 일 (2026-10-21 UTC):** 주간 정리 중 힙 OOM(ADR-054) 때 로그가 `12:03:12.523 java.lang.OutOfMemoryError: Java heap space` → `Dumping heap to /tmp/java_pid1.hprof ...` → `12:03:12.847 [jvmti] Posting Resource Exhausted event: Java heap space` → `ResourceExhausted: Java heap space: killing current process!` 순으로 남았다. 프로세스는 12:03:13.14 에 끝났다(Docker Desktop 의 포트 해제 기록). 덤프 완료(`Heap dump file created`)나 `Terminating due to` 줄은 없다. `/tmp/java_pid1.hprof` 는 12:03:12.524 에 만들어진 0바이트 파일이고, 조각 파일(`.p0`)은 없다. 그 시각 OOM kill 기록도 없다(그날 기록은 12:11·12:13 의 dagster 두 건, ADR-052).
+- **원인 1 — jvmkill 이 덤프를 끊는다 (JDK 25.0.3+9 HotSpot 소스, 이미지의 `libjvmkill.so` 역어셈블, upstream 기록으로 확인):**
+  - 힙 할당이 실패하면 HotSpot 은 `report_java_out_of_memory` 를 먼저 부른다. 여기서 덤프를 하고, `ExitOnOutOfMemoryError` 면 `_exit(3)` 한다. JVMTI `ResourceExhausted` 이벤트는 **그 다음에** 보낸다(`memAllocator.cpp`). 덤프는 프로세스에서 처음 온 스레드 하나만 한다(CAS). 동시에 OOM 을 만난 다른 스레드는 덤프를 건너뛰고 바로 이벤트를 보낸다(`debug.cpp`).
+  - Trino 483 이미지의 jvmkill(2023-05-17 빌드)은 이벤트 종류를 보지 않고 `kill(getpid(), SIGKILL)` 뒤 `_exit(1)` 한다. 컨테이너 안 Java 는 PID 1 이라 자기에게 보낸 SIGKILL 은 무시되고 `_exit(1)` 로 끝난다(upstream 커밋 e80cf245 'Use _exit to allow running as PID 1').
+  - 그래서 다른 스레드가 덤프가 끝나기 전에 프로세스를 끝낸다. 덤프는 1단계(세이프포인트에서 머리·심볼을 본 파일에, 객체를 조각 파일에 쓰기)와 2단계(세이프포인트 밖에서 조각을 본 파일로 병합, JDK 22+)로 나뉜다. 운영은 본 파일 0바이트에 조각 파일이 없으므로 1단계가 쓰기 전, 덤프를 시작하고 0.32초 만에 끝났다.
+  - upstream 도 같은 문제로 고쳤다. Trino 이슈 [trinodb/trino#29301](https://github.com/trinodb/trino/issues/29301)(2026-05-18 닫힘)와 jvmkill 커밋 0e410d875e(2026-05, '스레드 생성 실패일 때만 죽인다 — OOM 때 죽이면 힙 덤프가 끊긴다')다. 그러나 Trino Dockerfile 이 가져오는 `ghcr.io/airlift/jvmkill:latest` 는 아직 2023-05-17 빌드다(레지스트리의 이미지 설정 생성 시각). 그래서 484(10-16)도 옛 바이너리일 것으로 본다(484 이미지는 열어 보지 않았다).
+- **원인 2 — 같은 이름이 있으면 덤프하지 않는다:** `HeapDumpPath` 가 디렉터리면 파일 이름은 `java_pid<pid>.hprof` 다. 순번(`.1`)은 한 프로세스 안의 두 번째 덤프부터 붙는다. 컨테이너에서 PID 는 늘 1 이라 재시작마다 같은 이름이 된다. 파일은 `O_CREAT|O_EXCL` 로 연다(`os::create_binary_file`, OOM 덤프는 덮어쓰지 않는다). 이미 있으면 `Unable to create ...: File exists` 를 찍고 덤프 없이 끝난다. **지금 남은 0바이트 파일 때문에, jvmkill 을 빼도 `/tmp` 로는 다음 덤프가 생기지 않는다.**
+- **재현 (같은 이미지·JDK·jvmkill, 일회용 컨테이너, Java 가 PID 1, `-Xmx96m`, 8 스레드가 동시에 할당):**
+
+  | 구성 | 결과 |
+  |---|---|
+  | 지금 운영과 같음 (jvmkill + 덤프 + `ExitOnOutOfMemoryError`) | 11번 중 9번 운영과 같은 로그 → 0바이트, 종료 코드 1. 2번만 완성(종료 3) |
+  | jvmkill 만 뺌 | 5번 모두 완성(72~97MB, 0.19~2.45초) → `Terminating due to ...`, 종료 3 |
+  | jvmkill 있음, 할당 스레드 1개 | 3번 모두 완성 — 경쟁할 스레드가 없으면 덤프가 먼저 끝난다 |
+  | jvmkill 뺌, 같은 이름의 빈 파일이 미리 있음 | `Unable to create /tmp/java_pid1.hprof: File exists`, 덤프 없음, 종료 3 |
+
+- **한도 2GiB 안에서 1.1GiB 힙 덤프가 현실적인가 (축소 실측 + 추정):**
+  - 크기: 덤프는 힙에 든 객체 크기 자릿수다(재현: `-Xmx320m`, 프로세스 익명 메모리 최대 237MiB 일 때 229MB). Trino 는 OOM 때 힙 1,104MiB 가 차 있어 1GB 이상일 것이다(추정). 덤프 안 참조는 8바이트(힙은 4바이트 압축 참조)라 작은 객체가 많으면 더 커진다(추정). 병합 동안 조각과 본 파일이 함께 있어 디스크를 잠깐 두 배 쓴다. VM 디스크 여유가 200GB 라 문제가 아니다.
+  - 메모리: 쓴 파일은 페이지 캐시로 Trino cgroup 에 잡힌다. 한도 512MiB·swap 없음·덤프 229MB 로 세 번 쟀다. 한도 도달(`memory.events` max) 715~855번, 파일 캐시 최대 약 265MiB(dirty 최대 149MiB), **OOM kill 0**, 0.7~1.1초였다. 캐시는 디스크에 쓰고 나면 회수되므로 한도 때문에 덤프가 실패하지는 않는다. 운영 Trino 는 OOM 때 cgroup 이 거의 한도라(최대 1,996MiB, ADR-054) 같은 방식으로 회수하며 써야 한다. swap 이 막혀 있지 않아 힙 페이지가 swap 으로 밀릴 수 있고(VM swap 여유 0.25GB), 몇 초 동안 VM 전체 압박이 커질 수 있다(추정 — 1GB 규모는 VM 여유 때문에 재지 않았다).
+  - 시간: OOM 덤프는 스레드 하나로 쓴다(기본 `코어 4 × 3/8` → 1). 재현 속도로 단순 비례하면 몇 초다. 작은 객체가 많은 실제 힙은 더 걸릴 수 있다(추정). 그동안 Trino 는 세이프포인트에 멈춰 있고, 끝나면 어차피 종료 3 → 재시작이다.
+  - gzip(`HeapDumpGzipLevel=1`): 압축되지 않는 내용은 크기가 같고(226MB) 5.9초로 무압축(0.73초)의 8배였다. 0 으로 찬 배열은 94분의 1로 줄었다. Trino 힙의 실제 비율은 모른다.
+  - `/tmp`(컨테이너 쓰기 층)는 재시작에는 남지만 컨테이너를 다시 만들면 사라진다(`docker compose up -d` 가 설정·이미지 변경을 반영할 때). 사고 뒤 설정을 고치는 바로 그때 덤프가 없어진다.
+  - **결론:** 쓰기 자체는 현실적이다. 덤프가 없던 까닭은 자원이 아니라 원인 1·2 다. 자리만 볼륨으로 옮긴다.
+- **제안 (적용은 사용자 결정 — 이 ADR 은 설정을 바꾸지 않는다):**
+  1. `jvm.config` 에서 `-agentpath:/usr/lib/trino/bin/libjvmkill.so` 를 뺀다. 힙·메타스페이스 OOM 은 `ExitOnOutOfMemoryError` 가 덤프가 끝난 뒤 종료 3 으로 끝낸다(재현 5/5). 잃는 것은 스레드 생성 실패(`unable to create native thread`) 때의 종료다. 이 경로는 `report_java_out_of_memory` 를 거치지 않아서(`jvm.cpp`) `ExitOnOutOfMemoryError` 로는 끝나지 않는다. 스레드 상한은 `pids_limit` 1024 이고 측정 최대는 335개(ADR-054)로 3배 여유라 받아들인다. 나면 로그에 남고 손으로 재시작한다. Trino 이미지에 고친 jvmkill 이 들어오면 다시 넣는다. 고친 jvmkill 을 직접 빌드해 붙이는 안은 공개 저장소에 C 빌드·바이너리 관리가 늘어나 보류한다.
+  2. 덤프 자리를 이름 있는 볼륨으로 옮긴다: `trino_heapdump:/home/trino` + `-XX:HeapDumpPath=/home/trino/heapdump`. `/home/trino` 는 이미지에 있는 trino 소유 디렉터리라 새 볼륨도 trino 소유가 된다. 이미지에 없는 경로(예: `/data/trino/heapdump`)에 붙이면 root 소유라 trino 가 쓰지 못한다(시험으로 확인).
+  3. 시작 스크립트로 같은 이름을 비운다. `infra/trino/start.sh` 를 붙여 compose `command` 로 돌리고, 마지막에 `exec /usr/lib/trino/bin/run-trino` 한다(Java 는 계속 PID 1). 이 스크립트는 끊긴 덤프의 조각(`*.hprof.p*`)과 빈 파일을 지운다. 남은 `java_pid*.hprof` 는 수정 시각 이름(`oom-<UTC>.hprof`)으로 옮기고 최근 2개만 남긴다(최대 약 2GB + 병합 중 1GB). 정리가 실패해도 Trino 는 뜨도록 `set -e` 를 쓰지 않는다. 같은 이미지에서 0바이트·조각 파일을 남겨 두고 OOM 을 세 번 내서 확인했다. 조각·빈 파일이 지워지고, 매번 덤프가 만들어지고, 2개만 남았다.
+  4. gzip 은 쓰지 않는다(위). 나머지 `jvm.config` 는 그대로 둔다.
+  5. 운영 `/tmp/java_pid1.hprof`(0바이트)는 1~3 을 적용하면 쓰이지 않지만, 그래도 지운다(사용자 확인 뒤).
+
+  ```diff
+  # infra/trino/etc/jvm.config
+  --agentpath:/usr/lib/trino/bin/libjvmkill.so
+  --XX:HeapDumpPath=/tmp
+  +-XX:HeapDumpPath=/home/trino/heapdump
+  # docker-compose.yml — trino
+       volumes:
+  +      - ./infra/trino/start.sh:/usr/lib/trino/bin/aptlake-start.sh:ro
+  +      - trino_heapdump:/home/trino
+  +    command: ["bash", "/usr/lib/trino/bin/aptlake-start.sh"]
+  # docker-compose.yml — 맨 아래 volumes
+  +  trino_heapdump: {}
+  ```
+  ```bash
+  # infra/trino/start.sh
+  d=/home/trino/heapdump
+  mkdir -p "$d"
+  rm -f "$d"/java_pid*.hprof.p*
+  for f in "$d"/java_pid*.hprof; do
+    [ -e "$f" ] || continue
+    if [ -s "$f" ]; then mv "$f" "$d/oom-$(date -u -r "$f" +%Y%m%dT%H%M%SZ).hprof"; else rm -f "$f"; fi
+  done
+  ls -1t "$d"/oom-*.hprof 2>/dev/null | tail -n +3 | xargs -r rm -f --
+  exec /usr/lib/trino/bin/run-trino
+  ```
+- **덤프 없이 먼저 볼 것 (설정 변경 없음):** 다음 주간 정리(10-25 04:00 KST) 동안 runbook 의 cgroup 밖 jcmd 로 `GC.class_histogram -all` 을 주기적으로 받는다. `-all` 은 Full GC 없이, 도달할 수 없는 객체까지 센다(빼면 매번 Full GC 를 한다). 힙을 무엇이 채우는지 클래스 단위로 보이고, 결과는 덤프보다 훨씬 작다. 다만 받을 때마다 세이프포인트 멈춤이 있다.
+- **확인하지 못한 것:** 12:03 의 실제 종료 코드(Docker 이벤트는 이미 밀려 없다. 재현에서는 1), 1GB 규모 덤프의 시간·VM 영향, Trino 힙의 gzip 비율, 484 이미지의 jvmkill.

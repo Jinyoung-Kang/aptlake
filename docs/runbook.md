@@ -143,6 +143,12 @@ cd web && npx vitest run -u                                        # src/pages/_
 - 읽기만 하는 명령: `GC.heap_info`, `VM.metaspace`, `Compiler.codecache`, `VM.info`(`C-Heap outstanding allocations ... retained` 줄, GC 기록 20개), `System.native_heap_info`(glibc 영역별 사용·빈 공간), `PerfCounter.print`(`sun.gc.collector.1.invocations` = Full GC 횟수). `GC.run`·`GC.class_histogram`(Full GC)·`System.trim_native_heap`·`VM.set_flag` 는 프로세스 상태를 바꾼다.
 - 힙 밖 분해: 컨테이너 안 `/proc/1/smaps` 를 힙·코드 캐시 주소(`GC.heap_info`·`Compiler.codecache`)와 메타스페이스 노드 주소(`VM.metaspace vslist`)로 나눈다. NMT 는 재시작해야 켜진다.
 
+## Trino 힙 OOM 뒤 덤프 확인 (ADR-055)
+- 덤프가 끝났는지: `docker logs -t aptlake-trino-1 2>&1 | grep -E 'Dumping heap|Heap dump file created|Unable to create|Terminating due to|ResourceExhausted'`. `Heap dump file created [N bytes ...]` 가 있어야 완성이다. `ResourceExhausted ... killing current process!` 가 뒤따르면 jvmkill 이 덤프를 끊은 것이다(0바이트거나 잘린 파일). `Unable to create ...: File exists` 는 같은 이름 파일이 남아 덤프를 못 한 것이다.
+- 지금 구성(jvmkill + `HeapDumpPath=/tmp`)에서는 덤프가 거의 남지 않는다. 바꾸는 안은 ADR-055.
+- 꺼내기: `docker cp aptlake-trino-1:/tmp/java_pid1.hprof .` — 컨테이너를 다시 만들기 전에(`/tmp` 는 쓰기 층이라 함께 사라진다). 여는 것은 호스트에서 한다(VM 메모리를 쓰지 않게).
+- 덤프 없이 클래스별 크기: 위 cgroup 밖 jcmd 로 `GC.class_histogram -all` (`-all` 이면 Full GC 없이, 도달할 수 없는 객체까지 센다).
+
 ## 서빙에 달이 빠졌을 때
 - `SELECT * FROM ops.month_state WHERE needs_publish;` 에 있으면 센서가 5분 안에 발행 전용 실행(원천 호출 0회)을 요청한다.
 - 수동: `make month ym=202607` 대신 발행만 하려면 Dagster UI 에서 month_pipeline 을 run config `ops.bronze__rtms_raw.config.fetch: false` 로 실행.
