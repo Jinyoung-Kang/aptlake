@@ -1,6 +1,6 @@
 import numpy as np
 
-from aptlake_pipeline.hedonic import AREA_EDGES, FLOOR_EDGES, bins, fit, mom, validate
+from aptlake_pipeline.hedonic import AREA_EDGES, FLOOR_EDGES, MIN_OBS_PER_MONTH, Z95, bins, fit, mom, validate
 
 
 def test_bins_boundaries():
@@ -66,6 +66,61 @@ def test_complex_fixed_effect_removes_composition_bias():
             pr.append(np.exp(base + rng.normal(0, 0.01)))
     pts = fit(np.array(c), np.array(p), np.array(fl), np.array(ar), np.array(pr))
     assert all(abs(x.value - 100) < 1.0 for x in pts)
+
+
+def _dense_reference(c, p, fl, ar, pr):
+    """같은 추정량을 정의 그대로: 거른 뒤 밀집 원핫 X·y 를 단지 평균 차감해 OLS, 단지 군집 강건 분산."""
+    ok = np.isfinite(pr) & (pr > 0) & np.isfinite(ar) & (ar > 0) & np.isfinite(fl)
+    c, p, fl, ar, pr = c[ok], p[ok], fl[ok], ar[ok], pr[ok]
+    months, cnt = np.unique(p, return_counts=True)
+    keep = np.isin(p, months[cnt >= MIN_OBS_PER_MONTH])
+    c, p, fl, ar, pr = c[keep], p[keep], fl[keep], ar[keep], pr[keep]
+    groups, cnt = np.unique(c, return_counts=True)
+    keep = np.isin(c, groups[cnt > 1])
+    c, p, fl, ar, pr = c[keep], p[keep], fl[keep], ar[keep], pr[keep]
+    months = np.unique(p)
+    fb, ab = bins(fl, FLOOR_EDGES, upper_inclusive=True), bins(ar, AREA_EDGES, upper_inclusive=False)
+    X = np.column_stack(
+        [p == m for m in months[1:]]
+        + [fb == f for f in range(1, len(FLOOR_EDGES) + 1)]
+        + [ab == a for a in range(1, len(AREA_EDGES) + 1)]
+    ).astype(float)
+    y = np.log(pr)
+    _, g = np.unique(c, return_inverse=True)
+    n_g = g.max() + 1
+    members = [g == j for j in range(n_g)]
+    Xw = X - np.vstack([X[m].mean(0) for m in members])[g]
+    yw = y - np.array([y[m].mean() for m in members])[g]
+    ident = (Xw**2).sum(0) > 1e-9
+    Xi = Xw[:, ident]
+    bread = np.linalg.inv(Xi.T @ Xi)
+    beta = bread @ Xi.T @ yw
+    e = yw - Xi @ beta
+    meat = sum(np.outer(Xi[m].T @ e[m], Xi[m].T @ e[m]) for m in members)
+    adj = (n_g / (n_g - 1)) * ((len(y) - 1) / (len(y) - n_g - ident.sum()))
+    b, s = np.zeros(X.shape[1]), np.zeros(X.shape[1])
+    b[ident], s[ident] = beta, np.sqrt(np.diag(adj * bread @ meat @ bread))
+    j = np.arange(len(months) - 1)
+    return months, 100 * np.exp(b[j]), 100 * np.exp(b[j] - Z95 * s[j]), 100 * np.exp(b[j] + Z95 * s[j])
+
+
+def test_matches_dense_definition():
+    """합계(bincount)로 푼 정규방정식·군집 점수가 정의대로 만든 밀집 계산과 같다 — 거르기(결측·표본 적은 달·
+    단일 관측 단지)와 비식별 열(빈 층·면적 구간)까지 포함."""
+    rng = np.random.default_rng(11)
+    n = 3000
+    c = np.array([f"c{v}" for v in rng.integers(0, 250, n)] + [f"solo{i}" for i in range(15)])
+    p = np.array([f"2024{m:02d}" for m in rng.integers(1, 13, n)] + ["202501"] * 15)  # 202501 은 15건뿐
+    fl = rng.integers(1, 11, n + 15).astype(float)  # 층 구간 11–20·21+ 없음
+    ar = rng.uniform(30, 85, n + 15)  # 면적 구간 85–135·≥135 없음
+    pr = np.exp(7 + 0.03 * (fl > 3) - 0.04 * (ar >= 60) + rng.normal(0, 0.1, n + 15))
+    pr[::97], fl[::89] = np.nan, np.nan
+    months, value, lo, hi = _dense_reference(c, p, fl, ar, pr)
+    pts = fit(c, p, fl, ar, pr)
+    assert [x.period for x in pts] == list(months) and "202501" not in months
+    np.testing.assert_allclose([x.value for x in pts[1:]], value, rtol=1e-9)
+    np.testing.assert_allclose([x.ci_low for x in pts[1:]], lo, rtol=1e-9)
+    np.testing.assert_allclose([x.ci_high for x in pts[1:]], hi, rtol=1e-9)
 
 
 def test_validation_metrics():
