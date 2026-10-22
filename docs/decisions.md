@@ -586,11 +586,13 @@
   - 03:36:25 에 `jcmd 1 VM.set_flag G1PeriodicGCInterval 300000`(재시작 없음). 마지막 GC 뒤 5분이 이미 지나 있어 곧바로 주기 동시 주기가 돌았다. 힙이 1,104 → 800MiB(사용 213), RSS 가 1,815 → 1,505MiB(−310MiB, swap 0)로 내려가 30분 동안 그대로였다. 추정한 864 보다 더 줄었다.
   - 그 뒤 정확히 300초마다 한 번씩 돌았다. 30분 동안 GC 멈춤은 짧은 GC 6번 343ms + 동시 주기 4번 203ms 로 합쳐 0.55초, Full GC 0번.
   - 04:22 에 `jcmd 1 System.trim_native_heap` 한 번: RSS+swap 1,505 → 1,438MiB(−67MiB). glibc 빈 공간 93MiB 중 그만큼이 상주해 있었다.
+- **운영 적용 (10-22 04:58:54 UTC, 사용자 요청):** main 체크아웃을 PR #76 까지 받은 뒤(04:40, PR #70 배포 때 `git pull`) `docker restart aptlake-trino-1`. 재시작 전 진행 중 실행 0. 약 15초 뒤 healthy, 시작 인자에 `-XX:G1PeriodicGCInterval=300000`, `VM.flags` 의 출처가 `{management}`(위 `VM.set_flag`)에서 `{command line}` 으로 — 이제 재시작해도 남는다. 확인 질의 `SELECT count(*) FROM lake.gold.price_index` 1,190, 직후 RSS 854MiB.
+  - 주의: `jvm.config` 는 파일 하나를 바인드 마운트한다. `git pull` 로 파일이 새로 쓰인 뒤에는 컨테이너 안에서 `/etc/trino/jvm.config` 가 '없는 파일' 로 보였다 — 설정 파일을 바꾸면 그 컨테이너를 다시 시작해야 새 파일이 걸린다.
 - **결정과 권고:**
   - `-Xmx1100M` 그대로 둔다. 부하 때 힙이 다 차고 Full GC·힙 OOM 이 이미 나므로 줄이면 안 된다. 늘리려면 컨테이너 한도도 올려야 해서 VM 몫과 함께 정할 문제다(ADR-034). `-Xms512M` 도 그대로 둔다. 기본 비율이면 줄어드는 바닥(시험에서 800)이 512 보다 높다.
-  - 사용자 결정 — `-XX:TrimNativeHeapInterval=60000` (JDK 25 정식 옵션, 기본 0=끔, 전용 스레드가 glibc 힙을 다듬는다): 쉬는 중 RSS 가 0.04~0.19GiB 줄 것으로 추정한다. glibc 빈 공간이 12:03 프로세스(시작 1.7시간 뒤)는 191MiB, 16:17 프로세스는 정기 실행 뒤 75MiB 였다. 한 번 다듬기로 실제 −67MiB 였다(위 시험). 재시작해야 적용된다.
+  - **넣지 않음 (2026-10-22 사용자 결정) — `-XX:TrimNativeHeapInterval=60000`** (JDK 25 정식 옵션, 기본 0=끔, 전용 스레드가 glibc 힙을 다듬는다): 쉬는 중 RSS 가 0.04~0.19GiB 줄 것으로 추정했다. glibc 빈 공간이 12:03 프로세스(시작 1.7시간 뒤)는 191MiB, 16:17 프로세스는 정기 실행 뒤 75MiB 였다. 한 번 다듬기로 실제 −67MiB 였다(위 시험). 다시 정하려면 재시작해야 적용된다.
   - **채택 — `jvm.config` 에 `-XX:G1PeriodicGCInterval=300000`** (런타임에 바꿀 수 있는 플래그, JEP 346 — 마지막 GC 뒤 5분 동안 GC 가 없으면 동시 주기를 돌리고, 끝에 Min/MaxHeapFreeRatio 로 힙 크기를 다시 정한다): 정기 실행 뒤 1,104MiB 로 남던 힙이 800MiB 로, RSS 가 310MiB 줄었다(위 시험). 비용은 쉬는 중 5분마다 동시 주기 한 번(30분에 멈춤 0.55초)이다. 부하 중에는 GC 가 잦아서 돌지 않는다. 런타임에 되돌리려면 `jcmd 1 VM.set_flag G1PeriodicGCInterval 0`. `MaxHeapFreeRatio` 를 낮추면 더 줄지만, 부하 중 Full GC 뒤에도 줄었다 다시 커지는 일이 늘어서 재지 않고는 바꾸지 않는다.
-  - 두 가지를 다 하면 쉬는 중 RSS 가 1,815 → 1,438MiB 였다(위 시험, 각각 −310·−67MiB). **부하 때 최대값(RSS 약 1.8GiB)은 그대로**라서 VM 이 모자랄 때 Trino 가 먼저 죽는 구조도 그대로다. 줄어드는 것은 Trino 가 쉬는 동안 다른 프로젝트와 겹칠 때의 몫이다.
+  - 주기 GC 만으로 쉬는 중 RSS 가 1,815 → 1,505MiB, 다듬기를 한 번 더 하면 1,438MiB 였다(위 시험, 각각 −310·−67MiB). **부하 때 최대값(RSS 약 1.8GiB)은 그대로**라서 VM 이 모자랄 때 Trino 가 먼저 죽는 구조도 그대로다. 줄어드는 것은 Trino 가 쉬는 동안 다른 프로젝트와 겹칠 때의 몫이다.
   - `MaxDirectMemorySize=256M`·`MaxMetaspaceSize=256M`·`ReservedCodeCacheSize=96M` 는 그대로 둔다. 다이렉트 사용량은 재지 못했다. 메타스페이스는 확보 204MiB(80%)가 부하 전후로 그대로지만, 넘치면 OOM → `ExitOnOutOfMemoryError` 로 재시작되니 지켜본다.
 - **확인하지 못한 것:** iceberg_maintenance(주간, 다음 10-25 04:00 KST)를 돌리는 동안의 값(12:37 수동 실행 기록은 질의 메모리 1MB 미만이고, 힙 OOM 이 난 11:57 실행은 재시작으로 기록이 없다). malloc 사용 360MiB 의 출처(NMT summary 는 재시작이 필요하다). 주기 GC 를 켠 채로 도는 실행(부하 때 다시 1,104MiB 로 커지는 것은 플래그 없이 13초에 봤다). 10-20 OOM 때 Trino 가 쉬는 중이었는지.
 
