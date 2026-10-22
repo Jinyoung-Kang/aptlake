@@ -67,6 +67,7 @@
 
 Trino 1.48GB (단지 차원 전체 재생성 중 최대 1.8GiB, 한도 2GB) · ClickHouse 1.02GB · Dagster 0.72GB · MinIO 0.34GB · Postgres 94MB · API 80MB · Lakekeeper 42MB · Redis 11MB — 합계 약 3.8GB.
 Trino 는 힙이 한 번 차면 쉬는 중에도 RSS 1,717MiB + swap 101MiB 다(힙 1,104 · 메타스페이스 등 218 · glibc malloc 383 · 코드 캐시 53, 2026-10-21, [ADR-054](decisions.md)). 주기 GC(`G1PeriodicGCInterval=300000`)를 켜면 정기 실행 뒤 쉬는 중 RSS 가 1,815 → 1,505MiB 로 내려간다(2026-10-22).
+MinIO 는 한도(768MiB)까지 slab·파일 캐시로 채운다 — Go 힙 GC 목표는 최대 469MiB, 512MiB 때보다 major fault −90% (2026-10-22, [ADR-053](decisions.md)).
 `make serve` (서빙만) 는 Trino·Dagster 를 띄우지 않는다.
 
 ## 2026-10 점검 (브랜치 improve/2026-10-review, ADR-035)
