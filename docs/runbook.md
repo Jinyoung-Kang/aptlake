@@ -34,7 +34,7 @@
   1. 수집 멈춤: `make backfill-stop` 후 `SELECT count(*) FROM runs WHERE status IN ('STARTED','STARTING')` = 0 확인 (dagster DB)
   2. `docker compose up -d --build api api-internal web` — V013(원천 차원)·전월세 서빙 표가 먼저 적용된다. **V013 뒤에는 옛 파이프라인이 발행 대기 기록에서 실패**하므로 바로 다음 단계로
   3. `make pipeline-redeploy` — 두 센서(`due_partitions_sensor`·`due_rent_partitions_sensor`)가 다시 켜진다. 전월세 레이크 표는 첫 실행이 만든다
-  4. 백필: 시작한 달까지의 월 수 × 256 — 2026-10 시작이면 2021-01~2026-10 70개월 × 256 = 17,920회. 하루에 백필로 쓰는 몫은 전월세 상한(기본 8,000회)에서 증분 몫(시군구×3 = 768)을 뺀 7,232회이고, 재확인 대기가 있으면 시군구×12 를 더 뺀다(`budget.ceilings`) → 약 2.5~3일(실제: 2026-10-20 18시 시작, 첫날 4,096·둘째 날 7,232회 — 첫날 4,096 은 백필 등급만 센 값이고 증분·재확인 등급(최근 12개월)까지 그날 28개월 7,168회). 진행·예상은 수집 상태 화면. 실행 큐(동시 1)를 매매와 함께 쓴다
+  4. 백필: 시작한 달까지의 월 수 × 256 — 2026-10 시작이면 2021-01~2026-10 70개월 × 256 = 17,920회. 하루에 백필로 쓰는 몫은 전월세 상한(기본 8,000회)에서 증분 몫(시군구×3 = 768)을 뺀 7,232회이고, 재확인 대기가 있으면 시군구×12 를 더 뺀다(`budget.ceilings`) → 약 2.5~3일(실제: 2026-10-20 18시 시작 → 2026-10-22 00:49 KST 마지막 발행, 예산일 사흘. 첫날 4,096·둘째 날 7,232회 — 첫날 4,096 은 백필 등급만 센 값이고 증분·재확인 등급(최근 12개월)까지 그날 28개월 7,168회. 셋째 날은 0시부터 남은 14개월과 실패·격리 파티션 4,047회). 진행·예상은 수집 상태 화면. 실행 큐(동시 1)를 매매와 함께 쓴다
 - 예산·상태는 원천별이다: `SELECT * FROM ops.api_budget WHERE source = 'rent' ORDER BY day DESC`, `SELECT status, count(*) FROM ops.ingest_partition WHERE source = 'rent' GROUP BY 1`.
 - 격리 재시도는 `?source=rent`: `curl -X POST -H "X-API-Key: $ADMIN" "http://127.0.0.1:8611/v1/admin/partitions/41135/2026-08/retry?source=rent"`.
 - 원본은 `s3://raw/rtms_rent/deal_ym=…/sgg_cd=…/<sha>/`, 품질 기록의 자산 이름은 `bronze.rtms_rent_raw`·`silver.apt_rent`.
