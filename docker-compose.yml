@@ -47,7 +47,9 @@ services:
       test: ["CMD", "mc", "ready", "local"]
       interval: 3s
       retries: 20
-    mem_limit: 512m
+    # MinIO 는 GOMEMLIMIT 을 한도의 90% 로 잡는다. Go 런타임 약 440~470MB 라 512m 이면 실행 파일·캐시 자리가 없어
+    # 늘 한도 안에서 회수·swap 했다 → 768m: major fault −90%, 메모리 멈춤 −88% (ADR-053)
+    mem_limit: 768m
     security_opt: ["no-new-privileges:true"]
     pids_limit: 256  # 프로세스·스레드 수 상한 (측정값의 약 4배, JVM·ClickHouse 는 여유)
     restart: unless-stopped
