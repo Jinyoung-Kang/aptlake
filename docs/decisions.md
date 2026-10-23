@@ -637,3 +637,9 @@
 - **운영 적용 (2026-10-21 16:17 UTC):** 센서 둘을 멈추고, 진행·대기 실행이 0건일 때 운영 체크아웃(main 63f34dc)에서 `docker compose --profile lake up -d --no-deps trino` 로 Trino 만 다시 만들었다. 15초 만에 healthy 였다. PID 1 은 `/usr/lib/jvm/jdk-25.0.3+9/bin/java` 이고, 명령줄에 `-agentpath` 가 없고 `/proc/1/maps` 에도 jvmkill 이 없다. `HeapDumpPath=/home/trino/heapdump` 이다. 볼륨 `aptlake_trino_heapdump` 가 새로 생겼고 `/home/trino`·`heapdump` 는 trino 소유다. 옛 `/tmp/java_pid1.hprof` 는 쓰기 층과 함께 없어졌다. analyst 질의(`lake.silver.apt_trade` 현재 행 2,711,160)가 됐고, 센서를 다시 켠 뒤 틱도 정상이다(예산 안에 할 일이 없어 건너뜀). 새 Trino 로 도는 파이프라인 실행(다음은 05:30 KST dims_and_index)과 실제 OOM 때의 덤프는 아직 보지 못했다.
 - **덤프와 별개로 볼 것 (설정 변경 없음):** OOM 이 나지 않아도 힙을 무엇이 채우는지 보려면, 주간 정리(일 04:00 KST) 동안 runbook 의 cgroup 밖 jcmd 로 `GC.class_histogram -all` 을 주기적으로 받는다. `-all` 은 Full GC 없이, 도달할 수 없는 객체까지 센다(빼면 매번 Full GC 를 한다). 힙을 무엇이 채우는지 클래스 단위로 보이고, 결과는 덤프보다 훨씬 작다. 다만 받을 때마다 세이프포인트 멈춤이 있다.
 - **확인하지 못한 것:** 12:03 의 실제 종료 코드(Docker 이벤트는 이미 밀려 없다. 재현에서는 1), 1GB 규모 덤프의 시간·VM 영향, Trino 힙의 gzip 비율, 484 이미지의 jvmkill.
+
+## ADR-056 내보내기 작업자 메모리가 코어 수를 따라 늘었다 — api 의 Arrow 풀을 시스템 malloc 으로
+- **겪은 일 (2026-10-23):** 새 노트북(WSL2 Ubuntu, x86_64, 16코어)에서 QA-006 시험이 실패했다. 작업자 최대 메모리 556MB(기준 400MB 미만, macOS 272MB). 같은 잠금 파일의 CI(ubuntu-latest)는 통과.
+- **원인:** pyarrow 25 의 기본 풀 mimalloc 이 Arrow 스레드마다 힙을 쥔다. 같은 시험에서 `OMP_NUM_THREADS` 2·4·8·16 → 233·270·336·472MB. `read_table(use_threads=False)` 나 달마다 `release_unused()` 로는 465~481MB 에 머물렀다. 풀만 바꾸면 jemalloc 224MB, system 208MB.
+- **결정:** api 에서 Arrow 를 쓰는 곳은 내보내기(`features/exports/storage.py`)뿐이라, 그 모듈을 가져올 때 `pa.set_memory_pool(pa.system_memory_pool())` 로 고정한다. 코어 수와 무관하게 212MB(16코어). jemalloc 은 macOS 휠에 없어 고르지 않았다. 환경변수(`ARROW_DEFAULT_MEMORY_POOL`)는 이미지·시험·CI 에 따로 넣어야 해서 쓰지 않았다.
+- **영향:** 작업자는 `api-internal`(한도 512m) 안에서 돈다. 운영 VM 은 코어가 적어 지금까지 넘지 않았을 것으로 보지만(추정 — 운영에서 재지 않음), 코어가 많은 호스트로 옮기면 넘을 수 있었다.
