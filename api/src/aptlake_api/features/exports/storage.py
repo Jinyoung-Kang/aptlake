@@ -22,6 +22,10 @@ from botocore.config import Config
 
 from ...core.settings import settings
 
+# Arrow 기본 풀(mimalloc)은 스레드마다 힙을 쥐어서 최대 메모리가 코어 수를 따라 는다 — 16코어 556MB > 상한(ADR-056).
+# api 에서 Arrow 를 쓰는 곳은 내보내기뿐이라 시스템 malloc 풀로 고정한다(코어 수와 무관하게 약 210MB).
+pa.set_memory_pool(pa.system_memory_pool())
+
 BUCKET = "exports"
 SNAPSHOT_BUCKET = "snapshots"
 COLUMNS = [
